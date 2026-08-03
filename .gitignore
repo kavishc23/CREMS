@@ -1,0 +1,14 @@
+.DS_Store
+.dotnet/
+.idea/
+.vscode/
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+src/crems-web/vite.config.js
+src/crems-web/vite.config.d.ts
+**/.env
+*.user
+*.suo
