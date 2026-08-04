@@ -33,6 +33,6 @@ public enum BookingStatus
     Confirmed,
     Cancelled,
     ConvertedToRental,
+    Completed,
     Expired
 }
-

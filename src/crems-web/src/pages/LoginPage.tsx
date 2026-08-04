@@ -17,7 +17,7 @@ import {
 import axios from 'axios'
 import { useAuth } from '../auth/AuthContext'
 
-export function LoginPage() {
+export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) {
   const { login } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -100,6 +100,7 @@ export function LoginPage() {
                 <Button type="submit" variant="contained" size="large" disabled={submitting || !email || !password} sx={{ minHeight: 48 }}>
                   {submitting ? <CircularProgress size={24} color="inherit" /> : 'Sign in'}
                 </Button>
+                <Button type="button" variant="text" onClick={onBackToWebsite}>Back to rental website</Button>
               </Stack>
             </Box>
             <Typography variant="caption" color="text.secondary" display="block" textAlign="center" mt={4}>

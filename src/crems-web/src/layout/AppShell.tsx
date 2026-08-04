@@ -6,6 +6,8 @@ import HandymanOutlined from '@mui/icons-material/HandymanOutlined'
 import PeopleOutline from '@mui/icons-material/PeopleOutline'
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined'
 import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined'
+import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined'
+import StorefrontOutlined from '@mui/icons-material/StorefrontOutlined'
 import MenuIcon from '@mui/icons-material/Menu'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
 import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined'
@@ -24,7 +26,9 @@ import {
   Typography,
   useMediaQuery,
   useTheme,
+  Chip,
 } from '@mui/material'
+import { canAccessPage, formatRole, getPrimaryRole, type AppPage } from '../auth/access'
 const drawerWidth = 248
 const collapsedDrawerWidth = 76
 const navigation = [
@@ -35,17 +39,20 @@ const navigation = [
   { label: 'Rentals', id: 'rentals', icon: <ReceiptLongOutlined /> },
   { label: 'Maintenance', id: 'maintenance', icon: <HandymanOutlined /> },
   { label: 'Reports', id: 'reports', icon: <AssessmentOutlined /> },
-]
+  { label: 'Users & roles', id: 'users', icon: <ManageAccountsOutlined /> },
+  { label: 'Branches', id: 'branches', icon: <StorefrontOutlined /> },
+] satisfies { label: string; id: AppPage; icon: ReactNode }[]
 
 type AppShellProps = {
   activePage: string
-  onNavigate: (page: string) => void
+  onNavigate: (page: AppPage) => void
   userName: string
+  userRoles: string[]
   onLogout: () => Promise<void>
   children: ReactNode
 }
 
-export function AppShell({ activePage, onNavigate, userName, onLogout, children }: AppShellProps) {
+export function AppShell({ activePage, onNavigate, userName, userRoles, onLogout, children }: AppShellProps) {
   const theme = useTheme()
   const desktop = useMediaQuery(theme.breakpoints.up('md'))
   const [open, setOpen] = useState(false)
@@ -62,7 +69,7 @@ export function AppShell({ activePage, onNavigate, userName, onLogout, children 
         </Box>
       </Toolbar>
       <List sx={{ px: 1.5, pt: 2 }}>
-        {navigation.map((item) => {
+        {navigation.filter((item) => canAccessPage(userRoles, item.id)).map((item) => {
           const button = (
             <ListItemButton
               key={item.id}
@@ -129,6 +136,11 @@ export function AppShell({ activePage, onNavigate, userName, onLogout, children 
           <Typography variant="subtitle1" fontWeight={600}>Rental Operations</Typography>
           <Box sx={{ flexGrow: 1 }} />
           <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>{userName}</Typography>
+          <Chip
+            label={formatRole(getPrimaryRole(userRoles))}
+            size="small"
+            sx={{ ml: 1.5, display: { xs: 'none', md: 'flex' }, bgcolor: 'secondary.main', fontWeight: 600 }}
+          />
           <IconButton aria-label="Sign out" onClick={() => void onLogout()} sx={{ ml: 1 }}>
             <LogoutOutlined />
           </IconButton>

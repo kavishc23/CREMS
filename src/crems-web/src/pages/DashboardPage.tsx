@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from 'react'
 import AddOutlined from '@mui/icons-material/AddOutlined'
 import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined'
 import BuildCircleOutlined from '@mui/icons-material/BuildCircleOutlined'
@@ -21,25 +22,23 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
+import { canAccessPage, type AppPage } from '../auth/access'
+import { api } from '../api/client'
 
 type DashboardPageProps = {
   userName: string
-  onNavigate: (page: string) => void
+  userRoles: string[]
+  onNavigate: (page: AppPage) => void
 }
 
-const metrics = [
-  { label: 'Available assets', value: '0', helper: 'Ready for rental', icon: <DirectionsCarOutlined />, accent: '#ffed00' },
-  { label: 'Currently rented', value: '0', helper: 'Active agreements', icon: <ReceiptLongOutlined />, accent: '#d5c600' },
-  { label: 'Under maintenance', value: '0', helper: 'Awaiting service', icon: <HandymanOutlined />, accent: '#a89d00' },
-  { label: 'Overdue rentals', value: '0', helper: 'Require attention', icon: <EventBusyOutlined />, accent: '#111111' },
-]
+type DashboardSummary = {
+  availableAssets: number; activeRentals: number; underMaintenance: number; overdueRentals: number
+  pendingRequests: number; upcomingBookings: number; servicesDueSoon: number
+  vehicleUtilization: number; equipmentUtilization: number; totalAssets: number
+}
+const emptySummary: DashboardSummary = { availableAssets: 0, activeRentals: 0, underMaintenance: 0, overdueRentals: 0, pendingRequests: 0, upcomingBookings: 0, servicesDueSoon: 0, vehicleUtilization: 0, equipmentUtilization: 0, totalAssets: 0 }
 
-const utilization = [
-  { label: 'Vehicles', value: 0 },
-  { label: 'Equipment', value: 0 },
-]
-
-const quickActions = [
+const quickActions: { label: string; page: AppPage; icon: React.ReactNode }[] = [
   { label: 'New booking', page: 'bookings', icon: <CalendarMonthOutlined /> },
   { label: 'Add asset', page: 'assets', icon: <DirectionsCarOutlined /> },
   { label: 'Add customer', page: 'customers', icon: <PeopleOutline /> },
@@ -55,8 +54,24 @@ function formatToday() {
   }).format(new Date())
 }
 
-export function DashboardPage({ userName, onNavigate }: DashboardPageProps) {
+export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPageProps) {
+  const [summary, setSummary] = useState<DashboardSummary>(emptySummary)
+  const loadSummary = useCallback(async () => {
+    try { setSummary((await api.get<DashboardSummary>('/dashboard/summary')).data) } catch { /* Keep a usable empty dashboard if the API is unavailable. */ }
+  }, [])
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadSummary()
+  }, [loadSummary])
   const firstName = userName.trim().split(/\s+/)[0] || 'there'
+  const availableActions = quickActions.filter((action) => canAccessPage(userRoles, action.page))
+  const metrics = [
+    { label: 'Available assets', value: summary.availableAssets, helper: `${summary.totalAssets} active fleet assets`, icon: <DirectionsCarOutlined />, accent: '#ffed00' },
+    { label: 'Currently rented', value: summary.activeRentals, helper: 'Active rental agreements', icon: <ReceiptLongOutlined />, accent: '#d5c600' },
+    { label: 'Under maintenance', value: summary.underMaintenance, helper: `${summary.servicesDueSoon} services due soon`, icon: <HandymanOutlined />, accent: '#a89d00' },
+    { label: 'Overdue rentals', value: summary.overdueRentals, helper: 'Require immediate attention', icon: <EventBusyOutlined />, accent: '#111111' },
+  ]
+  const utilization = [{ label: 'Vehicles', value: summary.vehicleUtilization }, { label: 'Equipment', value: summary.equipmentUtilization }]
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}>
@@ -66,12 +81,16 @@ export function DashboardPage({ userName, onNavigate }: DashboardPageProps) {
             {formatToday()}
           </Typography>
           <Typography variant="h4" fontWeight={750} mt={0.25}>Good day, {firstName}</Typography>
-          <Typography color="text.secondary" mt={0.5}>Here is what is happening across rental operations.</Typography>
+          <Typography color="text.secondary" mt={0.5}>
+            Here is what is happening across rental operations.
+          </Typography>
         </Box>
         <Stack direction="row" spacing={1.25}>
-          <Button variant="outlined" color="primary" startIcon={<AddOutlined />} onClick={() => onNavigate('customers')}>
-            Customer
-          </Button>
+          {canAccessPage(userRoles, 'customers') && (
+            <Button variant="outlined" color="primary" startIcon={<AddOutlined />} onClick={() => onNavigate('customers')}>
+              Customer
+            </Button>
+          )}
           <Button variant="contained" color="primary" startIcon={<AddOutlined />} onClick={() => onNavigate('bookings')}>
             New booking
           </Button>
@@ -101,7 +120,7 @@ export function DashboardPage({ userName, onNavigate }: DashboardPageProps) {
       </Grid>
 
       <Grid container spacing={2.5} mt={0}>
-        <Grid size={{ xs: 12, lg: 8 }}>
+        {canAccessPage(userRoles, 'assets') && <Grid size={{ xs: 12, lg: 8 }}>
           <Card variant="outlined" sx={{ height: '100%' }}>
             <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
               <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={3}>
@@ -131,22 +150,22 @@ export function DashboardPage({ userName, onNavigate }: DashboardPageProps) {
               <Box sx={{ mt: 3.5, p: 2, borderRadius: 2, bgcolor: '#f6f6f3', display: 'flex', alignItems: 'center', gap: 1.5 }}>
                 <Avatar sx={{ bgcolor: 'secondary.main', color: 'secondary.contrastText', width: 38, height: 38 }}><DirectionsCarOutlined fontSize="small" /></Avatar>
                 <Box>
-                  <Typography variant="body2" fontWeight={650}>No assets recorded yet</Typography>
-                  <Typography variant="caption" color="text.secondary">Add your fleet to begin tracking utilization and availability.</Typography>
+                  <Typography variant="body2" fontWeight={650}>{summary.pendingRequests > 0 ? `${summary.pendingRequests} booking requests awaiting review` : `${summary.availableAssets} assets ready for rental`}</Typography>
+                  <Typography variant="caption" color="text.secondary">{summary.pendingRequests > 0 ? 'Open bookings to review and confirm customer requests.' : 'Fleet availability is up to date.'}</Typography>
                 </Box>
-                <Button size="small" sx={{ ml: 'auto', whiteSpace: 'nowrap' }} endIcon={<ArrowForwardOutlined />} onClick={() => onNavigate('assets')}>Add asset</Button>
+                <Button size="small" sx={{ ml: 'auto', whiteSpace: 'nowrap' }} endIcon={<ArrowForwardOutlined />} onClick={() => onNavigate(summary.pendingRequests > 0 ? 'bookings' : 'assets')}>{summary.pendingRequests > 0 ? 'Review' : 'View assets'}</Button>
               </Box>
             </CardContent>
           </Card>
-        </Grid>
+        </Grid>}
 
-        <Grid size={{ xs: 12, lg: 4 }}>
+        <Grid size={{ xs: 12, lg: canAccessPage(userRoles, 'assets') ? 4 : 12 }}>
           <Card variant="outlined" sx={{ height: '100%' }}>
             <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
               <Typography variant="h6" fontWeight={700}>Quick actions</Typography>
               <Typography variant="body2" color="text.secondary" mb={2.25}>Start a common task</Typography>
               <Stack divider={<Divider flexItem />}>
-                {quickActions.map((action) => (
+                {availableActions.map((action) => (
                   <Button
                     key={action.label}
                     color="inherit"
@@ -165,7 +184,7 @@ export function DashboardPage({ userName, onNavigate }: DashboardPageProps) {
       </Grid>
 
       <Grid container spacing={2.5} mt={0}>
-        <Grid size={{ xs: 12, lg: 7 }}>
+        <Grid size={{ xs: 12, lg: canAccessPage(userRoles, 'maintenance') ? 7 : 12 }}>
           <Card variant="outlined">
             <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2.5}>
@@ -175,12 +194,12 @@ export function DashboardPage({ userName, onNavigate }: DashboardPageProps) {
                 </Box>
                 <Button size="small" endIcon={<ArrowForwardOutlined />} onClick={() => onNavigate('bookings')}>View all</Button>
               </Stack>
-              <EmptyPanel icon={<CalendarMonthOutlined />} title="No upcoming bookings" description="Confirmed reservations will appear here in collection order." />
+              <EmptyPanel icon={<CalendarMonthOutlined />} title={summary.upcomingBookings ? `${summary.upcomingBookings} upcoming bookings` : 'No upcoming bookings'} description={summary.upcomingBookings ? 'Open bookings to review scheduled customer collections.' : 'Confirmed reservations will appear here in collection order.'} />
             </CardContent>
           </Card>
         </Grid>
 
-        <Grid size={{ xs: 12, lg: 5 }}>
+        {canAccessPage(userRoles, 'maintenance') && <Grid size={{ xs: 12, lg: 5 }}>
           <Card variant="outlined">
             <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2.5}>
@@ -190,10 +209,10 @@ export function DashboardPage({ userName, onNavigate }: DashboardPageProps) {
                 </Box>
                 <Button size="small" endIcon={<ArrowForwardOutlined />} onClick={() => onNavigate('maintenance')}>View all</Button>
               </Stack>
-              <EmptyPanel icon={<HandymanOutlined />} title="Nothing requires attention" description="Maintenance reminders and open requests will appear here." />
+                <EmptyPanel icon={<HandymanOutlined />} title={summary.underMaintenance || summary.servicesDueSoon ? `${summary.underMaintenance} in maintenance · ${summary.servicesDueSoon} due soon` : 'Nothing requires attention'} description="Open maintenance to manage service availability and upcoming dates." />
             </CardContent>
           </Card>
-        </Grid>
+        </Grid>}
       </Grid>
     </Box>
   )

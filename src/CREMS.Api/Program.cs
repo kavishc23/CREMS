@@ -24,8 +24,26 @@ builder.Services
     .AddEntityFrameworkStores<ApplicationDbContext>();
 
 builder.Services.AddAuthorizationBuilder()
-    .AddPolicy("AdministratorsOnly", policy => policy.RequireRole(SystemRoles.Administrator))
-    .AddPolicy("Management", policy =>
+    .AddPolicy(SystemPolicies.StaffPortal, policy =>
+        policy.RequireRole(
+            SystemRoles.Administrator,
+            SystemRoles.BranchManager,
+            SystemRoles.RentalOfficer))
+    .AddPolicy(SystemPolicies.AdministerSystem, policy =>
+        policy.RequireRole(SystemRoles.Administrator))
+    .AddPolicy(SystemPolicies.ManageBranch, policy =>
+        policy.RequireRole(SystemRoles.Administrator, SystemRoles.BranchManager))
+    .AddPolicy(SystemPolicies.ManageRentals, policy =>
+        policy.RequireRole(
+            SystemRoles.Administrator,
+            SystemRoles.BranchManager,
+            SystemRoles.RentalOfficer))
+    .AddPolicy(SystemPolicies.ViewAssets, policy =>
+        policy.RequireRole(
+            SystemRoles.Administrator,
+            SystemRoles.BranchManager,
+            SystemRoles.RentalOfficer))
+    .AddPolicy(SystemPolicies.ViewReports, policy =>
         policy.RequireRole(SystemRoles.Administrator, SystemRoles.BranchManager));
 
 builder.Services.AddControllers().AddJsonOptions(options =>

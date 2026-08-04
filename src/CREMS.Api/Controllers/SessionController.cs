@@ -12,7 +12,7 @@ public sealed class SessionController(
     SignInManager<ApplicationUser> signInManager) : ControllerBase
 {
     [HttpGet("session")]
-    [Authorize]
+    [Authorize(Policy = SystemPolicies.StaffPortal)]
     public async Task<ActionResult<SessionResponse>> GetSession()
     {
         var user = await userManager.GetUserAsync(User);
@@ -31,7 +31,7 @@ public sealed class SessionController(
     }
 
     [HttpPost("logout")]
-    [Authorize]
+    [Authorize(Policy = SystemPolicies.StaffPortal)]
     public async Task<IActionResult> Logout()
     {
         await signInManager.SignOutAsync();
