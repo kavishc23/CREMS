@@ -1,45 +1,73 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import axios from 'axios'
 import AssignmentTurnedInOutlined from '@mui/icons-material/AssignmentTurnedInOutlined'
 import PlayArrowOutlined from '@mui/icons-material/PlayArrowOutlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
+import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined'
+import DownloadOutlined from '@mui/icons-material/DownloadOutlined'
 import {
-  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, InputAdornment,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  TextField, Typography,
+  Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog,
+  DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Grid, InputAdornment,
+  Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
+import { downloadRentalAgreementPdf, type RentalAgreementData } from '../utils/rentalAgreementPdf'
 
 type RentalBooking = {
   id: string; bookingNumber: string; status: string; customerName: string; customerPhone: string | null
-  branchName: string; items: { assetNumber: string; assetName: string; startAt: string; endAt: string; dailyRate: number }[]
+  branchName: string; depositRequired: number; discountAmount: number; taxRate: number; additionalCharges: number
+  items: { assetNumber: string; assetName: string; startAt: string; endAt: string; dailyRate: number }[]
 }
+type InspectionForm = { identificationVerified: boolean; driverLicenceVerified: boolean; meterReading: string
+  fuelLevelPercent: string; conditionNotes: string; damageNotes: string; signatureName: string
+  additionalCharges: string; additionalChargesDescription: string }
+const emptyInspection: InspectionForm = { identificationVerified: false, driverLicenceVerified: false, meterReading: '',
+  fuelLevelPercent: '', conditionNotes: '', damageNotes: '', signatureName: '', additionalCharges: '', additionalChargesDescription: '' }
 const fmt = (value: string) => new Intl.DateTimeFormat('en-FJ', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value))
 
 export function RentalsPage() {
-  const [records, setRecords] = useState<RentalBooking[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [error, setError] = useState('')
-  const [savingId, setSavingId] = useState('')
-  const load = useCallback(async () => {
-    setLoading(true)
-    try { setRecords((await api.get<RentalBooking[]>('/bookings')).data.filter((item) => ['Confirmed', 'ConvertedToRental', 'Completed'].includes(item.status))) }
-    catch { setError('Unable to load rental records.') } finally { setLoading(false) }
-  }, [])
+  const [records, setRecords] = useState<RentalBooking[]>([]); const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState(''); const [error, setError] = useState(''); const [saving, setSaving] = useState(false)
+  const [selected, setSelected] = useState<RentalBooking | null>(null); const [mode, setMode] = useState<'handover' | 'return' | null>(null)
+  const [form, setForm] = useState<InspectionForm>(emptyInspection)
+  const [agreementBooking, setAgreementBooking] = useState<RentalBooking | null>(null); const [agreement, setAgreement] = useState<RentalAgreementData | null>(null)
+  const [agreementLoading, setAgreementLoading] = useState(false); const [signatureName, setSignatureName] = useState(''); const [acceptedTerms, setAcceptedTerms] = useState(false); const [agentApproved, setAgentApproved] = useState(false)
+  const load = useCallback(async () => { setLoading(true); try { setRecords((await api.get<RentalBooking[]>('/bookings')).data.filter((item) => ['Confirmed', 'ConvertedToRental', 'Completed'].includes(item.status))) } catch { setError('Unable to load rental records.') } finally { setLoading(false) } }, [])
   useEffect(() => {
+    // Initial API synchronization for rental operations.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
   }, [load])
   const visible = useMemo(() => { const term = search.toLowerCase(); return records.filter((record) => [record.bookingNumber, record.customerName, record.branchName, ...record.items.flatMap((item) => [item.assetName, item.assetNumber])].some((value) => value.toLowerCase().includes(term))) }, [records, search])
-  async function transition(record: RentalBooking) {
-    setSavingId(record.id); setError('')
-    try { await api.patch(`/bookings/${record.id}/status`, { status: record.status === 'Confirmed' ? 'ConvertedToRental' : 'Completed', note: null }); await load() }
-    catch { setError('Unable to update the rental. Check its current status and try again.') } finally { setSavingId('') }
+  function openInspection(record: RentalBooking) { setSelected(record); setMode(record.status === 'Confirmed' ? 'handover' : 'return'); setForm(emptyInspection); setError('') }
+  async function openAgreement(record: RentalBooking) { setAgreementBooking(record); setAgreement(null); setAgreementLoading(true); setSignatureName(''); setAcceptedTerms(false); setAgentApproved(false); setError(''); try { setAgreement((await api.get<RentalAgreementData>(`/rental-agreements/${record.id}`)).data) } catch { setError('Unable to load the rental agreement.') } finally { setAgreementLoading(false) } }
+  async function approveAgreement() { if (!agreementBooking) return; setSaving(true); setError(''); try { const response = await api.post<RentalAgreementData>(`/rental-agreements/${agreementBooking.id}/approve`, { customerSignatureName: signatureName, customerAcceptedTerms: acceptedTerms, agentApproved }); setAgreement(response.data); await downloadRentalAgreementPdf(response.data) } catch (requestError: unknown) { const data = axios.isAxiosError(requestError) ? requestError.response?.data : undefined; const errors = data?.errors as Record<string, string[]> | undefined; setError(errors ? Object.values(errors).flat().join(' ') : 'Unable to approve the rental agreement.') } finally { setSaving(false) } }
+  async function submit(event: FormEvent) {
+    event.preventDefault(); if (!selected || !mode) return; setSaving(true); setError('')
+    try { await api.post(`/rentals/${selected.id}/${mode}`, { ...form,
+      meterReading: form.meterReading ? Number(form.meterReading) : null, fuelLevelPercent: form.fuelLevelPercent ? Number(form.fuelLevelPercent) : null,
+      additionalCharges: Number(form.additionalCharges || 0) }); setSelected(null); setMode(null); await load() }
+    catch (requestError: unknown) { const data = axios.isAxiosError(requestError) ? requestError.response?.data : undefined; const errors = data?.errors as Record<string, string[]> | undefined; setError(errors ? Object.values(errors).flat().join(' ') : 'Unable to record this rental inspection.') }
+    finally { setSaving(false) }
   }
-  return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}><Box mb={3}><Typography variant="h4" fontWeight={750}>Rentals</Typography><Typography color="text.secondary" mt={.5}>Manage scheduled collections, active rentals and completed returns.</Typography></Box>
-    {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}<Card variant="outlined"><CardContent sx={{ p: 0 }}><Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}><TextField size="small" placeholder="Search rentals" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ width: { xs: '100%', sm: 380 } }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} /></Box>
+  return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}><Box mb={3}><Typography variant="h4" fontWeight={750}>Rentals</Typography><Typography color="text.secondary" mt={.5}>Complete controlled handovers, inspections and returns.</Typography></Box>
+    {error && !selected && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}<Card variant="outlined"><CardContent sx={{ p: 0 }}><Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}><TextField size="small" placeholder="Search rentals" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ width: { xs: '100%', sm: 380 } }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} /></Box>
       {loading ? <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : <TableContainer><Table><TableHead><TableRow sx={{ bgcolor: '#f6f6f3' }}><TableCell>Rental</TableCell><TableCell>Customer</TableCell><TableCell>Asset</TableCell><TableCell>Period</TableCell><TableCell>Branch</TableCell><TableCell>Status</TableCell><TableCell align="right">Action</TableCell></TableRow></TableHead><TableBody>
-        {visible.length === 0 && <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8, color: 'text.secondary' }}>No rental records found. Confirmed bookings will appear here.</TableCell></TableRow>}
-        {visible.map((record) => { const item = record.items[0]; return <TableRow key={record.id} hover><TableCell sx={{ fontWeight: 700 }}>{record.bookingNumber}</TableCell><TableCell><Typography variant="body2" fontWeight={600}>{record.customerName}</Typography><Typography variant="caption" color="text.secondary">{record.customerPhone || '—'}</Typography></TableCell><TableCell>{item ? `${item.assetName} (${item.assetNumber})` : '—'}</TableCell><TableCell>{item ? `${fmt(item.startAt)} – ${fmt(item.endAt)}` : '—'}</TableCell><TableCell>{record.branchName}</TableCell><TableCell><Chip size="small" label={record.status === 'ConvertedToRental' ? 'Active' : record.status} color={record.status === 'ConvertedToRental' ? 'info' : record.status === 'Confirmed' ? 'success' : 'default'} variant="outlined" /></TableCell><TableCell align="right">{record.status !== 'Completed' && <Button size="small" variant={record.status === 'Confirmed' ? 'contained' : 'outlined'} startIcon={record.status === 'Confirmed' ? <PlayArrowOutlined /> : <AssignmentTurnedInOutlined />} disabled={savingId === record.id} onClick={() => void transition(record)}>{record.status === 'Confirmed' ? 'Start rental' : 'Complete return'}</Button>}</TableCell></TableRow> })}
-      </TableBody></Table></TableContainer>}</CardContent></Card></Box>
+        {visible.length === 0 && <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8, color: 'text.secondary' }}>No rental records found.</TableCell></TableRow>}
+        {visible.map((record) => { const item = record.items[0]; return <TableRow key={record.id} hover><TableCell sx={{ fontWeight: 700 }}>{record.bookingNumber}</TableCell><TableCell><Typography variant="body2" fontWeight={600}>{record.customerName}</Typography><Typography variant="caption" color="text.secondary">{record.customerPhone || '—'}</Typography></TableCell><TableCell>{item ? `${item.assetName} (${item.assetNumber})` : '—'}</TableCell><TableCell>{item ? `${fmt(item.startAt)} – ${fmt(item.endAt)}` : '—'}</TableCell><TableCell>{record.branchName}</TableCell><TableCell><Chip size="small" label={record.status === 'ConvertedToRental' ? 'Active' : record.status} color={record.status === 'ConvertedToRental' ? 'info' : record.status === 'Confirmed' ? 'success' : 'default'} variant="outlined" /></TableCell><TableCell align="right"><Stack direction="row" justifyContent="flex-end" gap={1}><Button size="small" variant="outlined" startIcon={<DescriptionOutlined />} onClick={() => void openAgreement(record)}>Agreement</Button>{record.status !== 'Completed' && <Button size="small" variant={record.status === 'Confirmed' ? 'contained' : 'outlined'} startIcon={record.status === 'Confirmed' ? <PlayArrowOutlined /> : <AssignmentTurnedInOutlined />} onClick={() => openInspection(record)}>{record.status === 'Confirmed' ? 'Handover' : 'Record return'}</Button>}</Stack></TableCell></TableRow> })}
+      </TableBody></Table></TableContainer>}</CardContent></Card>
+    <Dialog open={Boolean(selected)} onClose={() => !saving && setSelected(null)} fullWidth maxWidth="md"><Box component="form" onSubmit={submit}><DialogTitle>{mode === 'handover' ? 'Rental handover' : 'Vehicle / equipment return'} · {selected?.bookingNumber}</DialogTitle><DialogContent><Stack spacing={2.25} mt={1}>{error && <Alert severity="error">{error}</Alert>}
+      {mode === 'handover' && <Alert severity="info">Verify the customer, inspect the asset and collect their acknowledgement before releasing it.</Alert>}
+      <Stack direction={{ xs: 'column', sm: 'row' }}><FormControlLabel control={<Checkbox checked={form.identificationVerified} onChange={(e) => setForm({ ...form, identificationVerified: e.target.checked })} />} label="Identification verified" /><FormControlLabel control={<Checkbox checked={form.driverLicenceVerified} onChange={(e) => setForm({ ...form, driverLicenceVerified: e.target.checked })} />} label="Driver licence verified" /></Stack>
+      <Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth type="number" label="Mileage / operating hours" value={form.meterReading} onChange={(e) => setForm({ ...form, meterReading: e.target.value })} /></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth type="number" label="Fuel level (%)" inputProps={{ min: 0, max: 100 }} value={form.fuelLevelPercent} onChange={(e) => setForm({ ...form, fuelLevelPercent: e.target.value })} /></Grid></Grid>
+      <TextField label="Condition notes" multiline minRows={2} value={form.conditionNotes} onChange={(e) => setForm({ ...form, conditionNotes: e.target.value })} /><TextField label="Damage notes" multiline minRows={2} value={form.damageNotes} onChange={(e) => setForm({ ...form, damageNotes: e.target.value })} helperText={mode === 'return' ? 'Assets returned with damage are automatically placed into inspection.' : 'Record all existing scratches, dents or faults.'} />
+      {mode === 'return' && <Grid container spacing={2}><Grid size={{ xs: 12, sm: 5 }}><TextField fullWidth type="number" label="Additional charges (FJD)" value={form.additionalCharges} onChange={(e) => setForm({ ...form, additionalCharges: e.target.value })} /></Grid><Grid size={{ xs: 12, sm: 7 }}><TextField fullWidth label="Charge reason" value={form.additionalChargesDescription} onChange={(e) => setForm({ ...form, additionalChargesDescription: e.target.value })} /></Grid></Grid>}
+      <TextField required={mode === 'handover'} label="Customer acknowledgement / signature name" value={form.signatureName} onChange={(e) => setForm({ ...form, signatureName: e.target.value })} />
+    </Stack></DialogContent><DialogActions sx={{ p: 3 }}><Button onClick={() => setSelected(null)} disabled={saving}>Cancel</Button><Button type="submit" variant="contained" disabled={saving || (mode === 'handover' && (!form.identificationVerified || !form.driverLicenceVerified || !form.signatureName))}>{saving ? 'Saving…' : mode === 'handover' ? 'Complete handover' : 'Complete return'}</Button></DialogActions></Box></Dialog>
+    <Dialog open={Boolean(agreementBooking)} onClose={() => !saving && setAgreementBooking(null)} fullWidth maxWidth="md"><DialogTitle>Rental agreement · {agreementBooking?.bookingNumber}</DialogTitle><DialogContent dividers>{agreementLoading ? <Box sx={{ py: 8, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : agreement && <Stack spacing={2.5}>{error && <Alert severity="error">{error}</Alert>}<Alert severity={agreement.approved ? 'success' : 'warning'}>{agreement.approved ? `Signed and approved as ${agreement.agreementNumber}.` : 'Draft operational template. Carpenters should obtain legal approval of the final terms before production use.'}</Alert>
+      <Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}><Typography variant="overline" color="text.secondary">Customer</Typography><Typography fontWeight={700}>{agreement.customer.name}</Typography><Typography variant="body2">{agreement.customer.customerNumber} · {agreement.customer.identificationNumber || 'No identification recorded'}</Typography></Grid><Grid size={{ xs: 12, sm: 6 }}><Typography variant="overline" color="text.secondary">Rental asset</Typography><Typography fontWeight={700}>{agreement.asset.name}</Typography><Typography variant="body2">{agreement.asset.assetNumber} · {agreement.asset.registrationNumber || agreement.asset.serialNumber || 'No registration / serial'}</Typography></Grid><Grid size={{ xs: 12, sm: 6 }}><Typography variant="overline" color="text.secondary">Period</Typography><Typography>{fmt(agreement.rental.startAt)} – {fmt(agreement.rental.endAt)} ({agreement.rental.days} days)</Typography></Grid><Grid size={{ xs: 12, sm: 6 }}><Typography variant="overline" color="text.secondary">Estimated total / deposit</Typography><Typography fontWeight={700}>${agreement.pricing.total.toFixed(2)} / ${agreement.pricing.depositRequired.toFixed(2)} FJD</Typography></Grid></Grid><Divider />
+      <Box><Typography variant="h6" fontWeight={700} mb={1}>Terms and conditions</Typography><Stack spacing={2}>{agreement.terms.map((term) => <Box key={term.title}><Typography fontWeight={700}>{term.title}</Typography><Typography variant="body2" color="text.secondary" mt={.4}>{term.content}</Typography></Box>)}</Stack></Box>
+      {!agreement.approved ? <><Divider /><TextField required label="Customer signature name" value={signatureName} onChange={(e) => setSignatureName(e.target.value)} helperText="The customer should type their full legal name while present with the rental officer." /><FormControlLabel control={<Checkbox checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} />} label="The customer confirms the details are accurate, has read or had the terms explained, accepts them, and requests an electronic copy." /><FormControlLabel control={<Checkbox checked={agentApproved} onChange={(e) => setAgentApproved(e.target.checked)} />} label="I am the authorized rental agent and approve this agreement after verifying the customer and booking details." /></> : <><Divider /><Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}><Typography variant="overline" color="text.secondary">Customer signature</Typography><Typography fontWeight={700}>{agreement.customerSignatureName}</Typography><Typography variant="caption">{agreement.customerSignedAt && new Date(agreement.customerSignedAt).toLocaleString('en-FJ')}</Typography></Grid><Grid size={{ xs: 12, sm: 6 }}><Typography variant="overline" color="text.secondary">Approved by</Typography><Typography fontWeight={700}>{agreement.approvedByName}</Typography><Typography variant="caption">{agreement.approvedAt && new Date(agreement.approvedAt).toLocaleString('en-FJ')}</Typography></Grid></Grid></>}
+    </Stack>}</DialogContent><DialogActions sx={{ p: 2.5 }}><Button onClick={() => setAgreementBooking(null)} disabled={saving}>Close</Button><Box sx={{ flex: 1 }} />{agreement?.approved ? <Button variant="contained" startIcon={<DownloadOutlined />} onClick={() => void downloadRentalAgreementPdf(agreement)}>Download PDF</Button> : <Button variant="contained" disabled={saving || !signatureName.trim() || !acceptedTerms || !agentApproved} onClick={() => void approveAgreement()}>{saving ? 'Approving…' : 'Approve, sign & generate PDF'}</Button>}</DialogActions></Dialog>
+  </Box>
 }

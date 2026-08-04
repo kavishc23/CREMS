@@ -51,7 +51,7 @@ export default function App() {
       ? <ReportsPage />
     : activePage === 'users'
       ? <UsersPage />
-      : <BranchesPage />
+      : <BranchesPage userRoles={user.roles} />
 
   return (
     <AppShell activePage={activePage} onNavigate={setPage} userName={user.fullName || user.email} userRoles={user.roles} onLogout={logout}>

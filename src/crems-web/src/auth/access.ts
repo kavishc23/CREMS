@@ -24,7 +24,7 @@ const pageRoles: Record<AppPage, readonly string[]> = {
   maintenance: [roles.administrator, roles.branchManager],
   reports: [roles.administrator, roles.branchManager],
   users: [roles.administrator],
-  branches: [roles.administrator],
+  branches: [roles.administrator, roles.branchManager],
 }
 
 export function canAccessPage(userRoles: string[], page: AppPage) {

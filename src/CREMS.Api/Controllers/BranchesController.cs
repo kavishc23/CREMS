@@ -11,12 +11,16 @@ namespace CREMS.Api.Controllers;
 [ApiController]
 [Route("api/branches")]
 [Authorize(Policy = SystemPolicies.ManageBranch)]
-public sealed class BranchesController(ApplicationDbContext db) : ControllerBase
+public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<BranchResponse>>> GetAll(CancellationToken cancellationToken)
     {
-        var branches = await db.Branches.AsNoTracking()
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
+        var query = db.Branches.AsNoTracking();
+        if (!scope.IsAdministrator) query = query.Where(branch => branch.Id == scope.BranchId);
+        var branches = await query
             .OrderBy(branch => branch.Name)
             .Select(branch => new BranchResponse(
                 branch.Id, branch.Code, branch.Name, branch.Address, branch.Phone, branch.IsActive))
@@ -25,6 +29,7 @@ public sealed class BranchesController(ApplicationDbContext db) : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Policy = SystemPolicies.AdministerSystem)]
     public async Task<ActionResult<BranchResponse>> Create(
         SaveBranchRequest request,
         CancellationToken cancellationToken)
@@ -45,6 +50,9 @@ public sealed class BranchesController(ApplicationDbContext db) : ControllerBase
             IsActive = true,
         };
         db.Branches.Add(branch);
+        var scope = await staffScope.GetAsync(User);
+        if (scope is not null) AuditWriter.Record(db, scope, "Branch created", "Branch", branch.Id,
+            $"{branch.Code} — {branch.Name} was created.", branch.Id);
         await db.SaveChangesAsync(cancellationToken);
 
         return CreatedAtAction(nameof(GetAll), ToResponse(branch));
@@ -56,10 +64,12 @@ public sealed class BranchesController(ApplicationDbContext db) : ControllerBase
         SaveBranchRequest request,
         CancellationToken cancellationToken)
     {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasBranchAccess(id)) return Forbid();
         var branch = await db.Branches.FindAsync([id], cancellationToken);
         if (branch is null) return NotFound();
 
-        var code = request.Code.Trim().ToUpperInvariant();
+        var code = scope.IsAdministrator ? request.Code.Trim().ToUpperInvariant() : branch.Code;
         if (await db.Branches.AnyAsync(other => other.Id != id && other.Code == code, cancellationToken))
         {
             ModelState.AddModelError(nameof(request.Code), "A branch with this code already exists.");
@@ -70,11 +80,14 @@ public sealed class BranchesController(ApplicationDbContext db) : ControllerBase
         branch.Name = request.Name.Trim();
         branch.Address = Normalize(request.Address);
         branch.Phone = Normalize(request.Phone);
+        AuditWriter.Record(db, scope, "Branch updated", "Branch", branch.Id,
+            $"{branch.Code} contact details were updated.", branch.Id);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToResponse(branch));
     }
 
     [HttpPatch("{id:guid}/status")]
+    [Authorize(Policy = SystemPolicies.AdministerSystem)]
     public async Task<ActionResult<BranchResponse>> SetStatus(
         Guid id,
         SetBranchStatusRequest request,
@@ -82,7 +95,11 @@ public sealed class BranchesController(ApplicationDbContext db) : ControllerBase
     {
         var branch = await db.Branches.FindAsync([id], cancellationToken);
         if (branch is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null) return Forbid();
         branch.IsActive = request.IsActive;
+        AuditWriter.Record(db, scope, "Branch status changed", "Branch", branch.Id,
+            $"{branch.Code} active={request.IsActive}.", branch.Id);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToResponse(branch));
     }

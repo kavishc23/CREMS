@@ -4,6 +4,7 @@ using CREMS.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CREMS.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260804042201_OperationalWorkflows")]
+    partial class OperationalWorkflows
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -477,80 +480,6 @@ namespace CREMS.Api.Data.Migrations
                     b.ToTable("BookingItems");
                 });
 
-            modelBuilder.Entity("CREMS.Api.Domain.Rentals.RentalAgreement", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("AgreementNumber")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<DateTimeOffset>("ApprovedAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("ApprovedByName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("ApprovedByUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("AssetSnapshotJson")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("BookingId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("BranchId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("CustomerSignatureName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTimeOffset>("CustomerSignedAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("CustomerSnapshotJson")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("PricingSnapshotJson")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("TermsJson")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("TermsVersion")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AgreementNumber")
-                        .IsUnique();
-
-                    b.HasIndex("BookingId")
-                        .IsUnique();
-
-                    b.HasIndex("BranchId");
-
-                    b.ToTable("RentalAgreements");
-                });
-
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.RentalInspection", b =>
                 {
                     b.Property<Guid>("Id")
@@ -824,25 +753,6 @@ namespace CREMS.Api.Data.Migrations
                     b.Navigation("Asset");
 
                     b.Navigation("Booking");
-                });
-
-            modelBuilder.Entity("CREMS.Api.Domain.Rentals.RentalAgreement", b =>
-                {
-                    b.HasOne("CREMS.Api.Domain.Rentals.Booking", "Booking")
-                        .WithMany()
-                        .HasForeignKey("BookingId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CREMS.Api.Domain.Common.Branch", "Branch")
-                        .WithMany()
-                        .HasForeignKey("BranchId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Booking");
-
-                    b.Navigation("Branch");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.RentalInspection", b =>

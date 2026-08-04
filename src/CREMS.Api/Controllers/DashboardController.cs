@@ -11,25 +11,34 @@ namespace CREMS.Api.Controllers;
 [ApiController]
 [Route("api/dashboard")]
 [Authorize(Policy = SystemPolicies.StaffPortal)]
-public sealed class DashboardController(ApplicationDbContext db) : ControllerBase
+public sealed class DashboardController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
     [HttpGet("summary")]
     public async Task<ActionResult<DashboardSummaryResponse>> GetSummary(CancellationToken cancellationToken)
     {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
         var now = DateTimeOffset.UtcNow;
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var assets = await db.Assets.AsNoTracking().Where(asset => asset.IsActive)
+        var assetQuery = db.Assets.AsNoTracking().Where(asset => asset.IsActive);
+        var bookingQuery = db.Bookings.AsNoTracking();
+        if (!scope.IsAdministrator)
+        {
+            assetQuery = assetQuery.Where(asset => asset.BranchId == scope.BranchId);
+            bookingQuery = bookingQuery.Where(booking => booking.BranchId == scope.BranchId);
+        }
+        var assets = await assetQuery
             .Select(asset => new { asset.Type, asset.Status, asset.NextServiceDate })
             .ToListAsync(cancellationToken);
 
-        var bookingCounts = await db.Bookings.AsNoTracking()
+        var bookingCounts = await bookingQuery
             .GroupBy(booking => booking.Status)
             .Select(group => new { Status = group.Key, Count = group.Count() })
             .ToDictionaryAsync(item => item.Status, item => item.Count, cancellationToken);
-        var overdueRentals = await db.Bookings.AsNoTracking()
+        var overdueRentals = await bookingQuery
             .CountAsync(booking => booking.Status == BookingStatus.ConvertedToRental &&
                 booking.Items.Any(item => item.EndAt < now), cancellationToken);
-        var upcomingBookings = await db.Bookings.AsNoTracking()
+        var upcomingBookings = await bookingQuery
             .CountAsync(booking => booking.Status == BookingStatus.Confirmed &&
                 booking.Items.Any(item => item.StartAt >= now), cancellationToken);
 

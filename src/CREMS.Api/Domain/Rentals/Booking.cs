@@ -13,8 +13,35 @@ public sealed class Booking : Entity
     public Branch? Branch { get; set; }
     public BookingStatus Status { get; set; } = BookingStatus.Draft;
     public string? Notes { get; set; }
+    public decimal DiscountAmount { get; set; }
+    public decimal TaxRate { get; set; } = 15m;
+    public decimal DepositRequired { get; set; }
+    public decimal AdditionalCharges { get; set; }
+    public string? AdditionalChargesDescription { get; set; }
+    public Guid? ApprovedByUserId { get; set; }
+    public DateTimeOffset? ApprovedAt { get; set; }
     public ICollection<BookingItem> Items { get; set; } = [];
+    public ICollection<RentalInspection> Inspections { get; set; } = [];
 }
+
+public sealed class RentalInspection : Entity
+{
+    public Guid BookingId { get; set; }
+    public Booking? Booking { get; set; }
+    public InspectionType Type { get; set; }
+    public bool IdentificationVerified { get; set; }
+    public bool DriverLicenceVerified { get; set; }
+    public decimal? MeterReading { get; set; }
+    public int? FuelLevelPercent { get; set; }
+    public string? ConditionNotes { get; set; }
+    public string? DamageNotes { get; set; }
+    public string? SignatureName { get; set; }
+    public Guid CompletedByUserId { get; set; }
+    public string? CompletedByName { get; set; }
+    public DateTimeOffset CompletedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public enum InspectionType { Handover, Return }
 
 public sealed class BookingItem : Entity
 {

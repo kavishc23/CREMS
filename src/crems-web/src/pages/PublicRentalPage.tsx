@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined'
-import BuildOutlined from '@mui/icons-material/BuildOutlined'
 import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined'
 import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
-import DirectionsCarOutlined from '@mui/icons-material/DirectionsCarOutlined'
 import LocationOnOutlined from '@mui/icons-material/LocationOnOutlined'
 import MenuOutlined from '@mui/icons-material/MenuOutlined'
 import PhoneOutlined from '@mui/icons-material/PhoneOutlined'
@@ -40,6 +38,23 @@ const emptyBooking: BookingForm = {
 function dateInputValue(offsetDays: number) {
   const date = new Date(); date.setDate(date.getDate() + offsetDays)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function catalogueImage(asset: PublicAsset) {
+  const searchableName = `${asset.assetNumber} ${asset.name}`.toLowerCase()
+
+  if (asset.type === 'Vehicle') {
+    if (/navara|d-max|pickup/.test(searchableName)) return '/catalog/pickup.jpg'
+    if (/nv350|urvan|staria|seater|coach|minibus|bus/.test(searchableName)) return '/catalog/minibus.jpg'
+    if (/npr|cargo|truck/.test(searchableName)) return '/catalog/truck.jpg'
+    if (/i10|sedan/.test(searchableName)) return '/catalog/sedan.jpg'
+    return '/catalog/suv.jpg'
+  }
+
+  if (/forklift/.test(searchableName)) return '/catalog/forklift.jpg'
+  if (/scissor/.test(searchableName)) return '/catalog/scissor-lift.jpg'
+  if (/generator|compressor/.test(searchableName)) return '/catalog/generator.jpg'
+  return '/catalog/excavator.jpg'
 }
 
 export function PublicRentalPage({ onStaffLogin }: { onStaffLogin: () => void }) {
@@ -154,8 +169,9 @@ export function PublicRentalPage({ onStaffLogin }: { onStaffLogin: () => void })
       {loading ? <Box sx={{ py: 10, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : <Grid container spacing={3}>
         {assets.length === 0 && <Grid size={12}><Card variant="outlined"><CardContent sx={{ textAlign: 'center', py: 8 }}><Typography variant="h6">No rentals match this search</Typography><Typography color="text.secondary">Try another branch, type, or date range.</Typography></CardContent></Card></Grid>}
         {assets.map((asset) => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 4 }}><Card variant="outlined" sx={{ height: '100%', overflow: 'hidden' }}>
-          <Box sx={{ height: 190, bgcolor: asset.type === 'Vehicle' ? '#e8e8e2' : '#ffed00', display: 'grid', placeItems: 'center', position: 'relative' }}>
-            {asset.type === 'Vehicle' ? <DirectionsCarOutlined sx={{ fontSize: 92, color: '#292929' }} /> : <BuildOutlined sx={{ fontSize: 82, color: '#292929' }} />}
+          <Box sx={{ height: 210, bgcolor: '#e8e8e2', position: 'relative', overflow: 'hidden' }}>
+            <Box component="img" src={catalogueImage(asset)} alt={`${asset.name} available from ${asset.branchName}`} loading="lazy" sx={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover', transition: 'transform .3s ease', '.MuiCard-root:hover &': { transform: 'scale(1.035)' } }} />
+            <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,.04) 45%, rgba(0,0,0,.36) 100%)', pointerEvents: 'none' }} />
             <Chip label={asset.isAvailable ? 'Available' : 'Unavailable'} color={asset.isAvailable ? 'success' : 'default'} size="small" sx={{ position: 'absolute', top: 14, right: 14, bgcolor: asset.isAvailable ? undefined : 'white' }} />
           </Box><CardContent sx={{ p: 2.5 }}><Typography variant="overline" color="text.secondary">{asset.type} · {asset.assetNumber}</Typography><Typography variant="h6" fontWeight={750}>{asset.name}</Typography>
             <Stack direction="row" alignItems="center" gap={.5} mt={1}><LocationOnOutlined fontSize="small" color="action" /><Typography variant="body2" color="text.secondary">{asset.branchName}</Typography></Stack>

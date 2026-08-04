@@ -245,12 +245,44 @@ public static class DatabaseInitializer
                 BranchId = asset.BranchId,
                 Status = seed.Status,
                 Notes = "Created as part of the development operating dataset.",
+                TaxRate = 15m,
+                DepositRequired = asset.Type == AssetType.Vehicle ? 500m : 1000m,
                 CreatedAt = start.AddDays(-3),
                 Items = [new BookingItem { AssetId = asset.Id, StartAt = start, EndAt = end, DailyRate = asset.DailyRate }],
             });
             if (seed.Status == BookingStatus.ConvertedToRental) asset.Status = AssetStatus.Rented;
         }
         await db.SaveChangesAsync(cancellationToken);
+
+        if (!await db.MaintenanceJobs.AnyAsync(cancellationToken))
+        {
+            var maintenanceSeeds = new[]
+            {
+                new { Asset = "VEH-SUV-1001", Type = "Scheduled service", Fault = "10,000 km preventive service and safety inspection", Assigned = "Fleet Workshop — Suva", Estimate = 420m, Status = MaintenanceStatus.Completed },
+                new { Asset = "EQP-NAD-2001", Type = "Electrical diagnosis", Fault = "Intermittent low-voltage warning under load", Assigned = "Nadi Equipment Workshop", Estimate = 680m, Status = MaintenanceStatus.InProgress },
+                new { Asset = "VEH-LAB-1001", Type = "Corrective repair", Fault = "Rear tray latch requires replacement and alignment", Assigned = "Northern Fleet Services", Estimate = 310m, Status = MaintenanceStatus.WaitingForParts },
+            };
+            foreach (var seed in maintenanceSeeds)
+            {
+                if (!seededAssets.TryGetValue(seed.Asset, out var asset)) continue;
+                var completed = seed.Status == MaintenanceStatus.Completed;
+                db.MaintenanceJobs.Add(new MaintenanceJob
+                {
+                    JobNumber = $"MNT-2026-{db.MaintenanceJobs.Local.Count + 1:0000}", AssetId = asset.Id,
+                    BranchId = asset.BranchId, Status = seed.Status, ServiceType = seed.Type,
+                    FaultDescription = seed.Fault, AssignedTo = seed.Assigned, EstimatedCost = seed.Estimate,
+                    ActualCost = completed ? seed.Estimate - 35m : null, PartsUsed = completed ? "Engine oil, oil filter and inspection consumables" : null,
+                    ReportedAt = DateTimeOffset.UtcNow.AddDays(completed ? -30 : -4),
+                    CompletedAt = completed ? DateTimeOffset.UtcNow.AddDays(-29) : null,
+                    NextServiceDate = DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(6)),
+                });
+                if (!completed) asset.Status = AssetStatus.Maintenance;
+            }
+            db.AuditEvents.Add(new AuditEvent { UserId = Guid.Empty, UserName = "CREMS System",
+                Action = "Operational data initialized", EntityType = "System", EntityId = Guid.Empty,
+                Summary = "Initial maintenance and rental workflow records were created." });
+            await db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private static void EnsureSucceeded(IdentityResult result, string operation)

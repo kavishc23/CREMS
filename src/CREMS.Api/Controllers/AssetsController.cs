@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Assets;
+using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,12 +12,17 @@ namespace CREMS.Api.Controllers;
 [ApiController]
 [Route("api/assets")]
 [Authorize(Policy = SystemPolicies.ViewAssets)]
-public sealed class AssetsController(ApplicationDbContext db) : ControllerBase
+public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<AssetResponse>>> GetAll(CancellationToken cancellationToken)
     {
-        var assets = await db.Assets.AsNoTracking()
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
+        var query = db.Assets.AsNoTracking();
+        if (!scope.IsAdministrator) query = query.Where(asset => asset.BranchId == scope.BranchId);
+
+        var assets = await query
             .OrderBy(asset => asset.AssetNumber)
             .Select(asset => new AssetResponse(
                 asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status,
@@ -32,6 +38,8 @@ public sealed class AssetsController(ApplicationDbContext db) : ControllerBase
         SaveAssetRequest request,
         CancellationToken cancellationToken)
     {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasBranchAccess(request.BranchId)) return Forbid();
         var assetNumber = request.AssetNumber.Trim().ToUpperInvariant();
         if (await db.Assets.AnyAsync(asset => asset.AssetNumber == assetNumber, cancellationToken))
         {
@@ -61,6 +69,8 @@ public sealed class AssetsController(ApplicationDbContext db) : ControllerBase
             IsActive = true,
         };
         db.Assets.Add(asset);
+        AuditWriter.Record(db, scope, "Asset created", "Asset", asset.Id,
+            $"{asset.AssetNumber} was added to {branch.Name}.", asset.BranchId);
         await db.SaveChangesAsync(cancellationToken);
         return CreatedAtAction(nameof(GetAll), ToResponse(asset, branch.Name));
     }
@@ -72,8 +82,11 @@ public sealed class AssetsController(ApplicationDbContext db) : ControllerBase
         SaveAssetRequest request,
         CancellationToken cancellationToken)
     {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasBranchAccess(request.BranchId)) return Forbid();
         var asset = await db.Assets.FindAsync([id], cancellationToken);
         if (asset is null) return NotFound();
+        if (!scope.HasBranchAccess(asset.BranchId)) return Forbid();
 
         var assetNumber = request.AssetNumber.Trim().ToUpperInvariant();
         if (await db.Assets.AnyAsync(
@@ -100,6 +113,8 @@ public sealed class AssetsController(ApplicationDbContext db) : ControllerBase
         asset.SerialNumber = Normalize(request.SerialNumber);
         asset.DailyRate = request.DailyRate;
         asset.NextServiceDate = request.NextServiceDate;
+        AuditWriter.Record(db, scope, "Asset updated", "Asset", asset.Id,
+            $"{asset.AssetNumber} details were updated.", asset.BranchId);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToResponse(asset, branch.Name));
     }
@@ -113,8 +128,12 @@ public sealed class AssetsController(ApplicationDbContext db) : ControllerBase
     {
         var asset = await db.Assets.FindAsync([id], cancellationToken);
         if (asset is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasBranchAccess(asset.BranchId)) return Forbid();
         asset.Status = request.Status;
         asset.IsActive = request.IsActive;
+        AuditWriter.Record(db, scope, "Asset status changed", "Asset", asset.Id,
+            $"{asset.AssetNumber} changed to {request.Status}.", asset.BranchId);
         await db.SaveChangesAsync(cancellationToken);
         return NoContent();
     }

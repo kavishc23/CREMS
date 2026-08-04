@@ -5,9 +5,10 @@ import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
+import EditOutlined from '@mui/icons-material/EditOutlined'
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
-  DialogActions, DialogContent, DialogTitle, Divider, IconButton, InputAdornment,
+  DialogActions, DialogContent, DialogTitle, Divider, Grid, IconButton, InputAdornment,
   MenuItem, Stack, Table, TableBody, TableCell, TableContainer, TableHead,
   TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
@@ -22,8 +23,12 @@ type BookingItem = {
 type Booking = {
   id: string; bookingNumber: string; status: BookingStatus; createdAt: string; notes: string | null
   customerId: string; customerName: string; customerEmail: string | null; customerPhone: string | null
-  customerIsBlocked: boolean; branchId: string; branchName: string; items: BookingItem[]
+  customerIsBlocked: boolean; branchId: string; branchName: string; discountAmount: number; taxRate: number
+  depositRequired: number; additionalCharges: number; additionalChargesDescription: string | null; items: BookingItem[]
 }
+type Asset = { id: string; assetNumber: string; name: string; branchId: string; dailyRate: number; isActive: boolean }
+type Customer = { id: string; customerNumber: string; name: string; isActive: boolean }
+type EditForm = { customerId: string; assetId: string; startAt: string; endAt: string; dailyRate: string; notes: string; discountAmount: string; taxRate: string; depositRequired: string; additionalCharges: string; additionalChargesDescription: string }
 
 const statusColors: Record<BookingStatus, 'warning' | 'success' | 'error' | 'info' | 'default'> = {
   Draft: 'warning', Confirmed: 'success', Cancelled: 'error', ConvertedToRental: 'info', Completed: 'default', Expired: 'default',
@@ -41,10 +46,12 @@ export function BookingsPage() {
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [assets, setAssets] = useState<Asset[]>([]); const [customers, setCustomers] = useState<Customer[]>([])
+  const [editing, setEditing] = useState(false); const [editForm, setEditForm] = useState<EditForm | null>(null)
 
   const loadBookings = useCallback(async () => {
     setLoading(true)
-    try { setBookings((await api.get<Booking[]>('/bookings')).data) }
+    try { const [bookingResult, assetResult, customerResult] = await Promise.all([api.get<Booking[]>('/bookings'), api.get<Asset[]>('/assets'), api.get<Customer[]>('/customers')]); setBookings(bookingResult.data); setAssets(assetResult.data); setCustomers(customerResult.data) }
     catch { setError('Unable to load bookings. Confirm that the backend is running.') }
     finally { setLoading(false) }
   }, [])
@@ -63,6 +70,8 @@ export function BookingsPage() {
   }, [bookings, filter, search])
 
   function beginAction(status: 'Confirmed' | 'Cancelled') { setAction(status); setNote(''); setError('') }
+  function beginEdit() { if (!selected?.items[0]) return; const item = selected.items[0]; setEditForm({ customerId: selected.customerId, assetId: item.assetId, startAt: item.startAt.slice(0, 10), endAt: item.endAt.slice(0, 10), dailyRate: String(item.dailyRate), notes: selected.notes ?? '', discountAmount: String(selected.discountAmount), taxRate: String(selected.taxRate), depositRequired: String(selected.depositRequired), additionalCharges: String(selected.additionalCharges), additionalChargesDescription: selected.additionalChargesDescription ?? '' }); setEditing(true); setError('') }
+  async function saveEdit() { if (!selected || !editForm) return; setSaving(true); setError(''); try { await api.put(`/bookings/${selected.id}`, { branchId: selected.branchId, customerId: editForm.customerId, assetId: editForm.assetId, startAt: `${editForm.startAt}T09:00:00+12:00`, endAt: `${editForm.endAt}T09:00:00+12:00`, dailyRate: Number(editForm.dailyRate), notes: editForm.notes || null, discountAmount: Number(editForm.discountAmount || 0), taxRate: Number(editForm.taxRate || 0), depositRequired: Number(editForm.depositRequired || 0), additionalCharges: Number(editForm.additionalCharges || 0), additionalChargesDescription: editForm.additionalChargesDescription || null }); setEditing(false); setSelected(null); await loadBookings() } catch (requestError: unknown) { const data = axios.isAxiosError(requestError) ? requestError.response?.data : undefined; const errors = data?.errors as Record<string, string[]> | undefined; setError(errors ? Object.values(errors).flat().join(' ') : 'Unable to update this booking.') } finally { setSaving(false) } }
   async function updateStatus() {
     if (!selected || !action) return
     setSaving(true); setError('')
@@ -101,18 +110,20 @@ export function BookingsPage() {
       </TableBody></Table></TableContainer>}
     </CardContent></Card>
 
-    <Dialog open={Boolean(selected)} onClose={() => !saving && setSelected(null)} fullWidth maxWidth="sm"><DialogTitle>Booking {selected?.bookingNumber}</DialogTitle><DialogContent>
+    <Dialog open={Boolean(selected)} onClose={() => !saving && setSelected(null)} fullWidth maxWidth="md"><DialogTitle><Stack direction="row" alignItems="center" justifyContent="space-between">Booking {selected?.bookingNumber}{selected && !editing && !['ConvertedToRental', 'Completed'].includes(selected.status) && <Button startIcon={<EditOutlined />} onClick={beginEdit}>Edit booking</Button>}</Stack></DialogTitle><DialogContent>
       {selected && <Stack spacing={2.25} mt={1}>{error && <Alert severity="error">{error}</Alert>}
+        {editing && editForm ? <><Alert severity="info">Assets and customers are limited to records your account is authorized to access.</Alert><Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth select label="Customer" value={editForm.customerId} onChange={(e) => setEditForm({ ...editForm, customerId: e.target.value })}>{customers.filter((item) => item.isActive).map((item) => <MenuItem key={item.id} value={item.id}>{item.customerNumber} — {item.name}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth select label="Rental asset" value={editForm.assetId} onChange={(e) => { const asset = assets.find((item) => item.id === e.target.value); setEditForm({ ...editForm, assetId: e.target.value, dailyRate: asset ? String(asset.dailyRate) : editForm.dailyRate }) }}>{assets.filter((item) => item.isActive && item.branchId === selected.branchId).map((item) => <MenuItem key={item.id} value={item.id}>{item.assetNumber} — {item.name}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="date" label="Start" InputLabelProps={{ shrink: true }} value={editForm.startAt} onChange={(e) => setEditForm({ ...editForm, startAt: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="date" label="End" InputLabelProps={{ shrink: true }} value={editForm.endAt} onChange={(e) => setEditForm({ ...editForm, endAt: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="number" label="Daily rate" value={editForm.dailyRate} onChange={(e) => setEditForm({ ...editForm, dailyRate: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="number" label="Deposit" value={editForm.depositRequired} onChange={(e) => setEditForm({ ...editForm, depositRequired: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="number" label="Discount" value={editForm.discountAmount} onChange={(e) => setEditForm({ ...editForm, discountAmount: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="number" label="Tax rate %" value={editForm.taxRate} onChange={(e) => setEditForm({ ...editForm, taxRate: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="number" label="Other charges" value={editForm.additionalCharges} onChange={(e) => setEditForm({ ...editForm, additionalCharges: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth label="Charge reason" value={editForm.additionalChargesDescription} onChange={(e) => setEditForm({ ...editForm, additionalChargesDescription: e.target.value })} /></Grid></Grid><TextField multiline minRows={2} label="Internal notes" value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} /></> : <>
         <Stack direction="row" justifyContent="space-between"><Box><Typography variant="caption" color="text.secondary">Status</Typography><Box mt={.5}><Chip size="small" label={displayStatus(selected.status)} color={statusColors[selected.status]} /></Box></Box><Box textAlign="right"><Typography variant="caption" color="text.secondary">Branch</Typography><Typography fontWeight={650}>{selected.branchName}</Typography></Box></Stack>
         <Divider /><Box><Typography variant="overline" color="text.secondary">Customer</Typography><Typography fontWeight={700}>{selected.customerName}</Typography><Typography variant="body2">{selected.customerEmail || 'No email'} · {selected.customerPhone || 'No phone'}</Typography>{selected.customerIsBlocked && <Alert severity="error" sx={{ mt: 1 }}>This customer is blocked from renting.</Alert>}</Box>
         <Divider />{selected.items.map((item) => <Box key={item.id}><Typography variant="overline" color="text.secondary">Rental item</Typography><Typography fontWeight={700}>{item.assetName} ({item.assetNumber})</Typography><Typography variant="body2">{displayDate(item.startAt)} to {displayDate(item.endAt)}</Typography><Typography variant="body2" color="text.secondary">${item.dailyRate.toFixed(2)} per day</Typography></Box>)}
-        {selected.notes && <><Divider /><Box><Typography variant="overline" color="text.secondary">Notes</Typography><Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>{selected.notes}</Typography></Box></>}
+        <Divider /><Grid container spacing={2}><Grid size={3}><Typography variant="caption" color="text.secondary">Deposit</Typography><Typography fontWeight={650}>${selected.depositRequired.toFixed(2)}</Typography></Grid><Grid size={3}><Typography variant="caption" color="text.secondary">Discount</Typography><Typography fontWeight={650}>${selected.discountAmount.toFixed(2)}</Typography></Grid><Grid size={3}><Typography variant="caption" color="text.secondary">Tax</Typography><Typography fontWeight={650}>{selected.taxRate}%</Typography></Grid><Grid size={3}><Typography variant="caption" color="text.secondary">Other charges</Typography><Typography fontWeight={650}>${selected.additionalCharges.toFixed(2)}</Typography></Grid></Grid>{selected.notes && <><Divider /><Box><Typography variant="overline" color="text.secondary">Notes</Typography><Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>{selected.notes}</Typography></Box></>}
         {action && <TextField label={action === 'Cancelled' ? 'Cancellation reason (optional)' : 'Staff note (optional)'} multiline minRows={2} value={note} onChange={(e) => setNote(e.target.value)} />}
-      </Stack>}
+      </>}</Stack>}
     </DialogContent><DialogActions sx={{ p: 3, pt: 1 }}>
-      {!action && selected?.status === 'Draft' && <><Button color="error" startIcon={<CancelOutlined />} onClick={() => beginAction('Cancelled')}>Decline</Button><Box sx={{ flex: 1 }} /><Button variant="contained" startIcon={<CheckCircleOutlined />} disabled={selected.customerIsBlocked} onClick={() => beginAction('Confirmed')}>Confirm booking</Button></>}
+      {editing && <><Button onClick={() => setEditing(false)} disabled={saving}>Cancel editing</Button><Box sx={{ flex: 1 }} /><Button variant="contained" onClick={() => void saveEdit()} disabled={saving}>Save booking</Button></>}
+      {!editing && !action && selected?.status === 'Draft' && <><Button color="error" startIcon={<CancelOutlined />} onClick={() => beginAction('Cancelled')}>Decline</Button><Box sx={{ flex: 1 }} /><Button variant="contained" startIcon={<CheckCircleOutlined />} disabled={selected.customerIsBlocked} onClick={() => beginAction('Confirmed')}>Confirm booking</Button></>}
       {action && <><Button onClick={() => setAction(null)} disabled={saving}>Back</Button><Box sx={{ flex: 1 }} /><Button variant="contained" color={action === 'Cancelled' ? 'error' : 'primary'} disabled={saving} onClick={() => void updateStatus()}>{saving ? 'Saving…' : action === 'Cancelled' ? 'Decline request' : 'Confirm booking'}</Button></>}
-      {!action && selected?.status !== 'Draft' && <Button onClick={() => setSelected(null)}>Close</Button>}
+      {!editing && !action && selected?.status !== 'Draft' && <Button onClick={() => setSelected(null)}>Close</Button>}
     </DialogActions></Dialog>
   </Box>
 }

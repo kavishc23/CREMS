@@ -9,6 +9,7 @@ import {
   TextField, Tooltip, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
+import { roles } from '../auth/access'
 
 type Branch = {
   id: string
@@ -22,7 +23,7 @@ type Branch = {
 type BranchForm = { code: string; name: string; address: string; phone: string }
 const emptyForm: BranchForm = { code: '', name: '', address: '', phone: '' }
 
-export function BranchesPage() {
+export function BranchesPage({ userRoles }: { userRoles: string[] }) {
   const [branches, setBranches] = useState<Branch[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
@@ -30,6 +31,7 @@ export function BranchesPage() {
   const [editing, setEditing] = useState<Branch | null>(null)
   const [form, setForm] = useState<BranchForm>(emptyForm)
   const [error, setError] = useState('')
+  const isAdministrator = userRoles.includes(roles.administrator)
 
   async function loadBranches() {
     try {
@@ -85,7 +87,7 @@ export function BranchesPage() {
         <Typography variant="h4" fontWeight={750}>Branches</Typography>
         <Typography color="text.secondary" mt={0.5}>Maintain the locations used to organize staff, assets and rental activity.</Typography>
       </Box>
-      <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add branch</Button>
+      {isAdministrator && <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add branch</Button>}
     </Stack>
     {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     <Card variant="outlined"><CardContent sx={{ p: 0 }}>
@@ -97,14 +99,14 @@ export function BranchesPage() {
           {branches.map((branch) => <TableRow key={branch.id} hover>
             <TableCell sx={{ fontWeight: 700 }}>{branch.code}</TableCell><TableCell>{branch.name}</TableCell><TableCell>{branch.address || '—'}</TableCell><TableCell>{branch.phone || '—'}</TableCell>
             <TableCell><Chip label={branch.isActive ? 'Active' : 'Inactive'} size="small" color={branch.isActive ? 'success' : 'default'} variant="outlined" /></TableCell>
-            <TableCell align="right"><Tooltip title="Edit branch"><IconButton onClick={() => openEdit(branch)}><EditOutlined /></IconButton></Tooltip><Tooltip title={branch.isActive ? 'Deactivate' : 'Activate'}><Switch checked={branch.isActive} onChange={() => void toggleStatus(branch)} /></Tooltip></TableCell>
+            <TableCell align="right"><Tooltip title="Edit branch details"><IconButton onClick={() => openEdit(branch)}><EditOutlined /></IconButton></Tooltip>{isAdministrator && <Tooltip title={branch.isActive ? 'Deactivate' : 'Activate'}><Switch checked={branch.isActive} onChange={() => void toggleStatus(branch)} /></Tooltip>}</TableCell>
           </TableRow>)}
         </TableBody></Table></TableContainer>}
     </CardContent></Card>
     <Dialog open={open} onClose={() => !saving && setOpen(false)} fullWidth maxWidth="sm">
       <Box component="form" onSubmit={save}><DialogTitle>{editing ? 'Edit branch' : 'Add branch'}</DialogTitle><DialogContent>
         <Stack spacing={2.25} mt={1}>{error && <Alert severity="error">{error}</Alert>}
-          <TextField label="Branch code" required inputProps={{ maxLength: 20 }} helperText="A short unique code, for example SUV or LTK." value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+          <TextField label="Branch code" required disabled={!isAdministrator} inputProps={{ maxLength: 20 }} helperText={isAdministrator ? 'A short unique code, for example SUV or LTK.' : 'Only an administrator can change the branch code.'} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
           <TextField label="Branch name" required inputProps={{ maxLength: 150 }} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <TextField label="Address" multiline minRows={2} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
           <TextField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
