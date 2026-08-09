@@ -16,6 +16,7 @@ import {
 } from '@mui/material'
 import axios from 'axios'
 import { useAuth } from '../auth/AuthContext'
+import { api } from '../api/client'
 
 export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) {
   const { login } = useAuth()
@@ -24,6 +25,12 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [recovery, setRecovery] = useState(false)
+  const [codeSent, setCodeSent] = useState(false)
+  const [resetCode, setResetCode] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [notice, setNotice] = useState('')
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -40,6 +47,20 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function requestReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSubmitting(true); setError(''); setNotice('')
+    try { const response = await api.post<{ message: string }>('/auth/password-reset/request', { email: email.trim() }); setCodeSent(true); setNotice(response.data.message) }
+    catch { setError('Password recovery is temporarily unavailable. Please try again.') }
+    finally { setSubmitting(false) }
+  }
+
+  async function completeReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError(''); if (newPassword !== confirmPassword) { setError('The new passwords do not match.'); return } setSubmitting(true)
+    try { await api.post('/auth/password-reset/complete', { email: email.trim(), code: resetCode.trim(), newPassword }); setRecovery(false); setCodeSent(false); setPassword(''); setResetCode(''); setNewPassword(''); setConfirmPassword(''); setNotice('Password changed successfully. You can now sign in.') }
+    catch (reason: unknown) { const data = axios.isAxiosError(reason) ? reason.response?.data : undefined; const errors = data?.errors as Record<string, string[]> | undefined; setError(errors ? Object.values(errors).flat().join(' ') : data?.message ?? 'The code is invalid or has expired.') }
+    finally { setSubmitting(false) }
   }
 
   return (
@@ -60,13 +81,14 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
           <CardContent sx={{ p: { xs: 3, sm: 5 } }}>
             <Stack alignItems="center" mb={4}>
               <Box component="img" src="/brand/carpenters-logo.png" alt="Carpenters Fiji" sx={{ display: { xs: 'block', lg: 'none' }, width: 72, height: 72, objectFit: 'cover', mb: 2 }} />
-              <Typography variant="h4" fontWeight={700}>Welcome back</Typography>
-              <Typography color="text.secondary" mt={1}>Sign in to your CREMS account</Typography>
+              <Typography variant="h4" fontWeight={700}>{recovery ? 'Reset password' : 'Welcome back'}</Typography>
+              <Typography color="text.secondary" mt={1}>{recovery ? 'Use the six-digit code sent to your email' : 'Sign in to your CREMS account'}</Typography>
             </Stack>
 
-            <Box component="form" onSubmit={handleSubmit} noValidate>
+            {!recovery ? <Box component="form" onSubmit={handleSubmit} noValidate>
               <Stack spacing={2.5}>
                 {error && <Alert severity="error">{error}</Alert>}
+                {notice && <Alert severity="success">{notice}</Alert>}
                 <TextField
                   label="Email address"
                   type="email"
@@ -100,9 +122,10 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
                 <Button type="submit" variant="contained" size="large" disabled={submitting || !email || !password} sx={{ minHeight: 48 }}>
                   {submitting ? <CircularProgress size={24} color="inherit" /> : 'Sign in'}
                 </Button>
+                <Button type="button" variant="text" onClick={() => { setRecovery(true); setError(''); setNotice('') }}>Forgot password?</Button>
                 <Button type="button" variant="text" onClick={onBackToWebsite}>Back to rental website</Button>
               </Stack>
-            </Box>
+            </Box> : <Box component="form" onSubmit={codeSent ? completeReset : requestReset} noValidate><Stack spacing={2.5}>{error && <Alert severity="error">{error}</Alert>}{notice && <Alert severity="info">{notice}</Alert>}<TextField label="Staff email address" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required fullWidth disabled={codeSent} />{codeSent && <><TextField label="Six-digit code" value={resetCode} onChange={(event) => setResetCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputProps={{ inputMode: 'numeric', maxLength: 6 }} required fullWidth /><TextField label="New password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" helperText="At least 10 characters with an uppercase letter and number" required fullWidth /><TextField label="Confirm new password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" required fullWidth /></>}<Button type="submit" variant="contained" size="large" disabled={submitting || !email || (codeSent && (resetCode.length !== 6 || !newPassword || !confirmPassword))} sx={{ minHeight: 48 }}>{submitting ? <CircularProgress size={24} color="inherit" /> : codeSent ? 'Change password' : 'Send reset code'}</Button>{codeSent && <Button type="button" onClick={() => { setCodeSent(false); setResetCode(''); setNotice('') }}>Request a new code</Button>}<Button type="button" onClick={() => { setRecovery(false); setCodeSent(false); setError(''); setNotice('') }}>Back to sign in</Button></Stack></Box>}
             <Typography variant="caption" color="text.secondary" display="block" textAlign="center" mt={4}>
               Authorized Carpenters Fiji staff only
             </Typography>

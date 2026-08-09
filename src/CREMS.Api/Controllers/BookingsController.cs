@@ -22,7 +22,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var scope = await staffScope.GetAsync(User);
         if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
         var query = db.Bookings.AsNoTracking();
-        if (!scope.IsAdministrator) query = query.Where(booking => booking.BranchId == scope.BranchId);
+        if (!scope.IsAdministrator) query = query.Where(booking => booking.BranchId == scope.BranchId && booking.Items.Any(item => item.Asset!.DivisionId == scope.DivisionId));
         if (status.HasValue) query = query.Where(booking => booking.Status == status);
 
         var bookings = await query
@@ -46,6 +46,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                 booking.AdditionalCharges,
                 booking.AdditionalChargesDescription,
                 booking.ApprovedAt,
+                db.RentalAgreements.Any(agreement => agreement.BookingId == booking.Id),
                 booking.Items.Select(item => new BookingItemResponse(
                     item.Id,
                     item.AssetId,
@@ -69,7 +70,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || !scope.HasBranchAccess(booking.BranchId) || !scope.HasBranchAccess(request.BranchId)) return Forbid();
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status is BookingStatus.ConvertedToRental or BookingStatus.Completed)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["Active or completed rentals cannot be reassigned."] }));
 
@@ -79,6 +80,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var branch = await db.Branches.FirstOrDefaultAsync(item => item.Id == request.BranchId && item.IsActive, cancellationToken);
         if (asset is null || customer is null || branch is null || request.EndAt <= request.StartAt)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["booking"] = ["Select a valid branch, customer, asset and rental period."] }));
+        if (!scope.HasAssetAccess(request.BranchId, asset.DivisionId)) return Forbid();
 
         var previous = $"Branch: {booking.BranchId}; Customer: {booking.CustomerId}; Asset: {booking.Items.FirstOrDefault()?.AssetId}";
         booking.BranchId = branch.Id; booking.Branch = branch; booking.CustomerId = customer.Id; booking.Customer = customer;
@@ -110,7 +112,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || !scope.HasBranchAccess(booking.BranchId)) return Forbid();
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
 
         if (!IsValidTransition(booking.Status, request.Status))
         {
@@ -192,6 +194,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         booking.BranchId, booking.Branch?.Name ?? string.Empty,
         booking.DiscountAmount, booking.TaxRate, booking.DepositRequired, booking.AdditionalCharges,
         booking.AdditionalChargesDescription, booking.ApprovedAt,
+        booking.RentalAgreement is not null,
         booking.Items.Select(item => new BookingItemResponse(
             item.Id, item.AssetId, item.Asset?.AssetNumber ?? string.Empty,
             item.Asset?.Name ?? string.Empty, item.StartAt, item.EndAt, item.DailyRate)).ToList());
@@ -211,4 +214,5 @@ public sealed record BookingResponse(
     bool CustomerIsBlocked, Guid BranchId, string BranchName,
     decimal DiscountAmount, decimal TaxRate, decimal DepositRequired, decimal AdditionalCharges,
     string? AdditionalChargesDescription, DateTimeOffset? ApprovedAt,
+    bool HasAgreement,
     IReadOnlyCollection<BookingItemResponse> Items);

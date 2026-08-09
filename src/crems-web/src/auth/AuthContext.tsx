@@ -6,7 +6,11 @@ export type AuthenticatedUser = {
   email: string
   fullName: string
   branchId: string | null
+  divisionId: string | null
+  branchName: string | null
+  divisionName: string | null
   roles: string[]
+  mustChangePassword: boolean
 }
 
 type AuthContextValue = {
@@ -14,6 +18,7 @@ type AuthContextValue = {
   checkingSession: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  refreshSession: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -50,8 +55,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ user, checkingSession, login, logout }),
-    [user, checkingSession, login, logout],
+    () => ({ user, checkingSession, login, logout, refreshSession: loadSession }),
+    [user, checkingSession, login, logout, loadSession],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

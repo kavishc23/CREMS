@@ -10,10 +10,13 @@ export type AppPage =
   | 'customers'
   | 'bookings'
   | 'rentals'
+  | 'scan'
   | 'maintenance'
+  | 'operations'
   | 'reports'
   | 'users'
   | 'branches'
+  | 'divisions'
 
 const pageRoles: Record<AppPage, readonly string[]> = {
   dashboard: Object.values(roles),
@@ -21,10 +24,13 @@ const pageRoles: Record<AppPage, readonly string[]> = {
   customers: [roles.administrator, roles.branchManager, roles.rentalOfficer],
   bookings: [roles.administrator, roles.branchManager, roles.rentalOfficer],
   rentals: [roles.administrator, roles.branchManager, roles.rentalOfficer],
+  scan: [roles.administrator, roles.branchManager, roles.rentalOfficer],
   maintenance: [roles.administrator, roles.branchManager],
+  operations: [roles.administrator, roles.branchManager],
   reports: [roles.administrator, roles.branchManager],
   users: [roles.administrator],
   branches: [roles.administrator, roles.branchManager],
+  divisions: [roles.administrator],
 }
 
 export function canAccessPage(userRoles: string[], page: AppPage) {

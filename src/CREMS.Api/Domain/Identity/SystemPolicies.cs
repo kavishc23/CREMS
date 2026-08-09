@@ -8,4 +8,5 @@ public static class SystemPolicies
     public const string ManageRentals = "ManageRentals";
     public const string ViewAssets = "ViewAssets";
     public const string ViewReports = "ViewReports";
+    public const string CustomerPortal = "CustomerPortal";
 }

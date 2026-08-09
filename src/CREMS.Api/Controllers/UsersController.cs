@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
@@ -11,272 +12,104 @@ namespace CREMS.Api.Controllers;
 [ApiController]
 [Route("api/users")]
 [Authorize(Policy = SystemPolicies.AdministerSystem)]
-public sealed class UsersController(
-    UserManager<ApplicationUser> userManager,
-    ApplicationDbContext db,
-    CurrentStaffScope staffScope) : ControllerBase
+public sealed class UsersController(UserManager<ApplicationUser> userManager, ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<UserResponse>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<IReadOnlyList<UserResponse>>> GetAll(CancellationToken token)
     {
-        var users = await userManager.Users
-            .AsNoTracking()
-            .OrderBy(user => user.FullName)
-            .ThenBy(user => user.Email)
-            .ToListAsync(cancellationToken);
-
+        var users = await userManager.Users.AsNoTracking().OrderBy(x => x.FullName).ThenBy(x => x.Email).ToListAsync(token);
         var response = new List<UserResponse>(users.Count);
-        foreach (var user in users)
-        {
-            response.Add(new UserResponse(
-                user.Id,
-                user.Email ?? string.Empty,
-                user.FullName,
-                user.BranchId,
-                user.IsActive,
-                (await userManager.GetRolesAsync(user)).ToArray()));
-        }
-
+        foreach (var user in users) response.Add(ToResponse(user, await userManager.GetRolesAsync(user)));
         return Ok(response);
+    }
+
+    [HttpGet("summary")]
+    public async Task<ActionResult> Summary(CancellationToken token)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return Ok(new { totalUsers = await db.Users.CountAsync(token), activeUsers = await db.Users.CountAsync(x => x.IsActive, token), disabledUsers = await db.Users.CountAsync(x => !x.IsActive, token), lockedUsers = await db.Users.CountAsync(x => x.LockoutEnd != null && x.LockoutEnd > now, token), passwordChangeRequired = await db.Users.CountAsync(x => x.MustChangePassword, token), administrators = await ActiveAdministratorCount(token) });
     }
 
     [HttpPost]
     public async Task<ActionResult<UserResponse>> Create(CreateUserRequest request)
     {
-        var role = SystemRoles.All.FirstOrDefault(
-            candidate => string.Equals(candidate, request.Role, StringComparison.OrdinalIgnoreCase));
-        if (role is null)
-        {
-            ModelState.AddModelError(nameof(request.Role), "Select a valid CREMS role.");
-            return ValidationProblem(ModelState);
-        }
-
-        var requiresBranch = role is SystemRoles.BranchManager or SystemRoles.RentalOfficer;
-        if (requiresBranch && !request.BranchId.HasValue)
-        {
-            ModelState.AddModelError(nameof(request.BranchId), "Branch managers and rental officers must be assigned to a branch.");
-            return ValidationProblem(ModelState);
-        }
-
-        var email = request.Email.Trim();
-        if (await userManager.FindByEmailAsync(email) is not null)
-        {
-            ModelState.AddModelError(nameof(request.Email), "An account with this email already exists.");
-            return ValidationProblem(ModelState);
-        }
-
-        if (request.BranchId.HasValue &&
-            !await db.Branches.AnyAsync(branch => branch.Id == request.BranchId.Value && branch.IsActive))
-        {
-            ModelState.AddModelError(nameof(request.BranchId), "The selected branch does not exist.");
-            return ValidationProblem(ModelState);
-        }
-
-        var user = new ApplicationUser
-        {
-            UserName = email,
-            Email = email,
-            EmailConfirmed = true,
-            FullName = request.FullName.Trim(),
-            BranchId = requiresBranch ? request.BranchId : null,
-            IsActive = true,
-        };
-
-        var createResult = await userManager.CreateAsync(user, request.Password);
-        if (!createResult.Succeeded)
-        {
-            foreach (var error in createResult.Errors)
-                ModelState.AddModelError(string.Empty, error.Description);
-            return ValidationProblem(ModelState);
-        }
-
-        var roleResult = await userManager.AddToRoleAsync(user, role);
-        if (!roleResult.Succeeded)
-        {
-            await userManager.DeleteAsync(user);
-            foreach (var error in roleResult.Errors)
-                ModelState.AddModelError(string.Empty, error.Description);
-            return ValidationProblem(ModelState);
-        }
-
-        var scope = await staffScope.GetAsync(User);
-        if (scope is not null)
-        {
-            AuditWriter.Record(db, scope, "Staff account created", "ApplicationUser", user.Id,
-                $"{user.Email} was created as {role}.", user.BranchId);
-            await db.SaveChangesAsync();
-        }
-        return CreatedAtAction(nameof(GetAll), new UserResponse(
-            user.Id,
-            user.Email,
-            user.FullName,
-            user.BranchId,
-            user.IsActive,
-            [role]));
-    }
-
-    [HttpPatch("{id:guid}/branch")]
-    public async Task<ActionResult> AssignBranch(
-        Guid id,
-        AssignUserBranchRequest request,
-        CancellationToken cancellationToken)
-    {
-        var user = await userManager.FindByIdAsync(id.ToString());
-        if (user is null) return NotFound();
-
-        var roles = await userManager.GetRolesAsync(user);
-        if (roles.Contains(SystemRoles.Administrator))
-        {
-            user.BranchId = null;
-        }
-        else
-        {
-            if (!request.BranchId.HasValue || !await db.Branches.AnyAsync(branch =>
-                branch.Id == request.BranchId.Value && branch.IsActive, cancellationToken))
-            {
-                ModelState.AddModelError(nameof(request.BranchId), "Select an active branch for this staff account.");
-                return ValidationProblem(ModelState);
-            }
-            user.BranchId = request.BranchId;
-        }
-
-        var result = await userManager.UpdateAsync(user);
-        if (!result.Succeeded)
-        {
-            foreach (var error in result.Errors) ModelState.AddModelError(string.Empty, error.Description);
-            return ValidationProblem(ModelState);
-        }
-        var scope = await staffScope.GetAsync(User);
-        if (scope is not null)
-        {
-            AuditWriter.Record(db, scope, "Staff branch assigned", "ApplicationUser", user.Id,
-                $"{user.Email} was assigned to branch {user.BranchId}.", user.BranchId);
-            await db.SaveChangesAsync(cancellationToken);
-        }
-        return NoContent();
+        var role = ResolveRole(request.Role); if (role is null) return Invalid(nameof(request.Role), "Select a valid CREMS role.");
+        var requiresBranch = RequiresBranch(role);
+        if (requiresBranch && !await IsValidDivision(request.DivisionId)) return Invalid(nameof(request.DivisionId), "Select an active division for this staff account.");
+        if (requiresBranch && !await IsValidBranch(request.BranchId)) return Invalid(nameof(request.BranchId), "Select an active branch for this staff account.");
+        if (requiresBranch && !await IsDivisionAtBranch(request.DivisionId, request.BranchId)) return Invalid(nameof(request.BranchId), "The selected branch is not enabled for this division.");
+        var email = request.Email.Trim(); if (await userManager.FindByEmailAsync(email) is not null) return Invalid(nameof(request.Email), "An account with this email already exists.");
+        var user = new ApplicationUser { UserName = email, Email = email, EmailConfirmed = true, FullName = request.FullName.Trim(), DivisionId = requiresBranch ? request.DivisionId : null, BranchId = requiresBranch ? request.BranchId : null, IsActive = true, MustChangePassword = true, AdminNote = Clean(request.AdminNote) };
+        var created = await userManager.CreateAsync(user, request.Password); if (!created.Succeeded) return IdentityErrors(created);
+        var assigned = await userManager.AddToRoleAsync(user, role); if (!assigned.Succeeded) { await userManager.DeleteAsync(user); return IdentityErrors(assigned); }
+        await Audit(user, "Staff account created", $"{user.Email} was created as {role}.");
+        return CreatedAtAction(nameof(GetAll), ToResponse(user, [role]));
     }
 
     [HttpPut("{id:guid}")]
-    public async Task<ActionResult<UserResponse>> Update(
-        Guid id,
-        UpdateUserRequest request,
-        CancellationToken cancellationToken)
+    public async Task<ActionResult<UserResponse>> Update(Guid id, UpdateUserRequest request, CancellationToken token)
     {
-        var user = await userManager.FindByIdAsync(id.ToString());
-        if (user is null) return NotFound();
-
-        var role = SystemRoles.All.FirstOrDefault(candidate =>
-            string.Equals(candidate, request.Role, StringComparison.OrdinalIgnoreCase));
-        if (role is null)
-        {
-            ModelState.AddModelError(nameof(request.Role), "Select a valid CREMS role.");
-            return ValidationProblem(ModelState);
-        }
-
-        var requiresBranch = role is SystemRoles.BranchManager or SystemRoles.RentalOfficer;
-        if (requiresBranch && (!request.BranchId.HasValue || !await db.Branches.AnyAsync(branch =>
-            branch.Id == request.BranchId.Value && branch.IsActive, cancellationToken)))
-        {
-            ModelState.AddModelError(nameof(request.BranchId), "Select an active branch for this staff account.");
-            return ValidationProblem(ModelState);
-        }
-
-        var email = request.Email.Trim();
-        var existing = await userManager.FindByEmailAsync(email);
-        if (existing is not null && existing.Id != id)
-        {
-            ModelState.AddModelError(nameof(request.Email), "An account with this email already exists.");
-            return ValidationProblem(ModelState);
-        }
-        if (user.Id.ToString() == userManager.GetUserId(User) && !request.IsActive)
-        {
-            ModelState.AddModelError(nameof(request.IsActive), "You cannot disable your own account.");
-            return ValidationProblem(ModelState);
-        }
-
-        user.FullName = request.FullName.Trim();
-        user.Email = email;
-        user.UserName = email;
-        user.NormalizedEmail = userManager.NormalizeEmail(email);
-        user.NormalizedUserName = userManager.NormalizeName(email);
-        user.EmailConfirmed = true;
-        user.BranchId = requiresBranch ? request.BranchId : null;
-        user.IsActive = request.IsActive;
-
-        var updateResult = await userManager.UpdateAsync(user);
-        if (!updateResult.Succeeded)
-        {
-            foreach (var error in updateResult.Errors) ModelState.AddModelError(string.Empty, error.Description);
-            return ValidationProblem(ModelState);
-        }
-
+        var user = await userManager.FindByIdAsync(id.ToString()); if (user is null) return NotFound();
+        var role = ResolveRole(request.Role); if (role is null) return Invalid(nameof(request.Role), "Select a valid CREMS role.");
+        var requiresBranch = RequiresBranch(role); if (requiresBranch && !await IsValidBranch(request.BranchId)) return Invalid(nameof(request.BranchId), "Select an active branch for this staff account.");
+        if (requiresBranch && !await IsValidDivision(request.DivisionId)) return Invalid(nameof(request.DivisionId), "Select an active division for this staff account.");
+        if (requiresBranch && !await IsDivisionAtBranch(request.DivisionId, request.BranchId)) return Invalid(nameof(request.BranchId), "The selected branch is not enabled for this division.");
         var currentRoles = await userManager.GetRolesAsync(user);
-        var removeResult = await userManager.RemoveFromRolesAsync(user, currentRoles.Where(current => current != role));
-        if (!removeResult.Succeeded)
-        {
-            foreach (var error in removeResult.Errors) ModelState.AddModelError(string.Empty, error.Description);
-            return ValidationProblem(ModelState);
-        }
-        if (!await userManager.IsInRoleAsync(user, role))
-        {
-            var addResult = await userManager.AddToRoleAsync(user, role);
-            if (!addResult.Succeeded)
-            {
-                foreach (var error in addResult.Errors) ModelState.AddModelError(string.Empty, error.Description);
-                return ValidationProblem(ModelState);
-            }
-        }
-
-        AuditWriter.Record(db, scope: (await staffScope.GetAsync(User))!, "Staff account updated", "ApplicationUser", user.Id,
-            $"{user.Email} role={role}, active={user.IsActive}.", user.BranchId);
-        await db.SaveChangesAsync(cancellationToken);
-        return Ok(new UserResponse(user.Id, user.Email ?? string.Empty, user.FullName,
-            user.BranchId, user.IsActive, [role]));
+        if (user.Id.ToString() == userManager.GetUserId(User) && (!request.IsActive || role != SystemRoles.Administrator)) return Invalid(nameof(request.IsActive), "You cannot disable or demote your own administrator account.");
+        if (currentRoles.Contains(SystemRoles.Administrator) && (!request.IsActive || role != SystemRoles.Administrator) && await ActiveAdministratorCount(token) <= 1) return Invalid(nameof(request.Role), "The final active administrator cannot be disabled or demoted.");
+        var email = request.Email.Trim(); var duplicate = await userManager.FindByEmailAsync(email); if (duplicate is not null && duplicate.Id != id) return Invalid(nameof(request.Email), "An account with this email already exists.");
+        var previous = $"Email={user.Email}; Role={string.Join(',', currentRoles)}; Branch={user.BranchId}; Active={user.IsActive}";
+        user.FullName = request.FullName.Trim(); user.Email = email; user.UserName = email; user.NormalizedEmail = userManager.NormalizeEmail(email); user.NormalizedUserName = userManager.NormalizeName(email); user.EmailConfirmed = true; user.DivisionId = requiresBranch ? request.DivisionId : null; user.BranchId = requiresBranch ? request.BranchId : null; user.IsActive = request.IsActive; user.AdminNote = Clean(request.AdminNote); user.SuspensionReason = request.IsActive ? null : Clean(request.SuspensionReason);
+        var updated = await userManager.UpdateAsync(user); if (!updated.Succeeded) return IdentityErrors(updated);
+        var removed = await userManager.RemoveFromRolesAsync(user, currentRoles.Where(x => x != role)); if (!removed.Succeeded) return IdentityErrors(removed);
+        if (!await userManager.IsInRoleAsync(user, role)) { var added = await userManager.AddToRoleAsync(user, role); if (!added.Succeeded) return IdentityErrors(added); }
+        if (!request.IsActive) await userManager.UpdateSecurityStampAsync(user);
+        await Audit(user, "Staff account updated", $"{user.Email} role={role}, active={user.IsActive}.", previous, $"Email={user.Email}; Role={role}; Branch={user.BranchId}; Active={user.IsActive}");
+        return Ok(ToResponse(user, [role]));
     }
 
-    [HttpPatch("{id:guid}/password")]
-    public async Task<ActionResult> ResetPassword(Guid id, ResetUserPasswordRequest request)
+    [HttpPost("{id:guid}/reset-password")]
+    public async Task<ActionResult> ResetPassword(Guid id, AdminReasonRequest request)
     {
-        var user = await userManager.FindByIdAsync(id.ToString());
-        if (user is null) return NotFound();
-        var token = await userManager.GeneratePasswordResetTokenAsync(user);
-        var result = await userManager.ResetPasswordAsync(user, token, request.Password);
-        if (!result.Succeeded)
-        {
-            foreach (var error in result.Errors) ModelState.AddModelError(string.Empty, error.Description);
-            return ValidationProblem(ModelState);
-        }
-        var scope = await staffScope.GetAsync(User);
-        if (scope is not null)
-        {
-            AuditWriter.Record(db, scope, "Staff password reset", "ApplicationUser", user.Id,
-                $"A temporary password was set for {user.Email}.", user.BranchId);
-            await db.SaveChangesAsync();
-        }
-        return NoContent();
+        var user = await userManager.FindByIdAsync(id.ToString()); if (user is null) return NotFound();
+        var temporaryPassword = GenerateTemporaryPassword(); var token = await userManager.GeneratePasswordResetTokenAsync(user); var result = await userManager.ResetPasswordAsync(user, token, temporaryPassword); if (!result.Succeeded) return IdentityErrors(result);
+        user.MustChangePassword = true; user.PasswordChangedAt = DateTimeOffset.UtcNow; await userManager.UpdateAsync(user); await userManager.UpdateSecurityStampAsync(user);
+        await Audit(user, "Staff password reset", $"A temporary password was generated for {user.Email}. Reason: {Clean(request.Reason) ?? "Not supplied"}. Sessions were revoked.");
+        return Ok(new { temporaryPassword, mustChangePassword = true });
     }
+
+    [HttpPost("{id:guid}/unlock")]
+    public async Task<ActionResult> Unlock(Guid id, AdminReasonRequest request)
+    {
+        var user = await userManager.FindByIdAsync(id.ToString()); if (user is null) return NotFound(); await userManager.ResetAccessFailedCountAsync(user); await userManager.SetLockoutEndDateAsync(user, null); await Audit(user, "Staff account unlocked", Reason(request)); return NoContent();
+    }
+
+    [HttpPost("{id:guid}/revoke-sessions")]
+    public async Task<ActionResult> RevokeSessions(Guid id, AdminReasonRequest request)
+    {
+        var user = await userManager.FindByIdAsync(id.ToString()); if (user is null) return NotFound(); await userManager.UpdateSecurityStampAsync(user); await Audit(user, "Staff sessions revoked", Reason(request)); return NoContent();
+    }
+
+    private async Task<int> ActiveAdministratorCount(CancellationToken token)
+    {
+        var role = await db.Roles.FirstAsync(x => x.Name == SystemRoles.Administrator, token);
+        return await (from user in db.Users join link in db.UserRoles on user.Id equals link.UserId where link.RoleId == role.Id && user.IsActive select user).CountAsync(token);
+    }
+    private async Task<bool> IsValidBranch(Guid? id) => id.HasValue && await db.Branches.AnyAsync(x => x.Id == id && x.IsActive);
+    private async Task<bool> IsValidDivision(Guid? id) => id.HasValue && await db.Divisions.AnyAsync(x => x.Id == id && x.IsActive);
+    private async Task<bool> IsDivisionAtBranch(Guid? divisionId, Guid? branchId) => divisionId.HasValue && branchId.HasValue && await db.BranchDivisions.AnyAsync(x => x.DivisionId == divisionId && x.BranchId == branchId && x.IsActive);
+    private async Task Audit(ApplicationUser user, string action, string summary, string? previous = null, string? next = null) { var scope = await staffScope.GetAsync(User); if (scope is null) return; AuditWriter.Record(db, scope, action, "ApplicationUser", user.Id, summary, user.BranchId, previous, next); await db.SaveChangesAsync(); }
+    private ActionResult Invalid(string key, string message) { ModelState.AddModelError(key, message); return ValidationProblem(ModelState); }
+    private ActionResult IdentityErrors(IdentityResult result) { foreach (var error in result.Errors) ModelState.AddModelError(string.Empty, error.Description); return ValidationProblem(ModelState); }
+    private static string? ResolveRole(string role) => SystemRoles.Staff.FirstOrDefault(x => string.Equals(x, role, StringComparison.OrdinalIgnoreCase));
+    private static bool RequiresBranch(string role) => role is SystemRoles.BranchManager or SystemRoles.RentalOfficer;
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static string Reason(AdminReasonRequest request) => $"Reason: {Clean(request.Reason) ?? "Not supplied"}.";
+    private static UserResponse ToResponse(ApplicationUser user, IEnumerable<string> roles) => new(user.Id, user.Email ?? "", user.FullName, user.DivisionId, user.BranchId, user.IsActive, roles.ToArray(), user.MustChangePassword, user.LastLoginAt, user.LastLoginIp, user.LastActivityAt, user.AccessFailedCount, user.LockoutEnd, user.AdminNote, user.SuspensionReason);
+    private static string GenerateTemporaryPassword() { const string lower = "abcdefghijkmnopqrstuvwxyz", upper = "ABCDEFGHJKLMNPQRSTUVWXYZ", digits = "23456789", symbols = "!@$%*?", all = lower + upper + digits + symbols; var chars = new[] { lower[RandomNumberGenerator.GetInt32(lower.Length)], upper[RandomNumberGenerator.GetInt32(upper.Length)], digits[RandomNumberGenerator.GetInt32(digits.Length)], symbols[RandomNumberGenerator.GetInt32(symbols.Length)] }.Concat(Enumerable.Range(0, 12).Select(_ => all[RandomNumberGenerator.GetInt32(all.Length)])).OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).ToArray(); return new string(chars); }
 }
 
-public sealed record CreateUserRequest(
-    string FullName,
-    string Email,
-    string Password,
-    string Role,
-    Guid? BranchId);
-
-public sealed record AssignUserBranchRequest(Guid? BranchId);
-public sealed record UpdateUserRequest(
-    string FullName,
-    string Email,
-    string Role,
-    Guid? BranchId,
-    bool IsActive);
-public sealed record ResetUserPasswordRequest(string Password);
-
-public sealed record UserResponse(
-    Guid Id,
-    string Email,
-    string FullName,
-    Guid? BranchId,
-    bool IsActive,
-    IReadOnlyCollection<string> Roles);
+public sealed record CreateUserRequest(string FullName, string Email, string Password, string Role, Guid? DivisionId, Guid? BranchId, string? AdminNote);
+public sealed record UpdateUserRequest(string FullName, string Email, string Role, Guid? DivisionId, Guid? BranchId, bool IsActive, string? AdminNote, string? SuspensionReason);
+public sealed record AdminReasonRequest(string? Reason);
+public sealed record UserResponse(Guid Id, string Email, string FullName, Guid? DivisionId, Guid? BranchId, bool IsActive, IReadOnlyCollection<string> Roles, bool MustChangePassword, DateTimeOffset? LastLoginAt, string? LastLoginIp, DateTimeOffset? LastActivityAt, int AccessFailedCount, DateTimeOffset? LockoutEnd, string? AdminNote, string? SuspensionReason);

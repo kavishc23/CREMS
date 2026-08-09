@@ -22,6 +22,12 @@ public sealed class Booking : Entity
     public DateTimeOffset? ApprovedAt { get; set; }
     public ICollection<BookingItem> Items { get; set; } = [];
     public ICollection<RentalInspection> Inspections { get; set; } = [];
+    public RentalAgreement? RentalAgreement { get; set; }
+    public ICollection<AuthorizedDriver> AuthorizedDrivers { get; set; } = [];
+    public ICollection<RentalPayment> Payments { get; set; } = [];
+    public ICollection<RentalNotification> Notifications { get; set; } = [];
+    public ICollection<RentalIncident> Incidents { get; set; } = [];
+    public RentalInvoice? Invoice { get; set; }
 }
 
 public sealed class RentalInspection : Entity
@@ -36,6 +42,9 @@ public sealed class RentalInspection : Entity
     public string? ConditionNotes { get; set; }
     public string? DamageNotes { get; set; }
     public string? SignatureName { get; set; }
+    public string? SignatureDataUrl { get; set; }
+    public bool PaymentVerified { get; set; }
+    public string? EvidenceJson { get; set; }
     public Guid CompletedByUserId { get; set; }
     public string? CompletedByName { get; set; }
     public DateTimeOffset CompletedAt { get; set; } = DateTimeOffset.UtcNow;

@@ -2,19 +2,25 @@ import { type ReactNode, useState } from 'react'
 import DashboardOutlined from '@mui/icons-material/DashboardOutlined'
 import DirectionsCarOutlined from '@mui/icons-material/DirectionsCarOutlined'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
-import HandymanOutlined from '@mui/icons-material/HandymanOutlined'
 import PeopleOutline from '@mui/icons-material/PeopleOutline'
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined'
-import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined'
 import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined'
-import StorefrontOutlined from '@mui/icons-material/StorefrontOutlined'
+import CorporateFareOutlined from '@mui/icons-material/CorporateFareOutlined'
+import AccountTreeOutlined from '@mui/icons-material/AccountTreeOutlined'
+import QrCodeScannerOutlined from '@mui/icons-material/QrCodeScannerOutlined'
+import BuildOutlined from '@mui/icons-material/BuildOutlined'
+import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined'
 import MenuIcon from '@mui/icons-material/Menu'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
 import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined'
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined'
+import HomeOutlined from '@mui/icons-material/HomeOutlined'
+import HelpOutlineOutlined from '@mui/icons-material/HelpOutlineOutlined'
 import {
   AppBar,
   Box,
+  Breadcrumbs,
+  Button,
   Drawer,
   IconButton,
   List,
@@ -27,37 +33,65 @@ import {
   useMediaQuery,
   useTheme,
   Chip,
+  ListSubheader,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
 } from '@mui/material'
 import { canAccessPage, formatRole, getPrimaryRole, type AppPage } from '../auth/access'
 const drawerWidth = 248
 const collapsedDrawerWidth = 76
 const navigation = [
-  { label: 'Dashboard', id: 'dashboard', icon: <DashboardOutlined /> },
-  { label: 'Assets', id: 'assets', icon: <DirectionsCarOutlined /> },
-  { label: 'Customers', id: 'customers', icon: <PeopleOutline /> },
-  { label: 'Bookings', id: 'bookings', icon: <EventAvailableOutlined /> },
-  { label: 'Rentals', id: 'rentals', icon: <ReceiptLongOutlined /> },
-  { label: 'Maintenance', id: 'maintenance', icon: <HandymanOutlined /> },
-  { label: 'Reports', id: 'reports', icon: <AssessmentOutlined /> },
-  { label: 'Users & roles', id: 'users', icon: <ManageAccountsOutlined /> },
-  { label: 'Branches', id: 'branches', icon: <StorefrontOutlined /> },
-] satisfies { label: string; id: AppPage; icon: ReactNode }[]
+  { label: 'Today', id: 'dashboard', icon: <DashboardOutlined />, section: 'Work' },
+  { label: 'Booking requests', id: 'bookings', icon: <EventAvailableOutlined />, section: 'Work' },
+  { label: 'Agreements & returns', id: 'rentals', icon: <ReceiptLongOutlined />, section: 'Work' },
+  { label: 'Customers', id: 'customers', icon: <PeopleOutline />, section: 'Work' },
+  { label: 'Vehicles & equipment', id: 'assets', icon: <DirectionsCarOutlined />, section: 'Fleet' },
+  { label: 'Maintenance', id: 'maintenance', icon: <BuildOutlined />, section: 'Fleet' },
+  { label: 'Scan QR code', id: 'scan', icon: <QrCodeScannerOutlined />, section: 'Fleet' },
+  { label: 'Manager overview', id: 'operations', icon: <CorporateFareOutlined />, section: 'Insights' },
+  { label: 'Reports', id: 'reports', icon: <AssessmentOutlined />, section: 'Insights' },
+  { label: 'Staff & access', id: 'users', icon: <ManageAccountsOutlined />, section: 'Administration' },
+  { label: 'Divisions & services', id: 'divisions', icon: <AccountTreeOutlined />, section: 'Administration' },
+  { label: 'Branches', id: 'branches', icon: <CorporateFareOutlined />, section: 'Administration' },
+] satisfies { label: string; id: AppPage; icon: ReactNode; section?: string }[]
+const sections = ['Work', 'Fleet', 'Insights', 'Administration']
+const pageHelp: Record<string, { purpose: string; steps: string[] }> = {
+  dashboard: { purpose: 'See what needs attention today and start the most common tasks.', steps: ['Check overdue returns and pending requests.', 'Choose a quick action.', 'Use the left menu to move to another area.'] },
+  bookings: { purpose: 'Review customer requests and turn approved requests into confirmed bookings.', steps: ['Open a pending request.', 'Confirm the customer, dates, branch and asset.', 'Approve it when everything is correct.'] },
+  rentals: { purpose: 'Prepare agreements, check assets out and complete returns.', steps: ['Open the confirmed booking.', 'Complete the agreement and collection checks.', 'On return, record condition, charges and maintenance needs.'] },
+  scan: { purpose: 'Scan a CREMS QR label to find the correct asset quickly.', steps: ['Scan or enter the asset code.', 'Confirm the asset details.', 'Choose the suggested check-out, check-in or view action.'] },
+  customers: { purpose: 'Find customer details, check eligibility and enable secure online access.', steps: ['Search before creating a duplicate customer.', 'Check contact and identification details.', 'Use the email icon to invite an existing customer online.'] },
+  assets: { purpose: 'Manage vehicles, equipment and maintenance availability.', steps: ['Search by asset number, name or registration.', 'Check its current status and branch.', 'Record maintenance before making an unavailable asset rentable.'] },
+  maintenance: { purpose: 'Plan servicing and resolve faults before assets return to service.', steps: ['Review overdue and upcoming work.', 'Open or update the maintenance job.', 'Return the asset to available only after work is complete.'] },
+  operations: { purpose: 'Review manager-level exceptions, approvals and operational work.', steps: ['Start with urgent items.', 'Assign or complete the required action.', 'Use reports for trends rather than daily processing.'] },
+  reports: { purpose: 'Review utilization, revenue, rental history and maintenance performance.', steps: ['Choose the report needed.', 'Confirm the date and operating scope.', 'Export or use the result for management decisions.'] },
+  users: { purpose: 'Control staff accounts, roles and access boundaries.', steps: ['Choose the correct role.', 'Assign the staff member’s division and branch.', 'Use security actions only when required.'] },
+  divisions: { purpose: 'Configure which services each Carpenters division provides.', steps: ['Enable only confirmed capabilities.', 'Mark quote-only services correctly.', 'Enable online booking only after its workflow is approved.'] },
+  branches: { purpose: 'Maintain locations and the divisions operating at each location.', steps: ['Keep contact details current.', 'Select every division operating there.', 'Deactivate locations that are no longer used.'] },
+}
 
 type AppShellProps = {
   activePage: string
   onNavigate: (page: AppPage) => void
   userName: string
   userRoles: string[]
+  divisionName: string | null
+  branchName: string | null
   onLogout: () => Promise<void>
   children: ReactNode
 }
 
-export function AppShell({ activePage, onNavigate, userName, userRoles, onLogout, children }: AppShellProps) {
+export function AppShell({ activePage, onNavigate, userName, userRoles, divisionName, branchName, onLogout, children }: AppShellProps) {
   const theme = useTheme()
   const desktop = useMediaQuery(theme.breakpoints.up('md'))
   const [open, setOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const activeDrawerWidth = desktop && collapsed ? collapsedDrawerWidth : drawerWidth
+  const currentPageLabel = navigation.find((item) => item.id === activePage)?.label ?? 'Home'
 
   const drawer = (
     <Box sx={{ height: '100%', bgcolor: '#090909', color: 'white' }}>
@@ -68,8 +102,12 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, onLogout
           <Typography variant="caption" sx={{ color: 'secondary.main' }}>Carpenters Fiji</Typography>
         </Box>
       </Toolbar>
-      <List sx={{ px: 1.5, pt: 2 }}>
-        {navigation.filter((item) => canAccessPage(userRoles, item.id)).map((item) => {
+      <List sx={{ px: 1.5, pt: 1, pb: 2 }}>
+        {(!collapsed || !desktop) && <Box sx={{ mx: .75, mb: 1.25, p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)' }}><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: .8 }}>Working in</Typography><Typography variant="body2" fontWeight={750} noWrap>{divisionName || 'Carpenters Fiji Group'}</Typography><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.62)' }}>{branchName || 'All branches'}</Typography></Box>}
+        {sections.map((section) => {
+          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id))
+          if (!items.length) return null
+          return <Box key={section}>{!collapsed || !desktop ? <ListSubheader disableSticky sx={{ bgcolor: 'transparent', color: 'rgba(255,255,255,.42)', fontSize: 11, fontWeight: 800, lineHeight: '32px', letterSpacing: 1.1, textTransform: 'uppercase', px: 2, mt: 1 }}>{section}</ListSubheader> : <Box sx={{ height: 12 }} />}{items.map((item) => {
           const button = (
             <ListItemButton
               key={item.id}
@@ -80,8 +118,8 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, onLogout
                 setOpen(false)
               }}
               sx={{
-                mb: 0.5,
-                minHeight: 48,
+                mb: 0.35,
+                minHeight: 46,
                 px: collapsed && desktop ? 1.5 : 2,
                 justifyContent: collapsed && desktop ? 'center' : 'flex-start',
                 borderRadius: 2,
@@ -92,7 +130,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, onLogout
               }}
             >
               <ListItemIcon sx={{ color: 'inherit', minWidth: collapsed && desktop ? 0 : 40, justifyContent: 'center' }}>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.label} sx={{ display: collapsed && desktop ? 'none' : 'block' }} />
+              <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 14.5, fontWeight: activePage === item.id ? 700 : 500 }} sx={{ display: collapsed && desktop ? 'none' : 'block' }} />
             </ListItemButton>
           )
 
@@ -101,7 +139,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, onLogout
               {button}
             </Tooltip>
           ) : button
-        })}
+        })}</Box>})}
       </List>
     </Box>
   )
@@ -133,9 +171,10 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, onLogout
               </IconButton>
             </Tooltip>
           )}
-          <Typography variant="subtitle1" fontWeight={600}>Rental Operations</Typography>
+          <Box><Typography variant="subtitle1" fontWeight={750} lineHeight={1.15}>{currentPageLabel}</Typography><Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>{divisionName || 'Carpenters Fiji Group'}{branchName ? ` · ${branchName}` : ' · Group-wide access'}</Typography></Box>
           <Box sx={{ flexGrow: 1 }} />
-          <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>{userName}</Typography>
+          <Button size="small" color="inherit" startIcon={<HelpOutlineOutlined />} onClick={() => setHelpOpen(true)} sx={{ mr: 1, display: { xs: 'none', sm: 'inline-flex' } }}>Help</Button>
+          <Typography variant="body2" fontWeight={600} sx={{ display: { xs: 'none', lg: 'block' } }}>{userName}</Typography>
           <Chip
             label={formatRole(getPrimaryRole(userRoles))}
             size="small"
@@ -175,8 +214,39 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, onLogout
           transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
         }}
       >
+        <Box
+          component="nav"
+          aria-label="Breadcrumb"
+          sx={{
+            px: { xs: 2, sm: 3, lg: 4 },
+            py: 1.25,
+            bgcolor: 'background.paper',
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}
+        >
+          <Breadcrumbs aria-label="Current location">
+            {activePage === 'dashboard' ? (
+              <Typography variant="body2" fontWeight={700} color="text.primary" sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <HomeOutlined fontSize="small" /> Home
+              </Typography>
+            ) : (
+              <Button
+                size="small"
+                color="inherit"
+                startIcon={<HomeOutlined fontSize="small" />}
+                onClick={() => onNavigate('dashboard')}
+                sx={{ minWidth: 0, px: 0.5, color: 'text.secondary', textTransform: 'none' }}
+              >
+                Home
+              </Button>
+            )}
+            {activePage !== 'dashboard' && <Typography variant="body2" fontWeight={700} color="text.primary">{currentPageLabel}</Typography>}
+          </Breadcrumbs>
+        </Box>
         {children}
       </Box>
+      <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} fullWidth maxWidth="sm"><DialogTitle>Help with {currentPageLabel}</DialogTitle><DialogContent><Typography color="text.secondary" mb={2}>{pageHelp[activePage]?.purpose ?? 'Use this page to complete your current CREMS task.'}</Typography><Stack spacing={1.25}>{(pageHelp[activePage]?.steps ?? []).map((step, index) => <Stack key={step} direction="row" gap={1.5} alignItems="flex-start"><Box sx={{ width: 28, height: 28, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: '50%', bgcolor: 'secondary.main', fontWeight: 800 }}>{index + 1}</Box><Typography sx={{ pt: .35 }}>{step}</Typography></Stack>)}</Stack></DialogContent><DialogActions sx={{ p: 3 }}><Button variant="contained" onClick={() => setHelpOpen(false)}>Got it</Button></DialogActions></Dialog>
     </Box>
   )
 }

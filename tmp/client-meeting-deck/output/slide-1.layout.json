@@ -1,0 +1,508 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/a9qxdo",
+    "id": "a9qxdo",
+    "slide": 1,
+    "layoutId": "d7a476bb-9bf3-4ba1-9b40-f8389cf04c97",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "ab383c02-627e-4778-8191-68dcf44c7afe",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#0B0B0B",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "+mn-lt"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "d7a476bb-9bf3-4ba1-9b40-f8389cf04c97",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "ab383c02-627e-4778-8191-68dcf44c7afe",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "ab383c02-627e-4778-8191-68dcf44c7afe",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/0rq50va9",
+      "id": "1",
+      "bbox": [
+        0,
+        0,
+        22,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#FFED00",
+      "lineColor": "#FFED00",
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "image",
+      "scope": "slide",
+      "aid": "im/2l8fu1wn",
+      "id": "2",
+      "bbox": [
+        80,
+        72,
+        92,
+        92
+      ],
+      "geometry": "roundRect",
+      "alt": "Carpenters Fiji logo",
+      "contentType": "image/png",
+      "imageFit": "contain",
+      "imageMask": {
+        "geometry": "roundRect",
+        "adjustmentList": [
+          {
+            "name": "adj",
+            "formula": "val 19565"
+          }
+        ]
+      },
+      "asset": {
+        "assetId": "76ea2502-46ca-49b9-bf43-cad80094b2d1",
+        "contentType": "image/png",
+        "byteLength": 19017
+      }
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ep8nylcj",
+      "id": "3",
+      "bbox": [
+        200,
+        78,
+        500,
+        30
+      ],
+      "geometry": "rect",
+      "text": "CARPENTERS FIJI",
+      "textPreview": "CARPENTERS FIJI",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 18,
+        "typeface": "+mn-lt",
+        "color": "#FFED00",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "CARPENTERS FIJI"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "CARPENTERS FIJI",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "color": "#FFED00",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "CARPENTERS FIJI",
+              "fontSize": 18,
+              "color": "#FFED00",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/t4f6pgby",
+      "id": "4",
+      "bbox": [
+        80,
+        205,
+        520,
+        76
+      ],
+      "geometry": "rect",
+      "text": "CREMS",
+      "textPreview": "CREMS",
+      "resolvedFontSize": 60,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 60,
+        "typeface": "+mn-lt",
+        "color": "#FFFFFF",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "CREMS"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "CREMS",
+          "resolvedTextStyle": {
+            "fontSize": 60,
+            "color": "#FFFFFF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "CREMS",
+              "fontSize": 60,
+              "color": "#FFFFFF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/s365wvud",
+      "id": "5",
+      "bbox": [
+        80,
+        294,
+        710,
+        150
+      ],
+      "geometry": "rect",
+      "text": "Technology, pilot scope\nand semester delivery plan",
+      "textPreview": "Technology, pilot scope | and semester delivery plan",
+      "resolvedFontSize": 42,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 42,
+        "typeface": "+mn-lt",
+        "color": "#FFFFFF",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Technology, pilot scope"
+          },
+          {
+            "index": 2,
+            "text": "and semester delivery plan"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Technology, pilot scope",
+          "resolvedTextStyle": {
+            "fontSize": 42,
+            "color": "#FFFFFF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Technology, pilot scope",
+              "fontSize": 42,
+              "color": "#FFFFFF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "and semester delivery plan",
+          "resolvedTextStyle": {
+            "fontSize": 42,
+            "color": "#FFFFFF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "and semester delivery plan",
+              "fontSize": 42,
+              "color": "#FFFFFF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/r2xonqts",
+      "id": "6",
+      "bbox": [
+        82,
+        482,
+        600,
+        38
+      ],
+      "geometry": "rect",
+      "text": "Carpenters Rentals + Carptrac",
+      "textPreview": "Carpenters Rentals + Carptrac",
+      "resolvedFontSize": 23,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 23,
+        "typeface": "+mn-lt",
+        "color": "#FFED00",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Carpenters Rentals + Carptrac"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Carpenters Rentals + Carptrac",
+          "resolvedTextStyle": {
+            "fontSize": 23,
+            "color": "#FFED00",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Carpenters Rentals + Carptrac",
+              "fontSize": 23,
+              "color": "#FFED00",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/61onulc7",
+      "id": "7",
+      "bbox": [
+        82,
+        545,
+        480,
+        28
+      ],
+      "geometry": "rect",
+      "text": "Client meeting  •  10 August 2026",
+      "textPreview": "Client meeting  •  10 August 2026",
+      "resolvedFontSize": 18,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 18,
+        "typeface": "+mn-lt",
+        "color": "#C7C7C2",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Client meeting  •  10 August 2026"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Client meeting  •  10 August 2026",
+          "resolvedTextStyle": {
+            "fontSize": 18,
+            "color": "#C7C7C2",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Client meeting  •  10 August 2026",
+              "fontSize": 18,
+              "color": "#C7C7C2",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 8,
+      "kind": "image",
+      "scope": "slide",
+      "aid": "im/0fax4ve1",
+      "id": "8",
+      "bbox": [
+        850,
+        0,
+        430,
+        720
+      ],
+      "geometry": "roundRect",
+      "alt": "Carptrac excavator",
+      "contentType": "image/jpeg",
+      "imageFit": "cover",
+      "imageMask": {
+        "geometry": "roundRect",
+        "adjustmentList": [
+          {
+            "name": "adj",
+            "formula": "val 4186"
+          }
+        ]
+      },
+      "asset": {
+        "assetId": "5d12e00a-35d2-4e9a-a621-eca9bf55da60",
+        "contentType": "image/jpeg",
+        "byteLength": 373415
+      }
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/czap8fah",
+      "id": "9",
+      "bbox": [
+        806,
+        0,
+        70,
+        720
+      ],
+      "geometry": "rect",
+      "fillColor": "#0B0B0B",
+      "lineColor": "#0B0B0B",
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

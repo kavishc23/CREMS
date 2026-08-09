@@ -18,13 +18,16 @@ type Branch = {
   address: string | null
   phone: string | null
   isActive: boolean
+  divisionIds: string[]
 }
 
-type BranchForm = { code: string; name: string; address: string; phone: string }
-const emptyForm: BranchForm = { code: '', name: '', address: '', phone: '' }
+type Division = { id: string; name: string; isActive: boolean }
+type BranchForm = { code: string; name: string; address: string; phone: string; divisionIds: string[] }
+const emptyForm: BranchForm = { code: '', name: '', address: '', phone: '', divisionIds: [] }
 
 export function BranchesPage({ userRoles }: { userRoles: string[] }) {
   const [branches, setBranches] = useState<Branch[]>([])
+  const [divisions, setDivisions] = useState<Division[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -35,8 +38,8 @@ export function BranchesPage({ userRoles }: { userRoles: string[] }) {
 
   async function loadBranches() {
     try {
-      const response = await api.get<Branch[]>('/branches')
-      setBranches(response.data)
+      const [response, divisionResponse] = await Promise.all([api.get<Branch[]>('/branches'), api.get<Division[]>('/divisions')])
+      setBranches(response.data); setDivisions(divisionResponse.data.filter(x => x.isActive))
     } catch {
       setError('Unable to load branches. Confirm that the backend is running.')
     } finally {
@@ -56,7 +59,7 @@ export function BranchesPage({ userRoles }: { userRoles: string[] }) {
 
   function openEdit(branch: Branch) {
     setEditing(branch)
-    setForm({ code: branch.code, name: branch.name, address: branch.address ?? '', phone: branch.phone ?? '' })
+    setForm({ code: branch.code, name: branch.name, address: branch.address ?? '', phone: branch.phone ?? '', divisionIds: branch.divisionIds })
     setError(''); setOpen(true)
   }
 
@@ -93,11 +96,11 @@ export function BranchesPage({ userRoles }: { userRoles: string[] }) {
     <Card variant="outlined"><CardContent sx={{ p: 0 }}>
       {loading ? <Box sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> :
         <TableContainer><Table><TableHead><TableRow sx={{ bgcolor: '#f6f6f3' }}>
-          <TableCell>Code</TableCell><TableCell>Branch</TableCell><TableCell>Address</TableCell><TableCell>Phone</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell>
+          <TableCell>Code</TableCell><TableCell>Branch</TableCell><TableCell>Divisions</TableCell><TableCell>Address</TableCell><TableCell>Phone</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell>
         </TableRow></TableHead><TableBody>
-          {branches.length === 0 && <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8, color: 'text.secondary' }}>No branches have been added yet.</TableCell></TableRow>}
+          {branches.length === 0 && <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8, color: 'text.secondary' }}>No branches have been added yet.</TableCell></TableRow>}
           {branches.map((branch) => <TableRow key={branch.id} hover>
-            <TableCell sx={{ fontWeight: 700 }}>{branch.code}</TableCell><TableCell>{branch.name}</TableCell><TableCell>{branch.address || '—'}</TableCell><TableCell>{branch.phone || '—'}</TableCell>
+            <TableCell sx={{ fontWeight: 700 }}>{branch.code}</TableCell><TableCell>{branch.name}</TableCell><TableCell><Stack direction="row" gap={.5} flexWrap="wrap">{branch.divisionIds.map(id => <Chip key={id} size="small" label={divisions.find(x => x.id === id)?.name ?? 'Division'} />)}</Stack></TableCell><TableCell>{branch.address || '—'}</TableCell><TableCell>{branch.phone || '—'}</TableCell>
             <TableCell><Chip label={branch.isActive ? 'Active' : 'Inactive'} size="small" color={branch.isActive ? 'success' : 'default'} variant="outlined" /></TableCell>
             <TableCell align="right"><Tooltip title="Edit branch details"><IconButton onClick={() => openEdit(branch)}><EditOutlined /></IconButton></Tooltip>{isAdministrator && <Tooltip title={branch.isActive ? 'Deactivate' : 'Activate'}><Switch checked={branch.isActive} onChange={() => void toggleStatus(branch)} /></Tooltip>}</TableCell>
           </TableRow>)}
@@ -110,6 +113,7 @@ export function BranchesPage({ userRoles }: { userRoles: string[] }) {
           <TextField label="Branch name" required inputProps={{ maxLength: 150 }} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <TextField label="Address" multiline minRows={2} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
           <TextField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          {isAdministrator && <Box><Typography variant="subtitle2" mb={1}>Divisions operating at this branch</Typography><Stack direction="row" flexWrap="wrap" gap={1}>{divisions.map(division => <Chip key={division.id} clickable color={form.divisionIds.includes(division.id) ? 'primary' : 'default'} variant={form.divisionIds.includes(division.id) ? 'filled' : 'outlined'} label={division.name} onClick={() => setForm({ ...form, divisionIds: form.divisionIds.includes(division.id) ? form.divisionIds.filter(id => id !== division.id) : [...form.divisionIds, division.id] })} />)}</Stack></Box>}
         </Stack>
       </DialogContent><DialogActions sx={{ p: 3, pt: 1 }}><Button onClick={() => setOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" variant="contained" disabled={saving}>{saving ? 'Saving…' : 'Save branch'}</Button></DialogActions></Box>
     </Dialog>

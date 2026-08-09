@@ -15,8 +15,13 @@ public sealed class RentalAgreement : Entity
     public required string AssetSnapshotJson { get; set; }
     public required string PricingSnapshotJson { get; set; }
     public required string CustomerSignatureName { get; set; }
+    public string? CustomerSignatureDataUrl { get; set; }
     public DateTimeOffset CustomerSignedAt { get; set; }
     public Guid ApprovedByUserId { get; set; }
     public required string ApprovedByName { get; set; }
     public DateTimeOffset ApprovedAt { get; set; }
+    public AgreementStatus Status { get; set; } = AgreementStatus.Signed;
+    public ICollection<RentalAgreementAddendum> Addendums { get; set; } = [];
 }
+
+public enum AgreementStatus { Draft, ReadyForPickup, Signed, Active, Completed, Superseded }

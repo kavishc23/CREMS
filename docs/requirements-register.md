@@ -44,4 +44,19 @@ Proposed later phase:
 - Depreciation calculations
 - Complex inter-branch transfer approvals
 - Nonessential exports and report customization
+# Client meeting update — group-wide modular CREMS
 
+The following requirements were confirmed during the first client meeting and now guide the implementation:
+
+- CREMS must support multiple Carpenters Fiji divisions through reusable modules rather than separate hard-coded systems.
+- The initial operational focus remains rental revenue and asset-maintenance expense management.
+- A division may enable only the capabilities it needs, such as rental, maintenance, property leasing, logistics, retail or personnel-supported hire.
+- Individual and corporate customers must eventually use authenticated customer accounts across participating divisions.
+- The public experience must use progressive disclosure: ordinary vehicle-rental customers should not be overwhelmed by unrelated shipping, equipment or property workflows.
+- Some hired assets, including generators or excavators, may require or optionally include trained personnel.
+- Property rental/leasing must be representable as another division capability.
+- Carptrac equipment hire and Carpenters Hardware tool hire remain unconfirmed; CREMS must support quote-only/configurable offerings without presenting them as confirmed online rentals.
+
+Implementation status (6 August 2026): division and service-offering configuration, capability flags, personnel requirements, asset-to-division links, public division discovery and administrator configuration have been added. Individual and corporate customer registration, customer-only sessions, account-linked bookings and a cross-division customer booking view are also implemented. Customer email verification uses expiring one-time codes. Staff can now invite a pre-existing customer record to online access without duplicating or exposing its history; the customer activates it with a 24-hour code and chooses a password. Detailed division-specific workflows remain discovery/implementation items.
+
+Division-aware staff scope is now implemented. A non-administrator staff account requires both a division and branch assignment. Dashboard totals, assets, bookings, rental lifecycle, agreements, QR check-in/check-out and maintenance are constrained by both values. Branches can participate in multiple divisions, and administrators maintain those memberships from the Branches page. Staff can view the directory of branches enabled for their division while operational transactions remain limited to their assigned branch.

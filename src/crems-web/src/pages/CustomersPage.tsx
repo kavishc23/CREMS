@@ -5,6 +5,7 @@ import BlockOutlined from '@mui/icons-material/BlockOutlined'
 import CheckCircleOutline from '@mui/icons-material/CheckCircleOutline'
 import EditOutlined from '@mui/icons-material/EditOutlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
+import MarkEmailReadOutlined from '@mui/icons-material/MarkEmailReadOutlined'
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, FormControl, IconButton,
@@ -19,6 +20,7 @@ type Customer = {
   id: string; customerNumber: string; type: CustomerType; name: string
   email: string | null; phone: string | null; address: string | null
   identificationNumber: string | null; isBlocked: boolean; isActive: boolean
+  hasOnlineAccount: boolean; emailConfirmed: boolean
 }
 type CustomerForm = {
   customerNumber: string; type: CustomerType; name: string; email: string
@@ -37,6 +39,7 @@ export function CustomersPage() {
   const [form, setForm] = useState<CustomerForm>(emptyForm)
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
   const loadCustomers = useCallback(async () => {
     setLoading(true)
@@ -91,6 +94,11 @@ export function CustomersPage() {
       await loadCustomers()
     } catch { setError('Unable to update the customer status.') }
   }
+  async function enableOnlineAccess(customer: Customer) {
+    setError(''); setNotice('')
+    try { const response = await api.post<{ message: string }>(`/customers/${customer.id}/online-access`); setNotice(response.data.message); await loadCustomers() }
+    catch (reason) { const data = axios.isAxiosError(reason) ? reason.response?.data : undefined; setError(data?.message ?? 'Unable to enable online access.') }
+  }
 
   return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}>
     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2} mb={3}>
@@ -99,6 +107,7 @@ export function CustomersPage() {
       <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add customer</Button>
     </Stack>
     {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+    {notice && <Alert severity="success" sx={{ mb: 2 }}>{notice}</Alert>}
     <Card variant="outlined"><CardContent sx={{ p: 0 }}>
       <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}><TextField size="small" placeholder="Search customers" value={search}
         onChange={(event) => setSearch(event.target.value)} sx={{ width: { xs: '100%', sm: 380 } }}
@@ -117,8 +126,10 @@ export function CustomersPage() {
             <TableCell><Stack direction="row" gap={0.75} flexWrap="wrap">
               <Chip size="small" label={customer.isActive ? 'Active' : 'Inactive'} color={customer.isActive ? 'success' : 'default'} variant="outlined" />
               {customer.isBlocked && <Chip size="small" label="Blocked" color="error" variant="outlined" />}
+              <Chip size="small" label={customer.emailConfirmed ? 'Online verified' : customer.hasOnlineAccount ? 'Invite pending' : 'Offline only'} color={customer.emailConfirmed ? 'success' : 'default'} variant="outlined" />
             </Stack></TableCell>
             <TableCell align="right"><Tooltip title="Edit customer"><IconButton onClick={() => openEdit(customer)}><EditOutlined /></IconButton></Tooltip>
+              {!customer.emailConfirmed && <Tooltip title={customer.hasOnlineAccount ? 'Send a new activation code' : 'Enable online access'}><span><IconButton color="primary" disabled={!customer.email || !customer.isActive || customer.isBlocked} onClick={() => void enableOnlineAccess(customer)}><MarkEmailReadOutlined /></IconButton></span></Tooltip>}
               <Tooltip title={customer.isBlocked ? 'Restore rental access' : 'Block from rentals'}><IconButton color={customer.isBlocked ? 'success' : 'error'} onClick={() => void setStatus(customer, { isBlocked: !customer.isBlocked })}>{customer.isBlocked ? <CheckCircleOutline /> : <BlockOutlined />}</IconButton></Tooltip>
             </TableCell>
           </TableRow>)}

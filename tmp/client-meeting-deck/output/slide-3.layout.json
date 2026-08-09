@@ -1,0 +1,866 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/559be0",
+    "id": "559be0",
+    "slide": 3,
+    "layoutId": "d7a476bb-9bf3-4ba1-9b40-f8389cf04c97",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "ab383c02-627e-4778-8191-68dcf44c7afe",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#F5F4EF",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "+mn-lt"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "d7a476bb-9bf3-4ba1-9b40-f8389cf04c97",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "ab383c02-627e-4778-8191-68dcf44c7afe",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "ab383c02-627e-4778-8191-68dcf44c7afe",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/axsjalsr",
+      "id": "1",
+      "bbox": [
+        64,
+        28,
+        420,
+        22
+      ],
+      "geometry": "rect",
+      "text": "CREMS  /  CLIENT MEETING",
+      "textPreview": "CREMS  /  CLIENT MEETING",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 12,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "CREMS  /  CLIENT MEETING"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "CREMS  /  CLIENT MEETING",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "color": "#6B6B67",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "CREMS  /  CLIENT MEETING",
+              "fontSize": 12,
+              "color": "#6B6B67",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/x0j250r2",
+      "id": "2",
+      "bbox": [
+        1160,
+        28,
+        56,
+        22
+      ],
+      "geometry": "rect",
+      "text": "03",
+      "textPreview": "03",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 12,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "bold": true,
+        "alignment": "right",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "03"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "03",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "color": "#6B6B67",
+            "bold": true,
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "03",
+              "fontSize": 12,
+              "color": "#6B6B67",
+              "bold": true,
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/wza1cvax",
+      "id": "3",
+      "name": "slide-3-title",
+      "bbox": [
+        64,
+        67,
+        1120,
+        54
+      ],
+      "geometry": "rect",
+      "text": "Two pilot divisions prove the model across different operations",
+      "textPreview": "Two pilot divisions prove the model across different operations",
+      "resolvedFontSize": 36,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 36,
+        "typeface": "+mn-lt",
+        "color": "#0B0B0B",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Two pilot divisions prove the model across different operations"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Two pilot divisions prove the model across different operations",
+          "resolvedTextStyle": {
+            "fontSize": 36,
+            "color": "#0B0B0B",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Two pilot divisions prove the model across different operations",
+              "fontSize": 36,
+              "color": "#0B0B0B",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/jmlk7a98",
+      "id": "4",
+      "bbox": [
+        64,
+        128,
+        78,
+        5
+      ],
+      "geometry": "rect",
+      "fillColor": "#FFED00",
+      "lineColor": "#FFED00",
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "image",
+      "scope": "slide",
+      "aid": "im/z254nqtk",
+      "id": "5",
+      "bbox": [
+        64,
+        170,
+        360,
+        220
+      ],
+      "geometry": "roundRect",
+      "alt": "Rental SUV",
+      "contentType": "image/jpeg",
+      "imageFit": "cover",
+      "imageMask": {
+        "geometry": "roundRect",
+        "adjustmentList": [
+          {
+            "name": "adj",
+            "formula": "val 8182"
+          }
+        ]
+      },
+      "asset": {
+        "assetId": "4b4ccea3-30e0-4d38-b265-4321bfecec98",
+        "contentType": "image/jpeg",
+        "byteLength": 258120
+      }
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/5o3290re",
+      "id": "6",
+      "bbox": [
+        64,
+        412,
+        360,
+        38
+      ],
+      "geometry": "rect",
+      "text": "Carpenters Rentals",
+      "textPreview": "Carpenters Rentals",
+      "resolvedFontSize": 30,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 30,
+        "typeface": "+mn-lt",
+        "color": "#0B0B0B",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Carpenters Rentals"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Carpenters Rentals",
+          "resolvedTextStyle": {
+            "fontSize": 30,
+            "color": "#0B0B0B",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Carpenters Rentals",
+              "fontSize": 30,
+              "color": "#0B0B0B",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/knu1gfat",
+      "id": "7",
+      "bbox": [
+        64,
+        463,
+        360,
+        105
+      ],
+      "geometry": "rect",
+      "text": "Vehicle-led booking, agreements, pickup, return, damage evidence and fleet utilisation.",
+      "textPreview": "Vehicle-led booking, agreements, pickup, return, damage evidence and fleet utilisation.",
+      "resolvedFontSize": 20,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 20,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 3,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Vehicle-led booking, agreements,"
+          },
+          {
+            "index": 2,
+            "text": "pickup, return, damage evidence and"
+          },
+          {
+            "index": 3,
+            "text": "fleet utilisation."
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Vehicle-led booking, agreements, pickup, return, damage evidence and fleet utilisation.",
+          "resolvedTextStyle": {
+            "fontSize": 20,
+            "color": "#6B6B67",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Vehicle-led booking, agreements, pickup, return, damage evidence and fleet utilisation.",
+              "fontSize": 20,
+              "color": "#6B6B67",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 8,
+      "kind": "image",
+      "scope": "slide",
+      "aid": "im/axw3q1s3",
+      "id": "8",
+      "bbox": [
+        460,
+        170,
+        360,
+        220
+      ],
+      "geometry": "roundRect",
+      "alt": "Heavy equipment excavator",
+      "contentType": "image/jpeg",
+      "imageFit": "cover",
+      "imageMask": {
+        "geometry": "roundRect",
+        "adjustmentList": [
+          {
+            "name": "adj",
+            "formula": "val 8182"
+          }
+        ]
+      },
+      "asset": {
+        "assetId": "28d02b43-f8c4-4bc9-871b-29e6299f6c26",
+        "contentType": "image/jpeg",
+        "byteLength": 373415
+      }
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/6pcji5sz",
+      "id": "9",
+      "bbox": [
+        460,
+        412,
+        360,
+        38
+      ],
+      "geometry": "rect",
+      "text": "Carptrac",
+      "textPreview": "Carptrac",
+      "resolvedFontSize": 30,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 30,
+        "typeface": "+mn-lt",
+        "color": "#0B0B0B",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Carptrac"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Carptrac",
+          "resolvedTextStyle": {
+            "fontSize": 30,
+            "color": "#0B0B0B",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Carptrac",
+              "fontSize": 30,
+              "color": "#0B0B0B",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 10,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/s3ixsr6x",
+      "id": "10",
+      "bbox": [
+        460,
+        463,
+        360,
+        105
+      ],
+      "geometry": "rect",
+      "text": "Equipment availability, hour-meter tracking, personnel requirements, inspections and maintenance.",
+      "textPreview": "Equipment availability, hour-meter tracking, personnel requirements, inspections and maintenance.",
+      "resolvedFontSize": 20,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 20,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 3,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Equipment availability, hour-meter"
+          },
+          {
+            "index": 2,
+            "text": "tracking, personnel requirements,"
+          },
+          {
+            "index": 3,
+            "text": "inspections and maintenance."
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Equipment availability, hour-meter tracking, personnel requirements, inspections and maintenance.",
+          "resolvedTextStyle": {
+            "fontSize": 20,
+            "color": "#6B6B67",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Equipment availability, hour-meter tracking, personnel requirements, inspections and maintenance.",
+              "fontSize": 20,
+              "color": "#6B6B67",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 11,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/d4rylw7i",
+      "id": "11",
+      "bbox": [
+        856,
+        170,
+        352,
+        398
+      ],
+      "geometry": "roundRect",
+      "fillColor": "#0B0B0B",
+      "lineColor": "#0B0B0B",
+      "lineWidth": 0
+    },
+    {
+      "order": 12,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/q10fqh8r",
+      "id": "12",
+      "bbox": [
+        884,
+        202,
+        290,
+        34
+      ],
+      "geometry": "rect",
+      "text": "What this validates",
+      "textPreview": "What this validates",
+      "resolvedFontSize": 25,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 25,
+        "typeface": "+mn-lt",
+        "color": "#FFED00",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "What this validates"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "What this validates",
+          "resolvedTextStyle": {
+            "fontSize": 25,
+            "color": "#FFED00",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "What this validates",
+              "fontSize": 25,
+              "color": "#FFED00",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 13,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/r29gjmpc",
+      "id": "13",
+      "bbox": [
+        884,
+        262,
+        282,
+        255
+      ],
+      "geometry": "rect",
+      "text": "• One customer foundation\n\n• One asset lifecycle\n\n• Different operational rules\n\n• Division and branch controls\n\n• Reusable reporting",
+      "textPreview": "• One customer foundation |  | • One asset lifecycle |  | • Different operational rules |  | • Division and branch controls |  | • Reusab...",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "+mn-lt",
+        "color": "#FFFFFF",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 10,
+        "lines": [
+          {
+            "index": 1,
+            "text": "• One customer foundation"
+          },
+          {
+            "index": 2,
+            "text": ""
+          },
+          {
+            "index": 3,
+            "text": "• One asset lifecycle"
+          },
+          {
+            "index": 4,
+            "text": ""
+          },
+          {
+            "index": 5,
+            "text": "• Different operational rules"
+          },
+          {
+            "index": 6,
+            "text": ""
+          },
+          {
+            "index": 7,
+            "text": "• Division and branch"
+          },
+          {
+            "index": 8,
+            "text": "controls"
+          },
+          {
+            "index": 9,
+            "text": ""
+          },
+          {
+            "index": 10,
+            "text": "• Reusable reporting"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "• One customer foundation",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#FFFFFF",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "• One customer foundation",
+              "fontSize": 21,
+              "color": "#FFFFFF",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "• One asset lifecycle",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#FFFFFF",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "• One asset lifecycle",
+              "fontSize": 21,
+              "color": "#FFFFFF",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 5,
+          "text": "• Different operational rules",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#FFFFFF",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "• Different operational rules",
+              "fontSize": 21,
+              "color": "#FFFFFF",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 7,
+          "text": "• Division and branch controls",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#FFFFFF",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "• Division and branch controls",
+              "fontSize": 21,
+              "color": "#FFFFFF",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 9,
+          "text": "• Reusable reporting",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#FFFFFF",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "• Reusable reporting",
+              "fontSize": 21,
+              "color": "#FFFFFF",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

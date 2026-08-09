@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import axios from 'axios'
 import AddOutlined from '@mui/icons-material/AddOutlined'
 import EditOutlined from '@mui/icons-material/EditOutlined'
+import QrCode2Outlined from '@mui/icons-material/QrCode2Outlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
@@ -11,6 +12,7 @@ import {
 } from '@mui/material'
 import { api } from '../api/client'
 import { roles } from '../auth/access'
+import { AssetQrLabelDialog } from '../components/AssetQrLabelDialog'
 
 const assetTypes = ['Vehicle', 'Equipment'] as const
 const assetStatuses = ['Available', 'Reserved', 'Rented', 'Inspection', 'Maintenance', 'OutOfService', 'Retired'] as const
@@ -18,16 +20,18 @@ type AssetType = typeof assetTypes[number]
 type AssetStatus = typeof assetStatuses[number]
 type Asset = {
   id: string; assetNumber: string; name: string; type: AssetType; status: AssetStatus
+  divisionId: string | null; divisionName: string | null
   branchId: string; branchName: string; registrationNumber: string | null
   serialNumber: string | null; dailyRate: number; nextServiceDate: string | null; isActive: boolean
 }
-type Branch = { id: string; name: string; isActive: boolean }
+type Branch = { id: string; name: string; isActive: boolean; divisionIds: string[] }
+type Division = { id: string; name: string; isActive: boolean }
 type AssetForm = {
-  assetNumber: string; name: string; type: AssetType; status: AssetStatus; branchId: string
+  assetNumber: string; name: string; type: AssetType; status: AssetStatus; divisionId: string; branchId: string
   registrationNumber: string; serialNumber: string; dailyRate: string; nextServiceDate: string
 }
 const emptyForm: AssetForm = {
-  assetNumber: '', name: '', type: 'Vehicle', status: 'Available', branchId: '',
+  assetNumber: '', name: '', type: 'Vehicle', status: 'Available', divisionId: '', branchId: '',
   registrationNumber: '', serialNumber: '', dailyRate: '', nextServiceDate: '',
 }
 
@@ -38,6 +42,7 @@ const statusColors: Partial<Record<AssetStatus, 'success' | 'warning' | 'error' 
 export function AssetsPage({ userRoles }: { userRoles: string[] }) {
   const [assets, setAssets] = useState<Asset[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
+  const [divisions, setDivisions] = useState<Division[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -45,6 +50,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
   const [form, setForm] = useState<AssetForm>(emptyForm)
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
+  const [qrAsset, setQrAsset] = useState<Asset | null>(null)
   const canManage = userRoles.includes(roles.administrator) || userRoles.includes(roles.branchManager)
 
   const loadData = useCallback(async () => {
@@ -53,8 +59,8 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
       const assetResponse = await api.get<Asset[]>('/assets')
       setAssets(assetResponse.data)
       if (canManage) {
-        const branchResponse = await api.get<Branch[]>('/branches')
-        setBranches(branchResponse.data.filter((branch) => branch.isActive))
+        const [branchResponse, divisionResponse] = await Promise.all([api.get<Branch[]>('/branches'), api.get<Division[]>('/divisions')])
+        setBranches(branchResponse.data.filter((branch) => branch.isActive)); setDivisions(divisionResponse.data.filter(x => x.isActive))
       }
     } catch { setError('Unable to load the asset register. Confirm that the backend is running.') }
     finally { setLoading(false) }
@@ -73,13 +79,13 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
   }, [assets, search])
 
   function openCreate() {
-    setEditing(null); setForm({ ...emptyForm, branchId: branches[0]?.id ?? '' }); setError(''); setOpen(true)
+    const divisionId = divisions[0]?.id ?? ''; setEditing(null); setForm({ ...emptyForm, divisionId, branchId: branches.find(x => x.divisionIds.includes(divisionId))?.id ?? '' }); setError(''); setOpen(true)
   }
 
   function openEdit(asset: Asset) {
     setEditing(asset)
     setForm({ assetNumber: asset.assetNumber, name: asset.name, type: asset.type, status: asset.status,
-      branchId: asset.branchId, registrationNumber: asset.registrationNumber ?? '', serialNumber: asset.serialNumber ?? '',
+      divisionId: asset.divisionId ?? '', branchId: asset.branchId, registrationNumber: asset.registrationNumber ?? '', serialNumber: asset.serialNumber ?? '',
       dailyRate: String(asset.dailyRate), nextServiceDate: asset.nextServiceDate ?? '' })
     setError(''); setOpen(true)
   }
@@ -111,17 +117,17 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
         InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} /></Box>
       {loading ? <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> :
         <TableContainer><Table><TableHead><TableRow sx={{ bgcolor: '#f6f6f3' }}>
-          <TableCell>Asset</TableCell><TableCell>Type</TableCell><TableCell>Branch</TableCell><TableCell>Status</TableCell>
+          <TableCell>Asset</TableCell><TableCell>Division</TableCell><TableCell>Type</TableCell><TableCell>Branch</TableCell><TableCell>Status</TableCell>
           <TableCell>Registration / serial</TableCell><TableCell align="right">Daily rate</TableCell>{canManage && <TableCell align="right">Actions</TableCell>}
         </TableRow></TableHead><TableBody>
-          {visibleAssets.length === 0 && <TableRow><TableCell colSpan={canManage ? 7 : 6} align="center" sx={{ py: 8, color: 'text.secondary' }}>No matching assets found.</TableCell></TableRow>}
+          {visibleAssets.length === 0 && <TableRow><TableCell colSpan={canManage ? 8 : 7} align="center" sx={{ py: 8, color: 'text.secondary' }}>No matching assets found.</TableCell></TableRow>}
           {visibleAssets.map((asset) => <TableRow key={asset.id} hover>
             <TableCell><Typography fontWeight={700}>{asset.assetNumber}</Typography><Typography variant="body2" color="text.secondary">{asset.name}</Typography></TableCell>
-            <TableCell>{asset.type}</TableCell><TableCell>{asset.branchName}</TableCell>
+            <TableCell>{asset.divisionName || 'Unassigned'}</TableCell><TableCell>{asset.type}</TableCell><TableCell>{asset.branchName}</TableCell>
             <TableCell><Chip size="small" label={asset.status.replace(/([a-z])([A-Z])/g, '$1 $2')} color={statusColors[asset.status] ?? 'default'} variant="outlined" /></TableCell>
             <TableCell>{asset.registrationNumber || asset.serialNumber || '—'}</TableCell>
             <TableCell align="right">${asset.dailyRate.toFixed(2)}</TableCell>
-            {canManage && <TableCell align="right"><Tooltip title="Edit asset"><IconButton onClick={() => openEdit(asset)}><EditOutlined /></IconButton></Tooltip></TableCell>}
+            {canManage && <TableCell align="right"><Tooltip title="Print QR label"><IconButton onClick={() => setQrAsset(asset)}><QrCode2Outlined /></IconButton></Tooltip><Tooltip title="Edit asset"><IconButton onClick={() => openEdit(asset)}><EditOutlined /></IconButton></Tooltip></TableCell>}
           </TableRow>)}
         </TableBody></Table></TableContainer>}
     </CardContent></Card>
@@ -133,9 +139,10 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
             <TextField fullWidth required label="Asset name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <FormControl fullWidth required><InputLabel>Division</InputLabel><Select label="Division" value={form.divisionId} onChange={(e) => { const divisionId = e.target.value; setForm({ ...form, divisionId, branchId: branches.find(x => x.divisionIds.includes(divisionId))?.id ?? '' }) }}>{divisions.map(value => <MenuItem key={value.id} value={value.id}>{value.name}</MenuItem>)}</Select></FormControl>
             <FormControl fullWidth><InputLabel>Type</InputLabel><Select label="Type" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as AssetType })}>{assetTypes.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl>
             <FormControl fullWidth><InputLabel>Status</InputLabel><Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as AssetStatus })}>{assetStatuses.map((value) => <MenuItem key={value} value={value}>{value.replace(/([a-z])([A-Z])/g, '$1 $2')}</MenuItem>)}</Select></FormControl>
-            <FormControl fullWidth required><InputLabel>Branch</InputLabel><Select label="Branch" value={form.branchId} onChange={(e) => setForm({ ...form, branchId: e.target.value })}>{branches.map((branch) => <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>)}</Select></FormControl>
+            <FormControl fullWidth required><InputLabel>Branch</InputLabel><Select label="Branch" value={form.branchId} onChange={(e) => setForm({ ...form, branchId: e.target.value })}>{branches.filter(branch => branch.divisionIds.includes(form.divisionId)).map((branch) => <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>)}</Select></FormControl>
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField fullWidth label="Registration number" value={form.registrationNumber} onChange={(e) => setForm({ ...form, registrationNumber: e.target.value })} />
@@ -146,7 +153,8 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
             <TextField fullWidth type="date" label="Next service date" InputLabelProps={{ shrink: true }} value={form.nextServiceDate} onChange={(e) => setForm({ ...form, nextServiceDate: e.target.value })} />
           </Stack>
         </Stack>
-      </DialogContent><DialogActions sx={{ p: 3, pt: 1 }}><Button onClick={() => setOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" variant="contained" disabled={saving || !form.branchId}>{saving ? 'Saving…' : 'Save asset'}</Button></DialogActions></Box>
+      </DialogContent><DialogActions sx={{ p: 3, pt: 1 }}><Button onClick={() => setOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" variant="contained" disabled={saving || !form.divisionId || !form.branchId}>{saving ? 'Saving…' : 'Save asset'}</Button></DialogActions></Box>
     </Dialog>
+    <AssetQrLabelDialog asset={qrAsset} open={Boolean(qrAsset)} onClose={() => setQrAsset(null)} />
   </Box>
 }

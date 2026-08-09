@@ -20,7 +20,7 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
         var scope = await staffScope.GetAsync(User);
         if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
         var query = db.MaintenanceJobs.AsNoTracking();
-        if (!scope.IsAdministrator) query = query.Where(job => job.BranchId == scope.BranchId);
+        if (!scope.IsAdministrator) query = query.Where(job => job.BranchId == scope.BranchId && job.Asset!.DivisionId == scope.DivisionId);
         return Ok(await query.OrderByDescending(job => job.ReportedAt).Select(job => new {
             job.Id, job.JobNumber, job.AssetId, AssetNumber = job.Asset!.AssetNumber, AssetName = job.Asset.Name,
             job.BranchId, BranchName = job.Branch!.Name, job.Status, job.ServiceType, job.FaultDescription,
@@ -34,7 +34,7 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
         var asset = await db.Assets.Include(item => item.Branch).FirstOrDefaultAsync(item => item.Id == request.AssetId, cancellationToken);
         if (asset is null) return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["assetId"] = ["Select a valid asset."] }));
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || !scope.HasBranchAccess(asset.BranchId)) return Forbid();
+        if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
         var job = new MaintenanceJob { JobNumber = $"MNT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
             AssetId = asset.Id, BranchId = asset.BranchId, ServiceType = request.ServiceType.Trim(),
             FaultDescription = request.FaultDescription.Trim(), AssignedTo = Normalize(request.AssignedTo),
@@ -54,7 +54,7 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
         var job = await db.MaintenanceJobs.Include(item => item.Asset).FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (job is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || !scope.HasBranchAccess(job.BranchId)) return Forbid();
+        if (scope is null || !scope.HasAssetAccess(job.BranchId, job.Asset?.DivisionId)) return Forbid();
         var previous = $"Status: {job.Status}; Actual cost: {job.ActualCost:0.00}";
         job.Status = request.Status; job.ServiceType = request.ServiceType.Trim();
         job.FaultDescription = request.FaultDescription.Trim(); job.AssignedTo = Normalize(request.AssignedTo);

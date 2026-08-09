@@ -1,0 +1,223 @@
+{"kind":"deck","id":"pr/lkvuvw","name":"Deck"}
+{"kind":"layout","layoutId":"ab383c02-627e-4778-8191-68dcf44c7afe","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"d7a476bb-9bf3-4ba1-9b40-f8389cf04c97","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/a9qxdo","slide":1,"title":"CARPENTERS FIJI","textShapes":5}
+{"kind":"shape","id":"sh/0rq50va9","slide":1,"bbox":[0,0,22,720]}
+{"kind":"textbox","id":"sh/ep8nylcj","slide":1,"text":"CARPENTERS FIJI","textPreview":"CARPENTERS FIJI","textChars":15,"textLines":1,"bbox":[200,78,500,30]}
+{"kind":"textbox","id":"sh/t4f6pgby","slide":1,"text":"CREMS","textPreview":"CREMS","textChars":5,"textLines":1,"bbox":[80,205,520,76]}
+{"kind":"textbox","id":"sh/s365wvud","slide":1,"text":"Technology, pilot scope\nand semester delivery plan","textPreview":"Technology, pilot scope | and semester delivery plan","textChars":50,"textLines":2,"bbox":[80,294,710,150]}
+{"kind":"textbox","id":"sh/r2xonqts","slide":1,"text":"Carpenters Rentals + Carptrac","textPreview":"Carpenters Rentals + Carptrac","textChars":29,"textLines":1,"bbox":[82,482,600,38]}
+{"kind":"textbox","id":"sh/61onulc7","slide":1,"text":"Client meeting  •  10 August 2026","textPreview":"Client meeting  •  10 August 2026","textChars":33,"textLines":1,"bbox":[82,545,480,28]}
+{"kind":"shape","id":"sh/czap8fah","slide":1,"bbox":[806,0,70,720]}
+{"kind":"image","id":"im/2l8fu1wn","slide":1,"name":"","geometry":"roundRect","alt":"Carpenters Fiji logo","bbox":[80,72,92,92]}
+{"kind":"image","id":"im/0fax4ve1","slide":1,"name":"","geometry":"roundRect","alt":"Carptrac excavator","bbox":[850,0,430,720]}
+{"kind":"notes","id":"nt/a9qxdo","slide":1,"text":"Open by confirming the purpose: agree the platform foundation, the first two divisions and the delivery baseline through 30 October.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}
+{"kind":"slide","id":"sl/wb1bd5","slide":2,"title":"CREMS  /  CLIENT MEETING","textShapes":11}
+{"kind":"textbox","id":"sh/5gvmtc3m","slide":2,"text":"CREMS  /  CLIENT MEETING","textPreview":"CREMS  /  CLIENT MEETING","textChars":24,"textLines":1,"bbox":[64,28,420,22]}
+{"kind":"textbox","id":"sh/id43yx4v","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[1160,28,56,22]}
+{"kind":"textbox","id":"sh/jed4r2lg","slide":2,"name":"slide-2-title","text":"Today we are confirming one practical delivery baseline","textPreview":"Today we are confirming one practical delivery baseline","textChars":55,"textLines":1,"bbox":[64,67,1120,54]}
+{"kind":"shape","id":"sh/sj6547mx","slide":2,"bbox":[64,128,78,5]}
+{"kind":"textbox","id":"sh/t4fmxc3i","slide":2,"text":"TWO PILOT DIVISIONS","textPreview":"TWO PILOT DIVISIONS","textChars":19,"textLines":1,"bbox":[72,180,330,28]}
+{"kind":"textbox","id":"sh/6h4n2h47","slide":2,"text":"Carpenters Rentals\nCarptrac","textPreview":"Carpenters Rentals | Carptrac","textChars":27,"textLines":2,"bbox":[72,220,360,104]}
+{"kind":"shape","id":"sh/7ix4v2ls","slide":2,"bbox":[72,344,220,8]}
+{"kind":"textbox","id":"sh/g7658rm9","slide":2,"text":"ONE MODULAR PLATFORM","textPreview":"ONE MODULAR PLATFORM","textChars":20,"textLines":1,"bbox":[472,180,330,28]}
+{"kind":"textbox","id":"sh/18fm1w3u","slide":2,"text":"Shared capabilities,\nconfigurable rules","textPreview":"Shared capabilities, | configurable rules","textChars":39,"textLines":2,"bbox":[472,220,370,104]}
+{"kind":"shape","id":"sh/t0j61kjm","slide":2,"bbox":[472,344,220,8]}
+{"kind":"textbox","id":"sh/sza58fih","slide":2,"text":"TWELVE WEEKS","textPreview":"TWELVE WEEKS","textChars":12,"textLines":1,"bbox":[872,180,300,28]}
+{"kind":"textbox","id":"sh/re1ozu1w","slide":2,"text":"10 August to\n30 October 2026","textPreview":"10 August to | 30 October 2026","textChars":28,"textLines":2,"bbox":[872,220,330,104]}
+{"kind":"shape","id":"sh/6dsn6p0b","slide":2,"bbox":[872,344,220,8]}
+{"kind":"shape","id":"sh/143654jy","slide":2,"bbox":[72,414,1136,184]}
+{"kind":"textbox","id":"sh/g3upczid","slide":2,"text":"Outcome","textPreview":"Outcome","textChars":7,"textLines":1,"bbox":[100,446,180,30]}
+{"kind":"textbox","id":"sh/f21o3u1s","slide":2,"text":"A tested rental and maintenance MVP that supports vehicle and heavy-equipment workflows while leaving a clean path for future Carpenters divisions.","textPreview":"A tested rental and maintenance MVP that supports vehicle and heavy-equipment workflows while leaving a clean path for future Carpenters ...","textChars":147,"textLines":1,"bbox":[280,440,870,95]}
+{"kind":"notes","id":"nt/wb1bd5","slide":2,"text":"Use this as the meeting anchor. The team is not proposing separate systems for each division; it is proposing one reusable platform with two initial operating contexts.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}
+{"kind":"slide","id":"sl/559be0","slide":3,"title":"CREMS  /  CLIENT MEETING","textShapes":9}
+{"kind":"textbox","id":"sh/axsjalsr","slide":3,"text":"CREMS  /  CLIENT MEETING","textPreview":"CREMS  /  CLIENT MEETING","textChars":24,"textLines":1,"bbox":[64,28,420,22]}
+{"kind":"textbox","id":"sh/x0j250r2","slide":3,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[1160,28,56,22]}
+{"kind":"textbox","id":"sh/wza1cvax","slide":3,"name":"slide-3-title","text":"Two pilot divisions prove the model across different operations","textPreview":"Two pilot divisions prove the model across different operations","textChars":63,"textLines":1,"bbox":[64,67,1120,54]}
+{"kind":"shape","id":"sh/jmlk7a98","slide":3,"bbox":[64,128,78,5]}
+{"kind":"textbox","id":"sh/5o3290re","slide":3,"text":"Carpenters Rentals","textPreview":"Carpenters Rentals","textChars":18,"textLines":1,"bbox":[64,412,360,38]}
+{"kind":"textbox","id":"sh/knu1gfat","slide":3,"text":"Vehicle-led booking, agreements, pickup, return, damage evidence and fleet utilisation.","textPreview":"Vehicle-led booking, agreements, pickup, return, damage evidence and fleet utilisation.","textChars":87,"textLines":1,"bbox":[64,463,360,105]}
+{"kind":"textbox","id":"sh/6pcji5sz","slide":3,"text":"Carptrac","textPreview":"Carptrac","textChars":8,"textLines":1,"bbox":[460,412,360,38]}
+{"kind":"textbox","id":"sh/s3ixsr6x","slide":3,"text":"Equipment availability, hour-meter tracking, personnel requirements, inspections and maintenance.","textPreview":"Equipment availability, hour-meter tracking, personnel requirements, inspections and maintenance.","textChars":97,"textLines":1,"bbox":[460,463,360,105]}
+{"kind":"shape","id":"sh/d4rylw7i","slide":3,"bbox":[856,170,352,398]}
+{"kind":"textbox","id":"sh/q10fqh8r","slide":3,"text":"What this validates","textPreview":"What this validates","textChars":19,"textLines":1,"bbox":[884,202,290,34]}
+{"kind":"textbox","id":"sh/r29gjmpc","slide":3,"text":"• One customer foundation\n\n• One asset lifecycle\n\n• Different operational rules\n\n• Division and branch controls\n\n• Reusable reporting","textPreview":"• One customer foundation |  | • One asset lifecycle |  | • Different operational rules |  | • Division and branch controls |  | • Reusab...","textChars":133,"textLines":9,"bbox":[884,262,282,255]}
+{"kind":"image","id":"im/z254nqtk","slide":3,"name":"","geometry":"roundRect","alt":"Rental SUV","bbox":[64,170,360,220]}
+{"kind":"image","id":"im/axw3q1s3","slide":3,"name":"","geometry":"roundRect","alt":"Heavy equipment excavator","bbox":[460,170,360,220]}
+{"kind":"notes","id":"nt/559be0","slide":3,"text":"Explain that these divisions were chosen because together they test both straightforward vehicle rental and more specialised equipment operations.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}
+{"kind":"slide","id":"sl/q1pbb7","slide":4,"title":"CREMS  /  CLIENT MEETING","textShapes":11}
+{"kind":"textbox","id":"sh/fu1c3uh4","slide":4,"text":"CREMS  /  CLIENT MEETING","textPreview":"CREMS  /  CLIENT MEETING","textChars":24,"textLines":1,"bbox":[64,28,420,22]}
+{"kind":"textbox","id":"sh/0fadczip","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[1160,28,56,22]}
+{"kind":"textbox","id":"sh/1gje54za","slide":4,"name":"slide-4-title","text":"Shared modules reduce duplication; rules stay configurable","textPreview":"Shared modules reduce duplication; rules stay configurable","textChars":58,"textLines":1,"bbox":[64,67,1120,54]}
+{"kind":"shape","id":"sh/qpsv6p0n","slide":4,"bbox":[64,128,78,5]}
+{"kind":"textbox","id":"sh/rq1czuh8","slide":4,"text":"SHARED CREMS CORE","textPreview":"SHARED CREMS CORE","textChars":17,"textLines":1,"bbox":[64,170,420,30]}
+{"kind":"textbox","id":"sh/srad8fit","slide":4,"text":"Identity  •  Customers  •  Branches  •  Assets  •  Bookings  •  Agreements  •  Inspections  •  Maintenance  •  Notifications  •  Audit  •  Reports","textPreview":"Identity  •  Customers  •  Branches  •  Assets  •  Bookings  •  Agreements  •  Inspections  •  Maintenance  •  Notifications  •  Audit  •...","textChars":146,"textLines":1,"bbox":[64,214,1144,78]}
+{"kind":"shape","id":"sh/dsju1kze","slide":4,"bbox":[64,320,1144,10]}
+{"kind":"textbox","id":"sh/alcvi90r","slide":4,"text":"RENTALS CONFIGURATION","textPreview":"RENTALS CONFIGURATION","textChars":21,"textLines":1,"bbox":[64,367,340,28]}
+{"kind":"textbox","id":"sh/bmlwbehc","slide":4,"text":"Vehicle categories\nLicence and driver details\nFuel and odometer\nDaily rental and return rules","textPreview":"Vehicle categories | Licence and driver details | Fuel and odometer | Daily rental and return rules","textChars":93,"textLines":4,"bbox":[64,408,390,158]}
+{"kind":"textbox","id":"sh/vet8r2lc","slide":4,"text":"CARPTRAC CONFIGURATION","textPreview":"CARPTRAC CONFIGURATION","textChars":22,"textLines":1,"bbox":[480,367,350,28]}
+{"kind":"textbox","id":"sh/atkrihkr","slide":4,"text":"Equipment categories\nHour-meter readings\nOperator or technician rules\nEquipment maintenance controls","textPreview":"Equipment categories | Hour-meter readings | Operator or technician rules | Equipment maintenance controls","textChars":100,"textLines":4,"bbox":[480,408,390,158]}
+{"kind":"textbox","id":"sh/xgbqtc3i","slide":4,"text":"FUTURE DIVISIONS","textPreview":"FUTURE DIVISIONS","textChars":16,"textLines":1,"bbox":[896,367,300,28]}
+{"kind":"textbox","id":"sh/wf29k72x","slide":4,"text":"Add a division\nEnable capabilities\nConfigure its workflow\nReuse the core platform","textPreview":"Add a division | Enable capabilities | Configure its workflow | Reuse the core platform","textChars":81,"textLines":4,"bbox":[896,408,300,158]}
+{"kind":"notes","id":"nt/q1pbb7","slide":4,"text":"Describe the architecture in business terms. Shared modules are built once; division settings decide which workflow and data fields apply.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}
+{"kind":"slide","id":"sl/y7ycrp","slide":5,"title":"CREMS  /  CLIENT MEETING","textShapes":16}
+{"kind":"textbox","id":"sh/4jy587q1","slide":5,"text":"CREMS  /  CLIENT MEETING","textPreview":"CREMS  /  CLIENT MEETING","textChars":24,"textLines":1,"bbox":[64,28,420,22]}
+{"kind":"textbox","id":"sh/3i5oz29w","slide":5,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1160,28,56,22]}
+{"kind":"textbox","id":"sh/ihwn6x8b","slide":5,"name":"slide-5-title","text":"The MVP covers the full rental transaction lifecycle","textPreview":"The MVP covers the full rental transaction lifecycle","textChars":52,"textLines":1,"bbox":[64,67,1120,54]}
+{"kind":"shape","id":"sh/d8765wry","slide":5,"bbox":[64,128,78,5]}
+{"kind":"textbox","id":"sh/s7y5crqd","slide":5,"text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[66,180,56,56]}
+{"kind":"textbox","id":"sh/rmpo3m9s","slide":5,"text":"Control access","textPreview":"Control access","textChars":14,"textLines":1,"bbox":[130,184,310,36]}
+{"kind":"textbox","id":"sh/qlgnah87","slide":5,"text":"Staff authentication and Administrator, Branch Manager and Rental Officer permissions.","textPreview":"Staff authentication and Administrator, Branch Manager and Rental Officer permissions.","textChars":86,"textLines":1,"bbox":[130,230,430,62]}
+{"kind":"textbox","id":"sh/tcnmtsre","slide":5,"text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[66,326,56,56]}
+{"kind":"textbox","id":"sh/8bu50nq9","slide":5,"text":"Prepare the rental","textPreview":"Prepare the rental","textChars":18,"textLines":1,"bbox":[130,330,340,36]}
+{"kind":"textbox","id":"sh/650ruds7","slide":5,"text":"Vehicle and equipment masters, customers, reservations and real-time availability.","textPreview":"Vehicle and equipment masters, customers, reservations and real-time availability.","textChars":82,"textLines":1,"bbox":[130,376,430,62]}
+{"kind":"textbox","id":"sh/r6983its","slide":5,"text":"3","textPreview":"3","textChars":1,"textLines":1,"bbox":[650,180,56,56]}
+{"kind":"textbox","id":"sh/s7i9w3ax","slide":5,"text":"Release the asset","textPreview":"Release the asset","textChars":17,"textLines":1,"bbox":[714,184,360,36]}
+{"kind":"textbox","id":"sh/t8ba58bi","slide":5,"text":"Agreement generation, allocation, QR identification and inspection-based check-out.","textPreview":"Agreement generation, allocation, QR identification and inspection-based check-out.","textChars":83,"textLines":1,"bbox":[714,230,430,62]}
+{"kind":"textbox","id":"sh/etkryds3","slide":5,"text":"4","textPreview":"4","textChars":1,"textLines":1,"bbox":[650,326,56,56]}
+{"kind":"textbox","id":"sh/futs7i9o","slide":5,"text":"Close the rental","textPreview":"Close the rental","textChars":16,"textLines":1,"bbox":[714,330,340,36]}
+{"kind":"textbox","id":"sh/gv290na9","slide":5,"text":"Return processing, inspections, damage reporting and maintenance request creation.","textPreview":"Return processing, inspections, damage reporting and maintenance request creation.","textChars":82,"textLines":1,"bbox":[714,376,430,62]}
+{"kind":"shape","id":"sh/1wba9sru","slide":5,"bbox":[64,510,1144,90]}
+{"kind":"textbox","id":"sh/2xkr2xsf","slide":5,"text":"A single traceable flow: reservation → agreement → allocation → check-out → return → maintenance decision","textPreview":"A single traceable flow: reservation → agreement → allocation → check-out → return → maintenance decision","textChars":105,"textLines":1,"bbox":[92,537,1090,34]}
+{"kind":"notes","id":"nt/y7ycrp","slide":5,"text":"Emphasise end-to-end traceability. Each transaction changes availability and creates evidence for the next operational step.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}
+{"kind":"slide","id":"sl/d8i2z4","slide":6,"title":"CREMS  /  CLIENT MEETING","textShapes":9}
+{"kind":"textbox","id":"sh/9of2l4vq","slide":6,"text":"CREMS  /  CLIENT MEETING","textPreview":"CREMS  /  CLIENT MEETING","textChars":24,"textLines":1,"bbox":[64,28,420,22]}
+{"kind":"textbox","id":"sh/ml4japwz","slide":6,"text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[1160,28,56,22]}
+{"kind":"textbox","id":"sh/nmdkjudk","slide":6,"name":"slide-6-title","text":"Management visibility is built into the same operational data","textPreview":"Management visibility is built into the same operational data","textChars":61,"textLines":1,"bbox":[64,67,1120,54]}
+{"kind":"shape","id":"sh/0jm18zet","slide":6,"bbox":[64,128,78,5]}
+{"kind":"textbox","id":"sh/lkv2h4ve","slide":6,"text":"DASHBOARD","textPreview":"DASHBOARD","textChars":9,"textLines":1,"bbox":[64,174,260,28]}
+{"kind":"textbox","id":"sh/yx4j6pw3","slide":6,"text":"Available\nCurrently rented\nUnder maintenance\nUpcoming bookings\nOverdue rentals\nRevenue summary","textPreview":"Available | Currently rented | Under maintenance | Upcoming bookings | Overdue rentals | Revenue summary","textChars":94,"textLines":6,"bbox":[64,214,360,260]}
+{"kind":"shape","id":"sh/zydkfudo","slide":6,"bbox":[450,170,6,0]}
+{"kind":"textbox","id":"sh/cv214fex","slide":6,"text":"REPORTS","textPreview":"REPORTS","textChars":7,"textLines":1,"bbox":[500,174,260,28]}
+{"kind":"textbox","id":"sh/dwb2dkvi","slide":6,"text":"Rental history\nFleet utilisation\nEquipment utilisation\nMaintenance report\nRevenue report\nOverdue rentals\nCustomer rental history","textPreview":"Rental history | Fleet utilisation | Equipment utilisation | Maintenance report | Revenue report | Overdue rentals | Customer rental history","textChars":128,"textLines":7,"bbox":[500,214,380,300]}
+{"kind":"shape","id":"sh/xc3e5k3y","slide":6,"bbox":[920,170,288,390]}
+{"kind":"textbox","id":"sh/wbudwf2d","slide":6,"text":"Controls","textPreview":"Controls","textChars":8,"textLines":1,"bbox":[950,202,230,30]}
+{"kind":"textbox","id":"sh/balw3als","slide":6,"text":"Email notifications\n\nPreventive maintenance reminders\n\nQR / barcode identification\n\nCritical transaction audit logs","textPreview":"Email notifications |  | Preventive maintenance reminders |  | QR / barcode identification |  | Critical transaction audit logs","textChars":115,"textLines":7,"bbox":[950,260,222,240]}
+{"kind":"notes","id":"nt/d8i2z4","slide":6,"text":"Connect reporting to the operational workflow: dashboards and reports are not a separate data-entry exercise; they are generated from booking, return and maintenance records.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}
+{"kind":"slide","id":"sl/c52fjf","slide":7,"title":"CREMS  /  CLIENT MEETING","textShapes":21}
+{"kind":"textbox","id":"sh/ux8ra9gn","slide":7,"text":"CREMS  /  CLIENT MEETING","textPreview":"CREMS  /  CLIENT MEETING","textChars":24,"textLines":1,"bbox":[64,28,420,22]}
+{"kind":"textbox","id":"sh/h0za5ofy","slide":7,"text":"07","textPreview":"07","textChars":2,"textLines":1,"bbox":[1160,28,56,22]}
+{"kind":"textbox","id":"sh/gzq9cjed","slide":7,"name":"slide-7-title","text":"The selected stack is secure, maintainable and team-ready","textPreview":"The selected stack is secure, maintainable and team-ready","textChars":57,"textLines":1,"bbox":[64,67,1120,54]}
+{"kind":"shape","id":"sh/7uxszuxw","slide":7,"bbox":[64,128,78,5]}
+{"kind":"textbox","id":"sh/6tor6pgb","slide":7,"text":"EXPERIENCE","textPreview":"EXPERIENCE","textChars":10,"textLines":1,"bbox":[64,168,160,26]}
+{"kind":"textbox","id":"sh/twza14f2","slide":7,"text":"React + TypeScript + Vite + Material UI","textPreview":"React + TypeScript + Vite + Material UI","textChars":39,"textLines":1,"bbox":[230,166,610,34]}
+{"kind":"textbox","id":"sh/8v698zyh","slide":7,"text":"Responsive staff and customer interfaces","textPreview":"Responsive staff and customer interfaces","textChars":40,"textLines":1,"bbox":[870,168,338,42]}
+{"kind":"shape","id":"sh/rq1sbyx0","slide":7,"bbox":[64,217,1144,1]}
+{"kind":"textbox","id":"sh/qpsbitwf","slide":7,"text":"APPLICATION","textPreview":"APPLICATION","textChars":11,"textLines":1,"bbox":[64,240,160,26]}
+{"kind":"textbox","id":"sh/0vmpcji1","slide":7,"text":"ASP.NET Core 10 Web API","textPreview":"ASP.NET Core 10 Web API","textChars":23,"textLines":1,"bbox":[230,238,610,34]}
+{"kind":"textbox","id":"sh/1wv65ozm","slide":7,"text":"Business rules, workflows and integrations","textPreview":"Business rules, workflows and integrations","textChars":42,"textLines":1,"bbox":[870,240,338,42]}
+{"kind":"shape","id":"sh/et47a90v","slide":7,"bbox":[64,289,1144,1]}
+{"kind":"textbox","id":"sh/zudo3ehg","slide":7,"text":"IDENTITY","textPreview":"IDENTITY","textChars":8,"textLines":1,"bbox":[64,312,160,26]}
+{"kind":"textbox","id":"sh/cr2p8jip","slide":7,"text":"ASP.NET Core Identity","textPreview":"ASP.NET Core Identity","textChars":21,"textLines":1,"bbox":[230,310,610,34]}
+{"kind":"textbox","id":"sh/dsb61oza","slide":7,"text":"Authentication, recovery and role-based access","textPreview":"Authentication, recovery and role-based access","textChars":46,"textLines":1,"bbox":[870,312,338,42]}
+{"kind":"shape","id":"sh/qpkn690z","slide":7,"bbox":[64,361,1144,1]}
+{"kind":"textbox","id":"sh/rqtozehk","slide":7,"text":"DATA","textPreview":"DATA","textChars":4,"textLines":1,"bbox":[64,384,160,26]}
+{"kind":"textbox","id":"sh/4n254zit","slide":7,"text":"SQL Server 2022 + Entity Framework Core","textPreview":"SQL Server 2022 + Entity Framework Core","textChars":39,"textLines":1,"bbox":[230,382,610,34]}
+{"kind":"textbox","id":"sh/pob6x4ze","slide":7,"text":"Transactions, relationships and migrations","textPreview":"Transactions, relationships and migrations","textChars":42,"textLines":1,"bbox":[870,384,338,42]}
+{"kind":"shape","id":"sh/58jelwnq","slide":7,"bbox":[64,433,1144,1]}
+{"kind":"textbox","id":"sh/k7adcr6l","slide":7,"text":"DELIVERY","textPreview":"DELIVERY","textChars":8,"textLines":1,"bbox":[64,456,160,26]}
+{"kind":"textbox","id":"sh/j61cjm50","slide":7,"text":"Docker + GitHub + Postman","textPreview":"Docker + GitHub + Postman","textChars":25,"textLines":1,"bbox":[230,454,610,34]}
+{"kind":"textbox","id":"sh/i5sva1of","slide":7,"text":"Consistent setup, collaboration and API testing","textPreview":"Consistent setup, collaboration and API testing","textChars":47,"textLines":1,"bbox":[870,456,338,42]}
+{"kind":"shape","id":"sh/xkzuhwnu","slide":7,"bbox":[64,505,1144,1]}
+{"kind":"textbox","id":"sh/wjqd8r69","slide":7,"text":"SERVICES","textPreview":"SERVICES","textChars":8,"textLines":1,"bbox":[64,528,160,26]}
+{"kind":"textbox","id":"sh/vihcfm5o","slide":7,"text":"SMTP / email provider + PDF + QR libraries","textPreview":"SMTP / email provider + PDF + QR libraries","textChars":42,"textLines":1,"bbox":[230,526,610,34]}
+{"kind":"textbox","id":"sh/ah8v6ho3","slide":7,"text":"Notifications, agreements and asset identification","textPreview":"Notifications, agreements and asset identification","textChars":50,"textLines":1,"bbox":[870,528,338,42]}
+{"kind":"shape","id":"sh/hg3etgny","slide":7,"bbox":[64,577,1144,1]}
+{"kind":"notes","id":"nt/c52fjf","slide":7,"text":"Confirm that this is the stack already used by the project. Explain that Docker supports the team’s mix of macOS and Windows development environments.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}
+{"kind":"slide","id":"sl/qusdkw","slide":8,"title":"CREMS  /  CLIENT MEETING","textShapes":21}
+{"kind":"textbox","id":"sh/zqx8fehk","slide":8,"text":"CREMS  /  CLIENT MEETING","textPreview":"CREMS  /  CLIENT MEETING","textChars":24,"textLines":1,"bbox":[64,28,420,22]}
+{"kind":"textbox","id":"sh/0r698jy5","slide":8,"text":"08","textPreview":"08","textChars":2,"textLines":1,"bbox":[1160,28,56,22]}
+{"kind":"textbox","id":"sh/lsfqhozq","slide":8,"name":"slide-8-title","text":"Weeks 1–6 establish the secure rental foundation","textPreview":"Weeks 1–6 establish the secure rental foundation","textChars":48,"textLines":1,"bbox":[64,67,1120,54]}
+{"kind":"shape","id":"sh/mtoratgb","slide":8,"bbox":[64,128,78,5]}
+{"kind":"textbox","id":"sh/nux8jyhw","slide":8,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[64,166,64,34]}
+{"kind":"textbox","id":"sh/8v69c3yh","slide":8,"text":"10–14 Aug","textPreview":"10–14 Aug","textChars":9,"textLines":1,"bbox":[146,169,180,28]}
+{"kind":"textbox","id":"sh/9wfqloz2","slide":8,"text":"Scope, schema, stack and authentication","textPreview":"Scope, schema, stack and authentication","textChars":39,"textLines":1,"bbox":[342,166,820,38]}
+{"kind":"shape","id":"sh/axoretgn","slide":8,"bbox":[64,216,1144,1]}
+{"kind":"textbox","id":"sh/vyh8nyhs","slide":8,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[64,242,64,34]}
+{"kind":"textbox","id":"sh/zmtc7u9o","slide":8,"text":"17–21 Aug","textPreview":"17–21 Aug","textChars":9,"textLines":1,"bbox":[146,245,180,28]}
+{"kind":"textbox","id":"sh/elkbyps3","slide":8,"text":"Divisions, branches, roles and access scope","textPreview":"Divisions, branches, roles and access scope","textChars":43,"textLines":1,"bbox":[342,242,820,38]}
+{"kind":"shape","id":"sh/1obu94ru","slide":8,"bbox":[64,292,1144,1]}
+{"kind":"textbox","id":"sh/0n2t0za9","slide":8,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[64,318,64,34]}
+{"kind":"textbox","id":"sh/ri9c3u9c","slide":8,"text":"24–28 Aug","textPreview":"24–28 Aug","textChars":9,"textLines":1,"bbox":[146,321,180,28]}
+{"kind":"textbox","id":"sh/qh0bups7","slide":8,"text":"Vehicle and equipment master management","textPreview":"Vehicle and equipment master management","textChars":39,"textLines":1,"bbox":[342,318,820,38]}
+{"kind":"shape","id":"sh/dkbu5kri","slide":8,"bbox":[64,368,1144,1]}
+{"kind":"textbox","id":"sh/cj2twfax","slide":8,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[64,394,64,34]}
+{"kind":"textbox","id":"sh/bedcfe9w","slide":8,"text":"31 Aug–4 Sep","textPreview":"31 Aug–4 Sep","textChars":12,"textLines":1,"bbox":[146,397,180,28]}
+{"kind":"textbox","id":"sh/ad4v698b","slide":8,"text":"Individual and corporate customer records","textPreview":"Individual and corporate customer records","textChars":41,"textLines":1,"bbox":[342,394,820,38]}
+{"kind":"shape","id":"sh/69ofedsj","slide":8,"bbox":[64,444,1144,1]}
+{"kind":"textbox","id":"sh/7ahw7it4","slide":8,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[64,470,64,34]}
+{"kind":"textbox","id":"sh/8bqxgnap","slide":8,"text":"7–11 Sep","textPreview":"7–11 Sep","textChars":8,"textLines":1,"bbox":[146,473,180,28]}
+{"kind":"textbox","id":"sh/tcze9sbu","slide":8,"text":"Availability, reservations and conflict prevention","textPreview":"Availability, reservations and conflict prevention","textChars":50,"textLines":1,"bbox":[342,470,820,38]}
+{"kind":"shape","id":"sh/ud8fixsf","slide":8,"bbox":[64,520,1144,1]}
+{"kind":"textbox","id":"sh/vehgb2t0","slide":8,"text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[64,546,64,34]}
+{"kind":"textbox","id":"sh/gfqxknal","slide":8,"text":"14–18 Sep","textPreview":"14–18 Sep","textChars":9,"textLines":1,"bbox":[146,549,180,28]}
+{"kind":"textbox","id":"sh/hgzydsb6","slide":8,"text":"Agreements, approvals and asset allocation","textPreview":"Agreements, approvals and asset allocation","textChars":42,"textLines":1,"bbox":[342,546,820,38]}
+{"kind":"shape","id":"sh/ah4f6tcb","slide":8,"bbox":[64,596,1144,1]}
+{"kind":"notes","id":"nt/qusdkw","slide":8,"text":"Week 1 is the foundation sprint. From Week 2 onward, each sprint adds a demonstrable increment on top of the existing platform.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}
+{"kind":"slide","id":"sl/a34w34","slide":9,"title":"CREMS  /  CLIENT MEETING","textShapes":21}
+{"kind":"textbox","id":"sh/0329s7q1","slide":9,"text":"CREMS  /  CLIENT MEETING","textPreview":"CREMS  /  CLIENT MEETING","textChars":24,"textLines":1,"bbox":[64,28,420,22]}
+{"kind":"textbox","id":"sh/z2tszmpw","slide":9,"text":"09","textPreview":"09","textChars":2,"textLines":1,"bbox":[1160,28,56,22]}
+{"kind":"textbox","id":"sh/e1krqh8b","slide":9,"name":"slide-9-title","text":"Weeks 7–12 complete operations, insight and handover","textPreview":"Weeks 7–12 complete operations, insight and handover","textChars":52,"textLines":1,"bbox":[64,67,1120,54]}
+{"kind":"shape","id":"sh/9sva5w7y","slide":9,"bbox":[64,128,78,5]}
+{"kind":"textbox","id":"sh/orm9wrqd","slide":9,"text":"07","textPreview":"07","textChars":2,"textLines":1,"bbox":[64,166,64,34]}
+{"kind":"textbox","id":"sh/nqds3mps","slide":9,"text":"21–25 Sep","textPreview":"21–25 Sep","textChars":9,"textLines":1,"bbox":[146,169,180,28]}
+{"kind":"textbox","id":"sh/mp4ruh87","slide":9,"text":"QR-assisted check-out and condition inspections","textPreview":"QR-assisted check-out and condition inspections","textChars":47,"textLines":1,"bbox":[342,166,820,38]}
+{"kind":"shape","id":"sh/xwfa9w7u","slide":9,"bbox":[64,216,1144,1]}
+{"kind":"textbox","id":"sh/wvmt0rq9","slide":9,"text":"08","textPreview":"08","textChars":2,"textLines":1,"bbox":[64,242,64,34]}
+{"kind":"textbox","id":"sh/2xojm507","slide":9,"text":"28 Sep–2 Oct","textPreview":"28 Sep–2 Oct","textChars":12,"textLines":1,"bbox":[146,245,180,28]}
+{"kind":"textbox","id":"sh/nyxkfa1s","slide":9,"text":"Return, damage evidence and charge decisions","textPreview":"Return, damage evidence and charge decisions","textChars":44,"textLines":1,"bbox":[342,242,820,38]}
+{"kind":"shape","id":"sh/oz61ofid","slide":9,"bbox":[64,292,1144,1]}
+{"kind":"textbox","id":"sh/p0f2h0jy","slide":9,"text":"09","textPreview":"09","textChars":2,"textLines":1,"bbox":[64,318,64,34]}
+{"kind":"textbox","id":"sh/a1ojq50j","slide":9,"text":"5–9 Oct","textPreview":"5–9 Oct","textChars":7,"textLines":1,"bbox":[146,321,180,28]}
+{"kind":"textbox","id":"sh/b2xkja14","slide":9,"text":"Maintenance schedules, jobs, costs and reminders","textPreview":"Maintenance schedules, jobs, costs and reminders","textChars":48,"textLines":1,"bbox":[342,318,820,38]}
+{"kind":"shape","id":"sh/cn61sfip","slide":9,"bbox":[64,368,1144,1]}
+{"kind":"textbox","id":"sh/xoz2lkju","slide":9,"text":"10","textPreview":"10","textChars":2,"textLines":1,"bbox":[64,394,64,34]}
+{"kind":"textbox","id":"sh/q54jel0z","slide":9,"text":"12–16 Oct","textPreview":"12–16 Oct","textChars":9,"textLines":1,"bbox":[146,397,180,28]}
+{"kind":"textbox","id":"sh/r6d0nq1k","slide":9,"text":"Dashboard, utilisation and management reports","textPreview":"Dashboard, utilisation and management reports","textChars":45,"textLines":1,"bbox":[342,394,820,38]}
+{"kind":"shape","id":"sh/vyp8zidg","slide":9,"bbox":[64,444,1144,1]}
+{"kind":"textbox","id":"sh/uxg76dcv","slide":9,"text":"11","textPreview":"11","textChars":2,"textLines":1,"bbox":[64,470,64,34]}
+{"kind":"textbox","id":"sh/h0rq1sv6","slide":9,"text":"19–23 Oct","textPreview":"19–23 Oct","textChars":9,"textLines":1,"bbox":[146,473,180,28]}
+{"kind":"textbox","id":"sh/wzyp8nul","slide":9,"text":"Notifications, audit, integration and security testing","textPreview":"Notifications, audit, integration and security testing","textChars":54,"textLines":1,"bbox":[342,470,820,38]}
+{"kind":"shape","id":"sh/nupovid4","slide":9,"bbox":[64,520,1144,1]}
+{"kind":"textbox","id":"sh/mtg72dcj","slide":9,"text":"12","textPreview":"12","textChars":2,"textLines":1,"bbox":[64,546,64,34]}
+{"kind":"textbox","id":"sh/9w7qx8va","slide":9,"text":"26–30 Oct","textPreview":"26–30 Oct","textChars":9,"textLines":1,"bbox":[146,549,180,28]}
+{"kind":"textbox","id":"sh/8vyp4nup","slide":9,"text":"Client UAT, defect correction, training and handover","textPreview":"Client UAT, defect correction, training and handover","textChars":52,"textLines":1,"bbox":[342,546,820,38]}
+{"kind":"shape","id":"sh/rq9872d8","slide":9,"bbox":[64,596,1144,1]}
+{"kind":"notes","id":"nt/a34w34","slide":9,"text":"The last two sprints protect integration and acceptance time. New scope should not displace security, UAT, documentation or handover activities.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}
+{"kind":"slide","id":"sl/2t7vpg","slide":10,"title":"CREMS  /  CLIENT MEETING","textShapes":13}
+{"kind":"textbox","id":"sh/8ne18nil","slide":10,"text":"CREMS  /  CLIENT MEETING","textPreview":"CREMS  /  CLIENT MEETING","textChars":24,"textLines":1,"bbox":[64,28,420,22]}
+{"kind":"textbox","id":"sh/nm50fi1g","slide":10,"text":"10","textPreview":"10","textChars":2,"textLines":1,"bbox":[1160,28,56,22]}
+{"kind":"textbox","id":"sh/mlwj6x0v","slide":10,"name":"slide-10-title","text":"Every sprint ends with working evidence, not only code","textPreview":"Every sprint ends with working evidence, not only code","textChars":54,"textLines":1,"bbox":[64,67,1120,54]}
+{"kind":"shape","id":"sh/xs7ilcji","slide":10,"bbox":[64,128,78,5]}
+{"kind":"textbox","id":"sh/wre1c7ix","slide":10,"text":"MONDAY","textPreview":"MONDAY","textChars":6,"textLines":1,"bbox":[64,190,220,28]}
+{"kind":"textbox","id":"sh/vq50j21c","slide":10,"text":"Plan the sprint\nand confirm acceptance","textPreview":"Plan the sprint | and confirm acceptance","textChars":38,"textLines":2,"bbox":[64,240,230,120]}
+{"kind":"shape","id":"sh/apwjax0r","slide":10,"bbox":[64,390,205,8]}
+{"kind":"textbox","id":"sh/5g72pcze","slide":10,"text":"TUE–WED","textPreview":"TUE–WED","textChars":7,"textLines":1,"bbox":[350,190,220,28]}
+{"kind":"textbox","id":"sh/kfy1g7it","slide":10,"text":"Develop, review\nand unit test","textPreview":"Develop, review | and unit test","textChars":29,"textLines":2,"bbox":[350,240,230,120]}
+{"kind":"shape","id":"sh/qlcr6tcz","slide":10,"bbox":[350,390,205,8]}
+{"kind":"textbox","id":"sh/rml8zydk","slide":10,"text":"THURSDAY","textPreview":"THURSDAY","textChars":8,"textLines":1,"bbox":[636,190,220,28]}
+{"kind":"textbox","id":"sh/snu983u5","slide":10,"text":"Integrate frontend,\nAPI and database","textPreview":"Integrate frontend, | API and database","textChars":36,"textLines":2,"bbox":[636,240,230,120]}
+{"kind":"shape","id":"sh/do3q18vq","slide":10,"bbox":[636,390,205,8]}
+{"kind":"textbox","id":"sh/e9cradcb","slide":10,"text":"FRIDAY","textPreview":"FRIDAY","textChars":6,"textLines":1,"bbox":[922,190,220,28]}
+{"kind":"textbox","id":"sh/zal83idw","slide":10,"text":"Demonstrate, record\nfeedback and improve","textPreview":"Demonstrate, record | feedback and improve","textChars":40,"textLines":2,"bbox":[922,240,230,120]}
+{"kind":"shape","id":"sh/0bu9cnuh","slide":10,"bbox":[922,390,205,8]}
+{"kind":"shape","id":"sh/1c3q5sv2","slide":10,"bbox":[64,466,1144,118]}
+{"kind":"textbox","id":"sh/ut87y9c7","slide":10,"text":"Definition of done","textPreview":"Definition of done","textChars":18,"textLines":1,"bbox":[92,496,250,30]}
+{"kind":"textbox","id":"sh/ve187edc","slide":10,"text":"Accepted criteria • integrated frontend and API • authorization tested • migration included • peer reviewed • demonstration recorded","textPreview":"Accepted criteria • integrated frontend and API • authorization tested • migration included • peer reviewed • demonstration recorded","textChars":132,"textLines":1,"bbox":[342,490,820,56]}
+{"kind":"notes","id":"nt/2t7vpg","slide":10,"text":"This slide demonstrates delivery discipline. Each Friday provides evidence and an opportunity for client feedback before the next increment.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}
+{"kind":"slide","id":"sl/9w8dfu","slide":11,"title":"CREMS DELIVERY BASELINE","textShapes":13}
+{"kind":"textbox","id":"sh/xwbq5wfq","slide":11,"text":"CREMS DELIVERY BASELINE","textPreview":"CREMS DELIVERY BASELINE","textChars":23,"textLines":1,"bbox":[64,44,520,24]}
+{"kind":"textbox","id":"sh/at0rahwz","slide":11,"text":"A focused pilot now.\nA reusable platform next.","textPreview":"A focused pilot now. | A reusable platform next.","textChars":46,"textLines":2,"bbox":[64,112,700,110]}
+{"kind":"textbox","id":"sh/vu983mxk","slide":11,"text":"14 AUG","textPreview":"14 AUG","textChars":6,"textLines":1,"bbox":[66,282,125,26]}
+{"kind":"textbox","id":"sh/kz29gbe1","slide":11,"text":"Scope, stack and architecture","textPreview":"Scope, stack and architecture","textChars":29,"textLines":1,"bbox":[210,280,620,32]}
+{"kind":"textbox","id":"sh/50bq9gvm","slide":11,"text":"11 SEP","textPreview":"11 SEP","textChars":6,"textLines":1,"bbox":[66,346,125,26]}
+{"kind":"textbox","id":"sh/ixkre1wv","slide":11,"text":"Booking workflow","textPreview":"Booking workflow","textChars":16,"textLines":1,"bbox":[210,344,620,32]}
+{"kind":"textbox","id":"sh/jyt876dg","slide":11,"text":"09 OCT","textPreview":"09 OCT","textChars":6,"textLines":1,"bbox":[66,410,125,26]}
+{"kind":"textbox","id":"sh/snm9kbed","slide":11,"text":"Rental and maintenance lifecycle","textPreview":"Rental and maintenance lifecycle","textChars":32,"textLines":1,"bbox":[210,408,620,32]}
+{"kind":"textbox","id":"sh/tovadgvy","slide":11,"text":"23 OCT","textPreview":"23 OCT","textChars":6,"textLines":1,"bbox":[66,474,125,26]}
+{"kind":"textbox","id":"sh/lori58re","slide":11,"text":"Integrated release candidate","textPreview":"Integrated release candidate","textChars":28,"textLines":1,"bbox":[210,472,620,32]}
+{"kind":"textbox","id":"sh/k3i1c3qt","slide":11,"text":"30 OCT","textPreview":"30 OCT","textChars":6,"textLines":1,"bbox":[66,538,125,26]}
+{"kind":"textbox","id":"sh/j2903y98","slide":11,"text":"UAT and handover","textPreview":"UAT and handover","textChars":16,"textLines":1,"bbox":[210,536,620,32]}
+{"kind":"textbox","id":"sh/tsb298ra","slide":11,"text":"Carpenters Rentals + Carptrac","textPreview":"Carpenters Rentals + Carptrac","textChars":29,"textLines":1,"bbox":[886,588,292,28]}
+{"kind":"image","id":"im/x4zudcri","slide":11,"name":"","geometry":"roundRect","alt":"Carpenters Fiji logo","bbox":[1040,80,120,120]}
+{"kind":"notes","id":"nt/9w8dfu","slide":11,"text":"Close on the delivery commitment: the two pilot divisions create a credible semester outcome and validate the architecture for future divisions.\n\n[Sources]\n- Client/project team scope and timeline supplied 10 August 2026.\n[/Sources]"}

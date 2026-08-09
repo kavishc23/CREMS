@@ -39,10 +39,10 @@ type DashboardSummary = {
 const emptySummary: DashboardSummary = { availableAssets: 0, activeRentals: 0, underMaintenance: 0, overdueRentals: 0, pendingRequests: 0, upcomingBookings: 0, servicesDueSoon: 0, vehicleUtilization: 0, equipmentUtilization: 0, totalAssets: 0 }
 
 const quickActions: { label: string; page: AppPage; icon: React.ReactNode }[] = [
-  { label: 'New booking', page: 'bookings', icon: <CalendarMonthOutlined /> },
-  { label: 'Add asset', page: 'assets', icon: <DirectionsCarOutlined /> },
-  { label: 'Add customer', page: 'customers', icon: <PeopleOutline /> },
-  { label: 'Log maintenance', page: 'maintenance', icon: <BuildCircleOutlined /> },
+  { label: 'Review booking requests', page: 'bookings', icon: <CalendarMonthOutlined /> },
+  { label: 'Find a vehicle or asset', page: 'assets', icon: <DirectionsCarOutlined /> },
+  { label: 'Find or add a customer', page: 'customers', icon: <PeopleOutline /> },
+  { label: 'Record a maintenance job', page: 'maintenance', icon: <BuildCircleOutlined /> },
 ]
 
 function formatToday() {
@@ -66,10 +66,10 @@ export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPage
   const firstName = userName.trim().split(/\s+/)[0] || 'there'
   const availableActions = quickActions.filter((action) => canAccessPage(userRoles, action.page))
   const metrics = [
-    { label: 'Available assets', value: summary.availableAssets, helper: `${summary.totalAssets} active fleet assets`, icon: <DirectionsCarOutlined />, accent: '#ffed00' },
-    { label: 'Currently rented', value: summary.activeRentals, helper: 'Active rental agreements', icon: <ReceiptLongOutlined />, accent: '#d5c600' },
-    { label: 'Under maintenance', value: summary.underMaintenance, helper: `${summary.servicesDueSoon} services due soon`, icon: <HandymanOutlined />, accent: '#a89d00' },
-    { label: 'Overdue rentals', value: summary.overdueRentals, helper: 'Require immediate attention', icon: <EventBusyOutlined />, accent: '#111111' },
+    { label: 'Ready to rent', value: summary.availableAssets, helper: `${summary.totalAssets} active vehicles and assets`, icon: <DirectionsCarOutlined />, accent: '#ffed00' },
+    { label: 'With customers now', value: summary.activeRentals, helper: 'Currently checked out', icon: <ReceiptLongOutlined />, accent: '#d5c600' },
+    { label: 'Being maintained', value: summary.underMaintenance, helper: `${summary.servicesDueSoon} services due soon`, icon: <HandymanOutlined />, accent: '#a89d00' },
+    { label: 'Returns overdue', value: summary.overdueRentals, helper: 'Contact these customers first', icon: <EventBusyOutlined />, accent: '#111111' },
   ]
   const utilization = [{ label: 'Vehicles', value: summary.vehicleUtilization }, { label: 'Equipment', value: summary.equipmentUtilization }]
 
@@ -80,22 +80,24 @@ export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPage
           <Typography variant="overline" color="text.secondary" fontWeight={700} letterSpacing={1.2}>
             {formatToday()}
           </Typography>
-          <Typography variant="h4" fontWeight={750} mt={0.25}>Good day, {firstName}</Typography>
+          <Typography variant="h4" fontWeight={750} mt={0.25}>Your work today, {firstName}</Typography>
           <Typography color="text.secondary" mt={0.5}>
-            Here is what is happening across rental operations.
+            Start with anything needing attention, or choose a common task below.
           </Typography>
         </Box>
         <Stack direction="row" spacing={1.25}>
           {canAccessPage(userRoles, 'customers') && (
             <Button variant="outlined" color="primary" startIcon={<AddOutlined />} onClick={() => onNavigate('customers')}>
-              Customer
+              Find customer
             </Button>
           )}
           <Button variant="contained" color="primary" startIcon={<AddOutlined />} onClick={() => onNavigate('bookings')}>
-            New booking
+            Create booking
           </Button>
         </Stack>
       </Stack>
+
+      <Card sx={{ mb: 3, bgcolor: 'secondary.main', border: 0 }}><CardContent sx={{ py: 2.25, px: { xs: 2.5, sm: 3 }, '&:last-child': { pb: 2.25 } }}><Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ md: 'center' }} gap={2}><Box sx={{ flex: 1 }}><Typography fontWeight={800}>Simple daily flow</Typography><Typography variant="body2" sx={{ opacity: .78 }}>Review the request → confirm the customer and asset → prepare the agreement → check out → check in and inspect.</Typography></Box><Button variant="contained" onClick={() => onNavigate('bookings')}>Start with bookings</Button></Stack></CardContent></Card>
 
       <Grid container spacing={2.5}>
         {metrics.map((metric) => (
@@ -125,8 +127,8 @@ export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPage
             <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
               <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={3}>
                 <Box>
-                  <Typography variant="h6" fontWeight={700}>Fleet utilization</Typography>
-                  <Typography variant="body2" color="text.secondary">Share of active assets currently rented</Typography>
+                  <Typography variant="h6" fontWeight={700}>How much of the fleet is hired out?</Typography>
+                  <Typography variant="body2" color="text.secondary">Percentage of vehicles and equipment currently with customers</Typography>
                 </Box>
                 <Chip size="small" icon={<TrendingUpOutlined />} label="This month" variant="outlined" />
               </Stack>
@@ -162,8 +164,8 @@ export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPage
         <Grid size={{ xs: 12, lg: canAccessPage(userRoles, 'assets') ? 4 : 12 }}>
           <Card variant="outlined" sx={{ height: '100%' }}>
             <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
-              <Typography variant="h6" fontWeight={700}>Quick actions</Typography>
-              <Typography variant="body2" color="text.secondary" mb={2.25}>Start a common task</Typography>
+              <Typography variant="h6" fontWeight={700}>What would you like to do?</Typography>
+              <Typography variant="body2" color="text.secondary" mb={2.25}>Choose a task to get started</Typography>
               <Stack divider={<Divider flexItem />}>
                 {availableActions.map((action) => (
                   <Button

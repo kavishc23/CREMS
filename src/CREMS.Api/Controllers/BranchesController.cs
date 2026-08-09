@@ -10,20 +10,21 @@ namespace CREMS.Api.Controllers;
 
 [ApiController]
 [Route("api/branches")]
-[Authorize(Policy = SystemPolicies.ManageBranch)]
+[Authorize(Policy = SystemPolicies.StaffPortal)]
 public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<BranchResponse>>> GetAll(CancellationToken cancellationToken)
     {
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
+        if (scope is null || (!scope.IsAdministrator && !scope.DivisionId.HasValue)) return Forbid();
         var query = db.Branches.AsNoTracking();
-        if (!scope.IsAdministrator) query = query.Where(branch => branch.Id == scope.BranchId);
+        if (!scope.IsAdministrator) query = query.Where(branch => branch.Divisions.Any(link => link.DivisionId == scope.DivisionId && link.IsActive));
         var branches = await query
             .OrderBy(branch => branch.Name)
             .Select(branch => new BranchResponse(
-                branch.Id, branch.Code, branch.Name, branch.Address, branch.Phone, branch.IsActive))
+                branch.Id, branch.Code, branch.Name, branch.Address, branch.Phone, branch.IsActive,
+                branch.Divisions.Where(link => link.IsActive).Select(link => link.DivisionId).ToList()))
             .ToListAsync(cancellationToken);
         return Ok(branches);
     }
@@ -50,6 +51,8 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
             IsActive = true,
         };
         db.Branches.Add(branch);
+        foreach (var divisionId in request.DivisionIds ?? [])
+            branch.Divisions.Add(new BranchDivision { DivisionId = divisionId, IsActive = true });
         var scope = await staffScope.GetAsync(User);
         if (scope is not null) AuditWriter.Record(db, scope, "Branch created", "Branch", branch.Id,
             $"{branch.Code} — {branch.Name} was created.", branch.Id);
@@ -59,6 +62,7 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
     }
 
     [HttpPut("{id:guid}")]
+    [Authorize(Policy = SystemPolicies.ManageBranch)]
     public async Task<ActionResult<BranchResponse>> Update(
         Guid id,
         SaveBranchRequest request,
@@ -80,6 +84,13 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
         branch.Name = request.Name.Trim();
         branch.Address = Normalize(request.Address);
         branch.Phone = Normalize(request.Phone);
+        if (scope.IsAdministrator && request.DivisionIds is not null)
+        {
+            var existing = await db.BranchDivisions.Where(x => x.BranchId == id).ToListAsync(cancellationToken);
+            foreach (var link in existing) link.IsActive = request.DivisionIds.Contains(link.DivisionId);
+            foreach (var divisionId in request.DivisionIds.Where(divisionId => existing.All(x => x.DivisionId != divisionId)))
+                db.BranchDivisions.Add(new BranchDivision { BranchId = id, DivisionId = divisionId, IsActive = true });
+        }
         AuditWriter.Record(db, scope, "Branch updated", "Branch", branch.Id,
             $"{branch.Code} contact details were updated.", branch.Id);
         await db.SaveChangesAsync(cancellationToken);
@@ -108,14 +119,16 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static BranchResponse ToResponse(Branch branch) =>
-        new(branch.Id, branch.Code, branch.Name, branch.Address, branch.Phone, branch.IsActive);
+        new(branch.Id, branch.Code, branch.Name, branch.Address, branch.Phone, branch.IsActive,
+            branch.Divisions.Where(x => x.IsActive).Select(x => x.DivisionId).ToList());
 }
 
 public sealed record SaveBranchRequest(
     [Required, MaxLength(20)] string Code,
     [Required, MaxLength(150)] string Name,
     [MaxLength(500)] string? Address,
-    [MaxLength(50)] string? Phone);
+    [MaxLength(50)] string? Phone,
+    IReadOnlyCollection<Guid>? DivisionIds = null);
 public sealed record SetBranchStatusRequest(bool IsActive);
 public sealed record BranchResponse(
-    Guid Id, string Code, string Name, string? Address, string? Phone, bool IsActive);
+    Guid Id, string Code, string Name, string? Address, string? Phone, bool IsActive, IReadOnlyCollection<Guid> DivisionIds);

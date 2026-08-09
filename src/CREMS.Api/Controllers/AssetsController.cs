@@ -20,12 +20,13 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         var scope = await staffScope.GetAsync(User);
         if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
         var query = db.Assets.AsNoTracking();
-        if (!scope.IsAdministrator) query = query.Where(asset => asset.BranchId == scope.BranchId);
+        if (!scope.IsAdministrator) query = query.Where(asset => asset.BranchId == scope.BranchId && asset.DivisionId == scope.DivisionId);
 
         var assets = await query
             .OrderBy(asset => asset.AssetNumber)
             .Select(asset => new AssetResponse(
                 asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status,
+                asset.DivisionId, asset.Division != null ? asset.Division.Name : null,
                 asset.BranchId, asset.Branch!.Name, asset.RegistrationNumber,
                 asset.SerialNumber, asset.DailyRate, asset.NextServiceDate, asset.IsActive))
             .ToListAsync(cancellationToken);
@@ -39,7 +40,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         CancellationToken cancellationToken)
     {
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || !scope.HasBranchAccess(request.BranchId)) return Forbid();
+        if (scope is null || !scope.HasAssetAccess(request.BranchId, request.DivisionId)) return Forbid();
         var assetNumber = request.AssetNumber.Trim().ToUpperInvariant();
         if (await db.Assets.AnyAsync(asset => asset.AssetNumber == assetNumber, cancellationToken))
         {
@@ -54,6 +55,8 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             ModelState.AddModelError(nameof(request.BranchId), "Select an active branch.");
             return ValidationProblem(ModelState);
         }
+        if (!request.DivisionId.HasValue || !await db.BranchDivisions.AnyAsync(x => x.BranchId == request.BranchId && x.DivisionId == request.DivisionId && x.IsActive, cancellationToken))
+        { ModelState.AddModelError(nameof(request.DivisionId), "Select a division operating at this branch."); return ValidationProblem(ModelState); }
 
         var asset = new Asset
         {
@@ -61,6 +64,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             Name = request.Name.Trim(),
             Type = request.Type,
             Status = request.Status,
+            DivisionId = request.DivisionId,
             BranchId = branch.Id,
             RegistrationNumber = Normalize(request.RegistrationNumber),
             SerialNumber = Normalize(request.SerialNumber),
@@ -83,10 +87,10 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         CancellationToken cancellationToken)
     {
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || !scope.HasBranchAccess(request.BranchId)) return Forbid();
+        if (scope is null || !scope.HasAssetAccess(request.BranchId, request.DivisionId)) return Forbid();
         var asset = await db.Assets.FindAsync([id], cancellationToken);
         if (asset is null) return NotFound();
-        if (!scope.HasBranchAccess(asset.BranchId)) return Forbid();
+        if (!scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
 
         var assetNumber = request.AssetNumber.Trim().ToUpperInvariant();
         if (await db.Assets.AnyAsync(
@@ -103,11 +107,14 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             ModelState.AddModelError(nameof(request.BranchId), "Select an active branch.");
             return ValidationProblem(ModelState);
         }
+        if (!request.DivisionId.HasValue || !await db.BranchDivisions.AnyAsync(x => x.BranchId == request.BranchId && x.DivisionId == request.DivisionId && x.IsActive, cancellationToken))
+        { ModelState.AddModelError(nameof(request.DivisionId), "Select a division operating at this branch."); return ValidationProblem(ModelState); }
 
         asset.AssetNumber = assetNumber;
         asset.Name = request.Name.Trim();
         asset.Type = request.Type;
         asset.Status = request.Status;
+        asset.DivisionId = request.DivisionId;
         asset.BranchId = branch.Id;
         asset.RegistrationNumber = Normalize(request.RegistrationNumber);
         asset.SerialNumber = Normalize(request.SerialNumber);
@@ -129,7 +136,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         var asset = await db.Assets.FindAsync([id], cancellationToken);
         if (asset is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || !scope.HasBranchAccess(asset.BranchId)) return Forbid();
+        if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
         asset.Status = request.Status;
         asset.IsActive = request.IsActive;
         AuditWriter.Record(db, scope, "Asset status changed", "Asset", asset.Id,
@@ -143,6 +150,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
 
     private static AssetResponse ToResponse(Asset asset, string branchName) => new(
         asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status,
+        asset.DivisionId, asset.Division?.Name,
         asset.BranchId, branchName, asset.RegistrationNumber, asset.SerialNumber,
         asset.DailyRate, asset.NextServiceDate, asset.IsActive);
 }
@@ -152,6 +160,7 @@ public sealed record SaveAssetRequest(
     [Required, MaxLength(150)] string Name,
     AssetType Type,
     AssetStatus Status,
+    Guid? DivisionId,
     Guid BranchId,
     [MaxLength(50)] string? RegistrationNumber,
     [MaxLength(100)] string? SerialNumber,
@@ -161,5 +170,6 @@ public sealed record SaveAssetRequest(
 public sealed record SetAssetStatusRequest(AssetStatus Status, bool IsActive);
 public sealed record AssetResponse(
     Guid Id, string AssetNumber, string Name, AssetType Type, AssetStatus Status,
+    Guid? DivisionId, string? DivisionName,
     Guid BranchId, string BranchName, string? RegistrationNumber, string? SerialNumber,
     decimal DailyRate, DateOnly? NextServiceDate, bool IsActive);

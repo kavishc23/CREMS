@@ -1,20 +1,34 @@
 using System.ComponentModel.DataAnnotations;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Assets;
+using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Customers;
+using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
 
 namespace CREMS.Api.Controllers;
 
 [ApiController]
 [Route("api/public")]
-[AllowAnonymous]
-public sealed class PublicRentalsController(ApplicationDbContext db) : ControllerBase
+public sealed class PublicRentalsController(ApplicationDbContext db, UserManager<ApplicationUser> userManager) : ControllerBase
 {
+    [HttpGet("divisions")]
+    [AllowAnonymous]
+    public async Task<ActionResult> GetDivisions(CancellationToken cancellationToken) => Ok(
+        await db.Divisions.AsNoTracking().Where(x => x.IsActive && x.IsPublic)
+            .OrderBy(x => x.Name).Select(x => new
+            {
+                x.Id, x.Code, x.Name, x.Description, x.Capabilities,
+                Services = x.ServiceOfferings.Where(s => s.IsActive).OrderBy(s => s.Name).Select(s => new
+                { s.Id, s.Code, s.Name, s.Description, s.Type, s.PersonnelRequirement, s.IsBookableOnline, s.RequiresQuote })
+            }).ToListAsync(cancellationToken));
+
     [HttpGet("branches")]
+    [AllowAnonymous]
     public async Task<ActionResult<IReadOnlyList<PublicBranchResponse>>> GetBranches(
         CancellationToken cancellationToken)
     {
@@ -28,8 +42,10 @@ public sealed class PublicRentalsController(ApplicationDbContext db) : Controlle
     }
 
     [HttpGet("assets")]
+    [AllowAnonymous]
     public async Task<ActionResult<IReadOnlyList<PublicAssetResponse>>> GetAssets(
         [FromQuery] Guid? branchId,
+        [FromQuery] Guid? divisionId,
         [FromQuery] AssetType? type,
         [FromQuery] DateOnly? startDate,
         [FromQuery] DateOnly? endDate,
@@ -48,6 +64,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db) : Controlle
                 asset.Status != AssetStatus.OutOfService &&
                 asset.Status != AssetStatus.Retired);
         if (branchId.HasValue) query = query.Where(asset => asset.BranchId == branchId);
+        if (divisionId.HasValue) query = query.Where(asset => asset.DivisionId == divisionId);
         if (type.HasValue) query = query.Where(asset => asset.Type == type);
 
         HashSet<Guid> unavailableAssetIds = [];
@@ -69,7 +86,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db) : Controlle
             {
                 asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status,
                 asset.BranchId, BranchName = asset.Branch!.Name, asset.DailyRate,
-                asset.RegistrationNumber, asset.SerialNumber,
+                asset.RegistrationNumber, asset.SerialNumber, asset.DivisionId,
+                DivisionName = asset.Division != null ? asset.Division.Name : null,
+                asset.Category, asset.PersonnelRequirement,
             })
             .ToListAsync(cancellationToken);
 
@@ -77,12 +96,14 @@ public sealed class PublicRentalsController(ApplicationDbContext db) : Controlle
             asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status,
             asset.BranchId, asset.BranchName, asset.DailyRate,
             asset.RegistrationNumber, asset.SerialNumber,
+            asset.DivisionId, asset.DivisionName, asset.Category, asset.PersonnelRequirement,
             startDate.HasValue
                 ? !unavailableAssetIds.Contains(asset.Id)
                 : asset.Status == AssetStatus.Available)).ToList());
     }
 
     [HttpPost("booking-requests")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
     public async Task<ActionResult<PublicBookingResponse>> RequestBooking(
         PublicBookingRequest request,
         CancellationToken cancellationToken)
@@ -116,44 +137,22 @@ public sealed class PublicRentalsController(ApplicationDbContext db) : Controlle
             return ValidationProblem(ModelState);
         }
 
-        var email = request.Email.Trim().ToLowerInvariant();
+        var signedInUser = await userManager.GetUserAsync(User);
+        if (signedInUser?.CustomerId is null) return Unauthorized();
         var customer = await db.Customers.FirstOrDefaultAsync(
-            item => item.Email == email && item.IsActive, cancellationToken);
-        if (customer?.IsBlocked == true)
+            item => item.Id == signedInUser.CustomerId && item.IsActive, cancellationToken);
+        if (customer is not { } activeCustomer) return Unauthorized();
+        if (activeCustomer.IsBlocked)
             return ValidationProblem("We cannot accept this request online. Please contact the rental team.");
-
-        if (customer is null)
-        {
-            customer = new Customer
-            {
-                CustomerNumber = $"WEB-{Guid.NewGuid():N}"[..16].ToUpperInvariant(),
-                Type = request.CustomerType,
-                Name = request.CustomerType == CustomerType.Business
-                    ? request.CompanyName!.Trim()
-                    : request.FullName.Trim(),
-                Email = email,
-                Phone = request.Phone.Trim(),
-                Address = Normalize(request.Address),
-                IdentificationNumber = Normalize(request.IdentificationNumber),
-                IsActive = true,
-            };
-            db.Customers.Add(customer);
-        }
-        else
-        {
-            customer.Type = request.CustomerType;
-            customer.Name = request.CustomerType == CustomerType.Business
-                ? request.CompanyName!.Trim()
-                : request.FullName.Trim();
-            customer.Phone = request.Phone.Trim();
-            customer.Address = Normalize(request.Address) ?? customer.Address;
-            customer.IdentificationNumber = Normalize(request.IdentificationNumber) ?? customer.IdentificationNumber;
-        }
+        // Keep the registered identity authoritative while allowing current contact details.
+        activeCustomer.Phone = request.Phone.Trim();
+        activeCustomer.Address = Normalize(request.Address) ?? activeCustomer.Address;
+        activeCustomer.IdentificationNumber = Normalize(request.IdentificationNumber) ?? activeCustomer.IdentificationNumber;
 
         var booking = new Booking
         {
             BookingNumber = $"REQ-{Guid.NewGuid():N}"[..16].ToUpperInvariant(),
-            Customer = customer,
+            Customer = activeCustomer,
             BranchId = asset.BranchId,
             Status = BookingStatus.Draft,
             Notes = BuildRequestNotes(request),
@@ -194,13 +193,16 @@ public sealed class PublicRentalsController(ApplicationDbContext db) : Controlle
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     [HttpGet("booking-status/{reference}")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
     public async Task<ActionResult<PublicBookingStatusResponse>> GetBookingStatus(
         string reference,
         CancellationToken cancellationToken)
     {
+        var signedInUser = await userManager.GetUserAsync(User);
+        if (signedInUser?.CustomerId is null) return Unauthorized();
         var normalizedReference = reference.Trim().ToUpperInvariant();
         var booking = await db.Bookings.AsNoTracking()
-            .Where(item => item.BookingNumber == normalizedReference)
+            .Where(item => item.BookingNumber == normalizedReference && item.CustomerId == signedInUser.CustomerId)
             .Select(item => new
             {
                 item.BookingNumber,
@@ -257,7 +259,8 @@ public sealed record PublicBranchResponse(Guid Id, string Name, string? Address,
 public sealed record PublicAssetResponse(
     Guid Id, string AssetNumber, string Name, AssetType Type, AssetStatus Status,
     Guid BranchId, string BranchName, decimal DailyRate,
-    string? RegistrationNumber, string? SerialNumber, bool IsAvailable);
+    string? RegistrationNumber, string? SerialNumber, Guid? DivisionId,
+    string? DivisionName, string? Category, PersonnelRequirement PersonnelRequirement, bool IsAvailable);
 public sealed record PublicBookingRequest(
     Guid AssetId,
     DateOnly StartDate,

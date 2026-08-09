@@ -24,8 +24,8 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
         var bookingQuery = db.Bookings.AsNoTracking();
         if (!scope.IsAdministrator)
         {
-            assetQuery = assetQuery.Where(asset => asset.BranchId == scope.BranchId);
-            bookingQuery = bookingQuery.Where(booking => booking.BranchId == scope.BranchId);
+            assetQuery = assetQuery.Where(asset => asset.BranchId == scope.BranchId && asset.DivisionId == scope.DivisionId);
+            bookingQuery = bookingQuery.Where(booking => booking.BranchId == scope.BranchId && booking.Items.Any(item => item.Asset!.DivisionId == scope.DivisionId));
         }
         var assets = await assetQuery
             .Select(asset => new { asset.Type, asset.Status, asset.NextServiceDate })

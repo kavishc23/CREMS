@@ -15,6 +15,10 @@ namespace CREMS.Api.Controllers;
 public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
     private const string TermsVersion = "CREMS-RA-2026.1-DRAFT";
+    private static readonly JsonSerializerOptions SnapshotJson = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true,
+    };
 
     [HttpGet("{bookingId:guid}")]
     public async Task<ActionResult> Get(Guid bookingId, CancellationToken cancellationToken)
@@ -22,22 +26,26 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         var booking = await LoadBooking(bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || !scope.HasBranchAccess(booking.BranchId)) return Forbid();
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         var agreement = await db.RentalAgreements.AsNoTracking().FirstOrDefaultAsync(item => item.BookingId == bookingId, cancellationToken);
         return Ok(agreement is null ? BuildDraft(booking) : BuildApproved(agreement, booking));
     }
 
-    [HttpPost("{bookingId:guid}/approve")]
-    public async Task<ActionResult> Approve(Guid bookingId, ApproveRentalAgreementRequest request, CancellationToken cancellationToken)
+    [HttpPost("{bookingId:guid}/pickup")]
+    public async Task<ActionResult> Pickup(Guid bookingId, PickupRentalRequest request, CancellationToken cancellationToken)
     {
         var booking = await LoadBooking(bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || !scope.HasBranchAccess(booking.BranchId)) return Forbid();
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status != BookingStatus.Confirmed)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["The booking must be confirmed before its rental agreement is signed."] }));
-        if (!request.CustomerAcceptedTerms || !request.AgentApproved || string.IsNullOrWhiteSpace(request.CustomerSignatureName))
-            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["signature"] = ["Customer acceptance, customer signature and agent approval are required."] }));
+        if (!request.IdentificationVerified || !request.DriverLicenceVerified || !request.PaymentVerified)
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["verification"] = ["Identification, driver licence and payment verification are required before pickup."] }));
+        if (!request.CustomerAcceptedTerms || !request.AgentApproved || string.IsNullOrWhiteSpace(request.CustomerSignatureName) || string.IsNullOrWhiteSpace(request.CustomerSignatureDataUrl))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["signature"] = ["Customer acceptance, a drawn customer signature and agent approval are required."] }));
+        if (string.IsNullOrWhiteSpace(request.LicenceNumber) || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["licence"] = ["A valid, unexpired driver licence is required."] }));
         if (await db.RentalAgreements.AnyAsync(item => item.BookingId == bookingId, cancellationToken))
             return Conflict(new { message = "This booking already has an approved rental agreement." });
 
@@ -47,14 +55,53 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         {
             AgreementNumber = $"RA-{now:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
             BookingId = booking.Id, BranchId = booking.BranchId, TermsVersion = TermsVersion,
-            TermsJson = JsonSerializer.Serialize(draft.Terms), CustomerSnapshotJson = JsonSerializer.Serialize(draft.Customer),
-            AssetSnapshotJson = JsonSerializer.Serialize(draft.Asset), PricingSnapshotJson = JsonSerializer.Serialize(draft.Pricing),
-            CustomerSignatureName = request.CustomerSignatureName.Trim(), CustomerSignedAt = now,
+            TermsJson = JsonSerializer.Serialize(draft.Terms, SnapshotJson), CustomerSnapshotJson = JsonSerializer.Serialize(draft.Customer, SnapshotJson),
+            AssetSnapshotJson = JsonSerializer.Serialize(draft.Asset, SnapshotJson), PricingSnapshotJson = JsonSerializer.Serialize(draft.Pricing, SnapshotJson),
+            CustomerSignatureName = request.CustomerSignatureName.Trim(), CustomerSignatureDataUrl = request.CustomerSignatureDataUrl,
+            CustomerSignedAt = now, Status = AgreementStatus.Active,
             ApprovedByUserId = scope.UserId, ApprovedByName = scope.UserName, ApprovedAt = now,
         };
         db.RentalAgreements.Add(agreement);
-        AuditWriter.Record(db, scope, "Rental agreement approved", "RentalAgreement", agreement.Id,
-            $"{agreement.AgreementNumber} was signed for {booking.BookingNumber}.", booking.BranchId);
+        booking.RentalAgreement = agreement;
+        booking.Inspections.Add(new RentalInspection
+        {
+            BookingId = booking.Id, Type = InspectionType.Handover,
+            IdentificationVerified = request.IdentificationVerified,
+            DriverLicenceVerified = request.DriverLicenceVerified,
+            MeterReading = request.MeterReading, FuelLevelPercent = request.FuelLevelPercent,
+            ConditionNotes = Normalize(request.ConditionNotes), DamageNotes = Normalize(request.DamageNotes),
+            SignatureName = request.CustomerSignatureName.Trim(), SignatureDataUrl = request.CustomerSignatureDataUrl,
+            PaymentVerified = request.PaymentVerified, EvidenceJson = JsonSerializer.Serialize(new { photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [] }, SnapshotJson),
+            CompletedByUserId = scope.UserId,
+            CompletedByName = scope.UserName, CompletedAt = now,
+        });
+        booking.AuthorizedDrivers.Add(new AuthorizedDriver
+        {
+            BookingId = booking.Id, FullName = request.CustomerSignatureName.Trim(), LicenceNumber = request.LicenceNumber.Trim(),
+            LicenceClass = Normalize(request.LicenceClass), LicenceExpiry = request.LicenceExpiry,
+            IsPrimary = true, Verified = true,
+        });
+        if (request.AmountCollected > 0)
+            booking.Payments.Add(new RentalPayment
+            {
+                BookingId = booking.Id, Type = request.PaymentType, Method = request.PaymentMethod,
+                Amount = request.AmountCollected, ReceiptNumber = string.IsNullOrWhiteSpace(request.ReceiptNumber)
+                    ? $"RCPT-{now:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}" : request.ReceiptNumber.Trim(),
+                RecordedByUserId = scope.UserId, RecordedByName = scope.UserName,
+            });
+        if (!string.IsNullOrWhiteSpace(booking.Customer?.Email))
+            booking.Notifications.Add(new RentalNotification
+            {
+                BookingId = booking.Id, Channel = NotificationChannel.Email, Recipient = booking.Customer.Email,
+                Subject = $"Your signed rental agreement {agreement.AgreementNumber}",
+                Message = $"Your rental {booking.BookingNumber} has been collected. Your signed agreement is ready. Please contact {booking.Branch?.Name} if you need assistance.",
+            });
+        booking.Status = BookingStatus.ConvertedToRental;
+        booking.UpdatedAt = now;
+        foreach (var item in booking.Items.Where(item => item.Asset is not null))
+            item.Asset!.Status = CREMS.Api.Domain.Assets.AssetStatus.Rented;
+        AuditWriter.Record(db, scope, "Rental pickup completed", "Booking", booking.Id,
+            $"{agreement.AgreementNumber} was signed and {booking.BookingNumber} was handed over to the customer.", booking.BranchId);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(BuildApproved(agreement, booking));
     }
@@ -69,18 +116,18 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         return new { approved = false, agreementNumber = (string?)null, termsVersion = TermsVersion,
             data.Customer, data.Asset, data.Rental, data.Pricing, data.Terms,
             customerSignatureName = (string?)null, customerSignedAt = (DateTimeOffset?)null,
-            approvedByName = (string?)null, approvedAt = (DateTimeOffset?)null };
+            customerSignatureDataUrl = (string?)null, approvedByName = (string?)null, approvedAt = (DateTimeOffset?)null };
     }
 
     private static object BuildApproved(RentalAgreement agreement, Booking booking)
     {
         var current = BuildAgreementData(booking);
         return new { approved = true, agreement.AgreementNumber, agreement.TermsVersion,
-            Customer = JsonSerializer.Deserialize<object>(agreement.CustomerSnapshotJson),
-            Asset = JsonSerializer.Deserialize<object>(agreement.AssetSnapshotJson), current.Rental,
-            Pricing = JsonSerializer.Deserialize<object>(agreement.PricingSnapshotJson),
-            Terms = JsonSerializer.Deserialize<object>(agreement.TermsJson),
-            agreement.CustomerSignatureName, agreement.CustomerSignedAt, agreement.ApprovedByName, agreement.ApprovedAt };
+            Customer = Deserialize<CustomerAgreementSnapshot>(agreement.CustomerSnapshotJson),
+            Asset = Deserialize<AssetAgreementSnapshot>(agreement.AssetSnapshotJson), current.Rental,
+            Pricing = Deserialize<PricingAgreementSnapshot>(agreement.PricingSnapshotJson),
+            Terms = Deserialize<IReadOnlyList<AgreementTerm>>(agreement.TermsJson),
+            agreement.CustomerSignatureName, agreement.CustomerSignatureDataUrl, agreement.CustomerSignedAt, agreement.ApprovedByName, agreement.ApprovedAt };
     }
 
     private static AgreementData BuildAgreementData(Booking booking)
@@ -91,10 +138,10 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         var taxable = Math.Max(0, subtotal - booking.DiscountAmount + booking.AdditionalCharges);
         var tax = taxable * booking.TaxRate / 100m;
         return new AgreementData(
-            new { booking.CustomerId, booking.Customer!.CustomerNumber, booking.Customer.Name, Type = booking.Customer.Type.ToString(), booking.Customer.Email, booking.Customer.Phone, booking.Customer.Address, booking.Customer.IdentificationNumber },
-            new { item.AssetId, item.Asset!.AssetNumber, item.Asset.Name, Type = item.Asset.Type.ToString(), item.Asset.RegistrationNumber, item.Asset.SerialNumber },
-            new { booking.Id, booking.BookingNumber, booking.BranchId, BranchName = booking.Branch!.Name, BranchAddress = booking.Branch.Address, BranchPhone = booking.Branch.Phone, item.StartAt, item.EndAt, Days = days },
-            new { item.DailyRate, Subtotal = subtotal, booking.DiscountAmount, booking.AdditionalCharges, booking.AdditionalChargesDescription, booking.TaxRate, TaxAmount = tax, Total = taxable + tax, booking.DepositRequired },
+            new CustomerAgreementSnapshot(booking.CustomerId, booking.Customer!.CustomerNumber, booking.Customer.Name, booking.Customer.Type.ToString(), booking.Customer.Email, booking.Customer.Phone, booking.Customer.Address, booking.Customer.IdentificationNumber),
+            new AssetAgreementSnapshot(item.AssetId, item.Asset!.AssetNumber, item.Asset.Name, item.Asset.Type.ToString(), item.Asset.RegistrationNumber, item.Asset.SerialNumber),
+            new RentalAgreementSnapshot(booking.Id, booking.BookingNumber, booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone, item.StartAt, item.EndAt, days),
+            new PricingAgreementSnapshot(item.DailyRate, subtotal, booking.DiscountAmount, booking.AdditionalCharges, booking.AdditionalChargesDescription, booking.TaxRate, tax, taxable + tax, booking.DepositRequired),
             DefaultTerms());
     }
 
@@ -116,8 +163,35 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         new("14. Acknowledgement", "The customer confirms that the details are accurate, the pricing and material terms were explained or made available before signing, questions could be asked, and a copy of the approved agreement will be provided."),
     ];
 
-    private sealed record AgreementData(object Customer, object Asset, object Rental, object Pricing, IReadOnlyList<AgreementTerm> Terms);
+    private static T Deserialize<T>(string json) => JsonSerializer.Deserialize<T>(json, SnapshotJson)
+        ?? throw new JsonException($"Stored rental agreement snapshot could not be read as {typeof(T).Name}.");
+    private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private sealed record AgreementData(CustomerAgreementSnapshot Customer, AssetAgreementSnapshot Asset, RentalAgreementSnapshot Rental, PricingAgreementSnapshot Pricing, IReadOnlyList<AgreementTerm> Terms);
+    private sealed record CustomerAgreementSnapshot(Guid CustomerId, string CustomerNumber, string Name, string Type, string? Email, string? Phone, string? Address, string? IdentificationNumber);
+    private sealed record AssetAgreementSnapshot(Guid AssetId, string AssetNumber, string Name, string Type, string? RegistrationNumber, string? SerialNumber);
+    private sealed record RentalAgreementSnapshot(Guid Id, string BookingNumber, Guid BranchId, string BranchName, string? BranchAddress, string? BranchPhone, DateTimeOffset StartAt, DateTimeOffset EndAt, decimal Days);
+    private sealed record PricingAgreementSnapshot(decimal DailyRate, decimal Subtotal, decimal DiscountAmount, decimal AdditionalCharges, string? AdditionalChargesDescription, decimal TaxRate, decimal TaxAmount, decimal Total, decimal DepositRequired);
     private sealed record AgreementTerm(string Title, string Content);
 }
 
-public sealed record ApproveRentalAgreementRequest(string CustomerSignatureName, bool CustomerAcceptedTerms, bool AgentApproved);
+public sealed record PickupRentalRequest(
+    string CustomerSignatureName,
+    bool CustomerAcceptedTerms,
+    bool AgentApproved,
+    bool IdentificationVerified,
+    bool DriverLicenceVerified,
+    bool PaymentVerified,
+    string CustomerSignatureDataUrl,
+    string LicenceNumber,
+    string? LicenceClass,
+    DateOnly LicenceExpiry,
+    PaymentType PaymentType,
+    PaymentMethod PaymentMethod,
+    [System.ComponentModel.DataAnnotations.Range(0, 1000000)] decimal AmountCollected,
+    string? ReceiptNumber,
+    [System.ComponentModel.DataAnnotations.Range(0, 10000000)] decimal? MeterReading,
+    [System.ComponentModel.DataAnnotations.Range(0, 100)] int? FuelLevelPercent,
+    string? ConditionNotes,
+    string? DamageNotes,
+    IReadOnlyList<string>? EvidenceDataUrls,
+    IReadOnlyList<string>? DamageZones);

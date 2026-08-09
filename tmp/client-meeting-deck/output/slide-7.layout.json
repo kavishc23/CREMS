@@ -1,0 +1,1552 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/c52fjf",
+    "id": "c52fjf",
+    "slide": 7,
+    "layoutId": "d7a476bb-9bf3-4ba1-9b40-f8389cf04c97",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "ab383c02-627e-4778-8191-68dcf44c7afe",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#F5F4EF",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "+mn-lt"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "d7a476bb-9bf3-4ba1-9b40-f8389cf04c97",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "ab383c02-627e-4778-8191-68dcf44c7afe",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "ab383c02-627e-4778-8191-68dcf44c7afe",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ux8ra9gn",
+      "id": "1",
+      "bbox": [
+        64,
+        28,
+        420,
+        22
+      ],
+      "geometry": "rect",
+      "text": "CREMS  /  CLIENT MEETING",
+      "textPreview": "CREMS  /  CLIENT MEETING",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 12,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "CREMS  /  CLIENT MEETING"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "CREMS  /  CLIENT MEETING",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "color": "#6B6B67",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "CREMS  /  CLIENT MEETING",
+              "fontSize": 12,
+              "color": "#6B6B67",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/h0za5ofy",
+      "id": "2",
+      "bbox": [
+        1160,
+        28,
+        56,
+        22
+      ],
+      "geometry": "rect",
+      "text": "07",
+      "textPreview": "07",
+      "resolvedFontSize": 12,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 12,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "bold": true,
+        "alignment": "right",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "07"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "07",
+          "resolvedTextStyle": {
+            "fontSize": 12,
+            "color": "#6B6B67",
+            "bold": true,
+            "alignment": "right"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "07",
+              "fontSize": 12,
+              "color": "#6B6B67",
+              "bold": true,
+              "alignment": "right"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/gzq9cjed",
+      "id": "3",
+      "name": "slide-7-title",
+      "bbox": [
+        64,
+        67,
+        1120,
+        54
+      ],
+      "geometry": "rect",
+      "text": "The selected stack is secure, maintainable and team-ready",
+      "textPreview": "The selected stack is secure, maintainable and team-ready",
+      "resolvedFontSize": 36,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 36,
+        "typeface": "+mn-lt",
+        "color": "#0B0B0B",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "The selected stack is secure, maintainable and team-ready"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "The selected stack is secure, maintainable and team-ready",
+          "resolvedTextStyle": {
+            "fontSize": 36,
+            "color": "#0B0B0B",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "The selected stack is secure, maintainable and team-ready",
+              "fontSize": 36,
+              "color": "#0B0B0B",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/7uxszuxw",
+      "id": "4",
+      "bbox": [
+        64,
+        128,
+        78,
+        5
+      ],
+      "geometry": "rect",
+      "fillColor": "#FFED00",
+      "lineColor": "#FFED00",
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/6tor6pgb",
+      "id": "5",
+      "bbox": [
+        64,
+        168,
+        160,
+        26
+      ],
+      "geometry": "rect",
+      "text": "EXPERIENCE",
+      "textPreview": "EXPERIENCE",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 15,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "EXPERIENCE"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "EXPERIENCE",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "color": "#6B6B67",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "EXPERIENCE",
+              "fontSize": 15,
+              "color": "#6B6B67",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/twza14f2",
+      "id": "6",
+      "bbox": [
+        230,
+        166,
+        610,
+        34
+      ],
+      "geometry": "rect",
+      "text": "React + TypeScript + Vite + Material UI",
+      "textPreview": "React + TypeScript + Vite + Material UI",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "+mn-lt",
+        "color": "#0B0B0B",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "React + TypeScript + Vite + Material UI"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "React + TypeScript + Vite + Material UI",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#0B0B0B",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "React + TypeScript + Vite + Material UI",
+              "fontSize": 21,
+              "color": "#0B0B0B",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/8v698zyh",
+      "id": "7",
+      "bbox": [
+        870,
+        168,
+        338,
+        42
+      ],
+      "geometry": "rect",
+      "text": "Responsive staff and customer interfaces",
+      "textPreview": "Responsive staff and customer interfaces",
+      "resolvedFontSize": 17,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 17,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Responsive staff and customer interfaces"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Responsive staff and customer interfaces",
+          "resolvedTextStyle": {
+            "fontSize": 17,
+            "color": "#6B6B67",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Responsive staff and customer interfaces",
+              "fontSize": 17,
+              "color": "#6B6B67",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/rq1sbyx0",
+      "id": "8",
+      "bbox": [
+        64,
+        217,
+        1144,
+        1
+      ],
+      "geometry": "rect",
+      "fillColor": "#D9D8D2",
+      "lineColor": "#D9D8D2",
+      "lineWidth": 0
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/qpsbitwf",
+      "id": "9",
+      "bbox": [
+        64,
+        240,
+        160,
+        26
+      ],
+      "geometry": "rect",
+      "text": "APPLICATION",
+      "textPreview": "APPLICATION",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 15,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "APPLICATION"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "APPLICATION",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "color": "#6B6B67",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "APPLICATION",
+              "fontSize": 15,
+              "color": "#6B6B67",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 10,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/0vmpcji1",
+      "id": "10",
+      "bbox": [
+        230,
+        238,
+        610,
+        34
+      ],
+      "geometry": "rect",
+      "text": "ASP.NET Core 10 Web API",
+      "textPreview": "ASP.NET Core 10 Web API",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "+mn-lt",
+        "color": "#0B0B0B",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "ASP.NET Core 10 Web API"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "ASP.NET Core 10 Web API",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#0B0B0B",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "ASP.NET Core 10 Web API",
+              "fontSize": 21,
+              "color": "#0B0B0B",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 11,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/1wv65ozm",
+      "id": "11",
+      "bbox": [
+        870,
+        240,
+        338,
+        42
+      ],
+      "geometry": "rect",
+      "text": "Business rules, workflows and integrations",
+      "textPreview": "Business rules, workflows and integrations",
+      "resolvedFontSize": 17,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 17,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Business rules, workflows and"
+          },
+          {
+            "index": 2,
+            "text": "integrations"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Business rules, workflows and integrations",
+          "resolvedTextStyle": {
+            "fontSize": 17,
+            "color": "#6B6B67",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Business rules, workflows and integrations",
+              "fontSize": 17,
+              "color": "#6B6B67",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 12,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/et47a90v",
+      "id": "12",
+      "bbox": [
+        64,
+        289,
+        1144,
+        1
+      ],
+      "geometry": "rect",
+      "fillColor": "#D9D8D2",
+      "lineColor": "#D9D8D2",
+      "lineWidth": 0
+    },
+    {
+      "order": 13,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/zudo3ehg",
+      "id": "13",
+      "bbox": [
+        64,
+        312,
+        160,
+        26
+      ],
+      "geometry": "rect",
+      "text": "IDENTITY",
+      "textPreview": "IDENTITY",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 15,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "IDENTITY"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "IDENTITY",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "color": "#6B6B67",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "IDENTITY",
+              "fontSize": 15,
+              "color": "#6B6B67",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 14,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/cr2p8jip",
+      "id": "14",
+      "bbox": [
+        230,
+        310,
+        610,
+        34
+      ],
+      "geometry": "rect",
+      "text": "ASP.NET Core Identity",
+      "textPreview": "ASP.NET Core Identity",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "+mn-lt",
+        "color": "#0B0B0B",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "ASP.NET Core Identity"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "ASP.NET Core Identity",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#0B0B0B",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "ASP.NET Core Identity",
+              "fontSize": 21,
+              "color": "#0B0B0B",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 15,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/dsb61oza",
+      "id": "15",
+      "bbox": [
+        870,
+        312,
+        338,
+        42
+      ],
+      "geometry": "rect",
+      "text": "Authentication, recovery and role-based access",
+      "textPreview": "Authentication, recovery and role-based access",
+      "resolvedFontSize": 17,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 17,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Authentication, recovery and role-based"
+          },
+          {
+            "index": 2,
+            "text": "access"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Authentication, recovery and role-based access",
+          "resolvedTextStyle": {
+            "fontSize": 17,
+            "color": "#6B6B67",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Authentication, recovery and role-based access",
+              "fontSize": 17,
+              "color": "#6B6B67",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 16,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/qpkn690z",
+      "id": "16",
+      "bbox": [
+        64,
+        361,
+        1144,
+        1
+      ],
+      "geometry": "rect",
+      "fillColor": "#D9D8D2",
+      "lineColor": "#D9D8D2",
+      "lineWidth": 0
+    },
+    {
+      "order": 17,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/rqtozehk",
+      "id": "17",
+      "bbox": [
+        64,
+        384,
+        160,
+        26
+      ],
+      "geometry": "rect",
+      "text": "DATA",
+      "textPreview": "DATA",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 15,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "DATA"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "DATA",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "color": "#6B6B67",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "DATA",
+              "fontSize": 15,
+              "color": "#6B6B67",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 18,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/4n254zit",
+      "id": "18",
+      "bbox": [
+        230,
+        382,
+        610,
+        34
+      ],
+      "geometry": "rect",
+      "text": "SQL Server 2022 + Entity Framework Core",
+      "textPreview": "SQL Server 2022 + Entity Framework Core",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "+mn-lt",
+        "color": "#0B0B0B",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "SQL Server 2022 + Entity Framework Core"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "SQL Server 2022 + Entity Framework Core",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#0B0B0B",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "SQL Server 2022 + Entity Framework Core",
+              "fontSize": 21,
+              "color": "#0B0B0B",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 19,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/pob6x4ze",
+      "id": "19",
+      "bbox": [
+        870,
+        384,
+        338,
+        42
+      ],
+      "geometry": "rect",
+      "text": "Transactions, relationships and migrations",
+      "textPreview": "Transactions, relationships and migrations",
+      "resolvedFontSize": 17,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 17,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Transactions, relationships and"
+          },
+          {
+            "index": 2,
+            "text": "migrations"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Transactions, relationships and migrations",
+          "resolvedTextStyle": {
+            "fontSize": 17,
+            "color": "#6B6B67",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Transactions, relationships and migrations",
+              "fontSize": 17,
+              "color": "#6B6B67",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 20,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/58jelwnq",
+      "id": "20",
+      "bbox": [
+        64,
+        433,
+        1144,
+        1
+      ],
+      "geometry": "rect",
+      "fillColor": "#D9D8D2",
+      "lineColor": "#D9D8D2",
+      "lineWidth": 0
+    },
+    {
+      "order": 21,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/k7adcr6l",
+      "id": "21",
+      "bbox": [
+        64,
+        456,
+        160,
+        26
+      ],
+      "geometry": "rect",
+      "text": "DELIVERY",
+      "textPreview": "DELIVERY",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 15,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "DELIVERY"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "DELIVERY",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "color": "#6B6B67",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "DELIVERY",
+              "fontSize": 15,
+              "color": "#6B6B67",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 22,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/j61cjm50",
+      "id": "22",
+      "bbox": [
+        230,
+        454,
+        610,
+        34
+      ],
+      "geometry": "rect",
+      "text": "Docker + GitHub + Postman",
+      "textPreview": "Docker + GitHub + Postman",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "+mn-lt",
+        "color": "#0B0B0B",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Docker + GitHub + Postman"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Docker + GitHub + Postman",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#0B0B0B",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Docker + GitHub + Postman",
+              "fontSize": 21,
+              "color": "#0B0B0B",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 23,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/i5sva1of",
+      "id": "23",
+      "bbox": [
+        870,
+        456,
+        338,
+        42
+      ],
+      "geometry": "rect",
+      "text": "Consistent setup, collaboration and API testing",
+      "textPreview": "Consistent setup, collaboration and API testing",
+      "resolvedFontSize": 17,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 17,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Consistent setup, collaboration and API"
+          },
+          {
+            "index": 2,
+            "text": "testing"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Consistent setup, collaboration and API testing",
+          "resolvedTextStyle": {
+            "fontSize": 17,
+            "color": "#6B6B67",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Consistent setup, collaboration and API testing",
+              "fontSize": 17,
+              "color": "#6B6B67",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 24,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/xkzuhwnu",
+      "id": "24",
+      "bbox": [
+        64,
+        505,
+        1144,
+        1
+      ],
+      "geometry": "rect",
+      "fillColor": "#D9D8D2",
+      "lineColor": "#D9D8D2",
+      "lineWidth": 0
+    },
+    {
+      "order": 25,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/wjqd8r69",
+      "id": "25",
+      "bbox": [
+        64,
+        528,
+        160,
+        26
+      ],
+      "geometry": "rect",
+      "text": "SERVICES",
+      "textPreview": "SERVICES",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 15,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "SERVICES"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "SERVICES",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "color": "#6B6B67",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "SERVICES",
+              "fontSize": 15,
+              "color": "#6B6B67",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 26,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/vihcfm5o",
+      "id": "26",
+      "bbox": [
+        230,
+        526,
+        610,
+        34
+      ],
+      "geometry": "rect",
+      "text": "SMTP / email provider + PDF + QR libraries",
+      "textPreview": "SMTP / email provider + PDF + QR libraries",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "+mn-lt",
+        "color": "#0B0B0B",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "SMTP / email provider + PDF + QR libraries"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "SMTP / email provider + PDF + QR libraries",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "color": "#0B0B0B",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "SMTP / email provider + PDF + QR libraries",
+              "fontSize": 21,
+              "color": "#0B0B0B",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 27,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ah8v6ho3",
+      "id": "27",
+      "bbox": [
+        870,
+        528,
+        338,
+        42
+      ],
+      "geometry": "rect",
+      "text": "Notifications, agreements and asset identification",
+      "textPreview": "Notifications, agreements and asset identification",
+      "resolvedFontSize": 17,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 17,
+        "typeface": "+mn-lt",
+        "color": "#6B6B67",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "Notifications, agreements and asset"
+          },
+          {
+            "index": 2,
+            "text": "identification"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "Notifications, agreements and asset identification",
+          "resolvedTextStyle": {
+            "fontSize": 17,
+            "color": "#6B6B67",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "Notifications, agreements and asset identification",
+              "fontSize": 17,
+              "color": "#6B6B67",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 28,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/hg3etgny",
+      "id": "28",
+      "bbox": [
+        64,
+        577,
+        1144,
+        1
+      ],
+      "geometry": "rect",
+      "fillColor": "#D9D8D2",
+      "lineColor": "#D9D8D2",
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}
