@@ -1,0 +1,292 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" modified="2026-08-13T03:00:00.000Z" agent="Codex" version="24.7.17" type="device" compressed="false">
+  <diagram id="dfd-context" name="Level 0 - Context Diagram">
+    <mxGraphModel dx="1920" dy="1080" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t0" value="CREMS Data Flow Diagram - Level 0" style="text;html=1;align=center;verticalAlign=middle;fontSize=28;fontStyle=1;fontColor=#111111;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="520" y="25" width="880" height="45" />
+        </mxCell>
+        <mxCell id="s0" value="Context view: information exchanged between CREMS and its external stakeholders" style="text;html=1;align=center;verticalAlign=middle;fontSize=14;fontColor=#626262;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="500" y="70" width="920" height="28" />
+        </mxCell>
+        <mxCell id="p0" value="0.0&lt;br&gt;&lt;b&gt;Carpenters Rental and Equipment&lt;br&gt;Management System&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFEA00;strokeColor=#111111;strokeWidth=2;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="705" y="330" width="510" height="260" />
+        </mxCell>
+        <mxCell id="eCustomer" value="E1&lt;br&gt;&lt;b&gt;Customer&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="90" y="185" width="250" height="95" />
+        </mxCell>
+        <mxCell id="eRental" value="E2&lt;br&gt;&lt;b&gt;Rental Staff&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="90" y="600" width="250" height="95" />
+        </mxCell>
+        <mxCell id="eManager" value="E3&lt;br&gt;&lt;b&gt;Branch and Division Management&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1535" y="180" width="300" height="100" />
+        </mxCell>
+        <mxCell id="eMaint" value="E4&lt;br&gt;&lt;b&gt;Maintenance Team&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1535" y="400" width="300" height="95" />
+        </mxCell>
+        <mxCell id="eFinance" value="E5&lt;br&gt;&lt;b&gt;Finance Team&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1535" y="620" width="300" height="95" />
+        </mxCell>
+        <mxCell id="eEmail" value="E6&lt;br&gt;&lt;b&gt;Email Service&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="810" y="855" width="300" height="90" />
+        </mxCell>
+        <mxCell id="c1" value="Registration, search and booking request" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="eCustomer" target="p0">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c2" value="Availability, quotation and booking status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="p0" target="eCustomer">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c3" value="Acceptance, signature and payment details" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="eCustomer" target="p0">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c4" value="Agreement, invoice and notifications" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="p0" target="eCustomer">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c5" value="Customer, booking, pickup and return data" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="eRental" target="p0">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c6" value="Work queues, asset availability and hire status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="p0" target="eRental">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c7" value="Approvals and report requests" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="eManager" target="p0">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c8" value="Exceptions, performance and profitability reports" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="p0" target="eManager">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c9" value="Maintenance work, parts and costs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="eMaint" target="p0">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c10" value="Fault referrals and service schedules" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="p0" target="eMaint">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c11" value="Payments, refunds and adjustments" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="eFinance" target="p0">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c12" value="Invoices, balances and financial reports" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="p0" target="eFinance">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c13" value="Messages for delivery" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="p0" target="eEmail">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c14" value="Delivery status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="eEmail" target="p0">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="note0" value="&lt;b&gt;Purpose&lt;/b&gt;&lt;br&gt;This context diagram confirms who exchanges information with CREMS. Internal processing and data storage are expanded on the Level 1 page." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9CC;strokeColor=#E8A302;fontSize=12;align=left;spacing=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="510" y="970" width="900" height="70" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="dfd-level1" name="Level 1 - Main Processes">
+    <mxGraphModel dx="1920" dy="1080" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t1" value="CREMS Data Flow Diagram - Level 1" style="text;html=1;align=center;verticalAlign=middle;fontSize=28;fontStyle=1;fontColor=#111111;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="520" y="20" width="880" height="45" />
+        </mxCell>
+        <mxCell id="s1" value="Main business processes, data stores and stakeholder information flows" style="text;html=1;align=center;verticalAlign=middle;fontSize=14;fontColor=#626262;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="500" y="64" width="920" height="28" />
+        </mxCell>
+        <mxCell id="customer" value="E1&lt;br&gt;&lt;b&gt;Customer&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="35" y="185" width="210" height="80" />
+        </mxCell>
+        <mxCell id="staff" value="E2&lt;br&gt;&lt;b&gt;Rental Staff&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="35" y="475" width="210" height="80" />
+        </mxCell>
+        <mxCell id="management" value="E3&lt;br&gt;&lt;b&gt;Management&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1675" y="190" width="210" height="80" />
+        </mxCell>
+        <mxCell id="maintenanceTeam" value="E4&lt;br&gt;&lt;b&gt;Maintenance Team&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1675" y="445" width="210" height="80" />
+        </mxCell>
+        <mxCell id="financeTeam" value="E5&lt;br&gt;&lt;b&gt;Finance Team&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1675" y="700" width="210" height="80" />
+        </mxCell>
+        <mxCell id="emailService" value="E6&lt;br&gt;&lt;b&gt;Email Service&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#111111;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="850" y="965" width="220" height="70" />
+        </mxCell>
+        <mxCell id="access" value="1.0&lt;br&gt;&lt;b&gt;Manage Accounts&lt;br&gt;and Access&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFEA00;strokeColor=#111111;strokeWidth=2;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="320" y="125" width="255" height="125" />
+        </mxCell>
+        <mxCell id="booking" value="2.0&lt;br&gt;&lt;b&gt;Manage Booking&lt;br&gt;and Quotation&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFEA00;strokeColor=#111111;strokeWidth=2;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="700" y="125" width="255" height="125" />
+        </mxCell>
+        <mxCell id="hire" value="3.0&lt;br&gt;&lt;b&gt;Manage Pickup,&lt;br&gt;Hire and Return&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFEA00;strokeColor=#111111;strokeWidth=2;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1080" y="125" width="255" height="125" />
+        </mxCell>
+        <mxCell id="asset" value="4.0&lt;br&gt;&lt;b&gt;Track Assets&lt;br&gt;and Usage&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFEA00;strokeColor=#111111;strokeWidth=2;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="320" y="515" width="255" height="125" />
+        </mxCell>
+        <mxCell id="maint" value="5.0&lt;br&gt;&lt;b&gt;Manage&lt;br&gt;Maintenance&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFEA00;strokeColor=#111111;strokeWidth=2;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="700" y="515" width="255" height="125" />
+        </mxCell>
+        <mxCell id="finance" value="6.0&lt;br&gt;&lt;b&gt;Manage Finance&lt;br&gt;and Reporting&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFEA00;strokeColor=#111111;strokeWidth=2;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1080" y="515" width="255" height="125" />
+        </mxCell>
+        <mxCell id="notify" value="7.0&lt;br&gt;&lt;b&gt;Send&lt;br&gt;Notifications&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFEA00;strokeColor=#111111;strokeWidth=2;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="700" y="790" width="255" height="125" />
+        </mxCell>
+        <mxCell id="dUsers" value="D1  Users and Access" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#FFFFFF;strokeColor=#111111;strokeWidth=2;fontSize=13;fontStyle=1;spacingLeft=12;spacingRight=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="310" y="330" width="275" height="58" />
+        </mxCell>
+        <mxCell id="dCustomers" value="D2  Customer Records" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#FFFFFF;strokeColor=#111111;strokeWidth=2;fontSize=13;fontStyle=1;spacingLeft=12;spacingRight=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="615" y="330" width="275" height="58" />
+        </mxCell>
+        <mxCell id="dBookings" value="D3  Bookings and Quotations" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#FFFFFF;strokeColor=#111111;strokeWidth=2;fontSize=13;fontStyle=1;spacingLeft=12;spacingRight=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="920" y="330" width="300" height="58" />
+        </mxCell>
+        <mxCell id="dRentals" value="D4  Agreements and Inspections" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#FFFFFF;strokeColor=#111111;strokeWidth=2;fontSize=13;fontStyle=1;spacingLeft=12;spacingRight=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1250" y="330" width="310" height="58" />
+        </mxCell>
+        <mxCell id="dAssets" value="D5  Assets, Status and Meters" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#FFFFFF;strokeColor=#111111;strokeWidth=2;fontSize=13;fontStyle=1;spacingLeft=12;spacingRight=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="305" y="710" width="300" height="58" />
+        </mxCell>
+        <mxCell id="dMaintenance" value="D6  Maintenance Records" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#FFFFFF;strokeColor=#111111;strokeWidth=2;fontSize=13;fontStyle=1;spacingLeft=12;spacingRight=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="635" y="710" width="300" height="58" />
+        </mxCell>
+        <mxCell id="dFinance" value="D7  Invoices and Payments" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#FFFFFF;strokeColor=#111111;strokeWidth=2;fontSize=13;fontStyle=1;spacingLeft=12;spacingRight=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="965" y="710" width="300" height="58" />
+        </mxCell>
+        <mxCell id="dAudit" value="D8  Audit and Notification History" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#FFFFFF;strokeColor=#111111;strokeWidth=2;fontSize=13;fontStyle=1;spacingLeft=12;spacingRight=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1295" y="710" width="315" height="58" />
+        </mxCell>
+        <mxCell id="f1" value="Credentials and profile" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="customer" target="access">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f2" value="Account and session status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="access" target="customer">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f3" value="Search and booking request" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="customer" target="booking">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f4" value="Availability and quotation" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="booking" target="customer">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f5" value="Acceptance and signature" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="customer" target="hire">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f6" value="Agreement and hire status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="hire" target="customer">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f7" value="Review, pricing and allocation" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="staff" target="booking">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f8" value="Booking work queue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="booking" target="staff">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f9" value="Pickup and return details" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="staff" target="hire">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f10" value="Hire status and next action" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="hire" target="staff">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f11" value="Asset details and QR scan" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="staff" target="asset">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f12" value="Availability and lifecycle history" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="asset" target="staff">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f13" value="Approval decision" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="management" target="booking">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f14" value="Dashboards and reports" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="finance" target="management">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f15" value="Work, parts and costs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="maintenanceTeam" target="maint">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f16" value="Jobs and service schedule" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="maint" target="maintenanceTeam">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f17" value="Payments and adjustments" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="financeTeam" target="finance">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f18" value="Invoices, balances and reports" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="finance" target="financeTeam">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f19" value="Access records" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="access" target="dUsers">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f20" value="Customer profile" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="access" target="dCustomers">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f21" value="Customer eligibility" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="booking" target="dCustomers">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f22" value="Request, quote and approval" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="booking" target="dBookings">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f23" value="Availability check" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="booking" target="dAssets">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f24" value="Confirmed booking" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="hire" target="dBookings">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f25" value="Agreement and inspections" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="hire" target="dRentals">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f26" value="Status and meter updates" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="hire" target="dAssets">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f27" value="Asset and lifecycle records" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="asset" target="dAssets">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f28" value="Lifecycle event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="asset" target="dAudit">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f29" value="Fault or damage referral" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="hire" target="maint">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f30" value="Asset and meter details" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="maint" target="dAssets">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f31" value="Job, parts and costs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="maint" target="dMaintenance">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f32" value="Availability update" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="maint" target="dAssets">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f33" value="Charges and return outcome" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="hire" target="finance">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f34" value="Rental revenue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="finance" target="dBookings">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f35" value="Maintenance expense" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="finance" target="dMaintenance">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f36" value="Invoices and payments" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="finance" target="dFinance">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f37" value="Booking event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="booking" target="notify">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f38" value="Agreement or return event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="hire" target="notify">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f39" value="Invoice event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="finance" target="notify">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f40" value="Message and delivery record" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#626262;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="notify" target="dAudit">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f41" value="Email message" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#E8A302;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="notify" target="emailService">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f42" value="Delivery status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#E8A302;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="emailService" target="notify">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f43" value="Confirmation and reminder" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#E8A302;fontSize=11;labelBackgroundColor=#FFFFFF;" parent="1" edge="1" source="notify" target="customer">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="legend" value="&lt;b&gt;DFD notation&lt;/b&gt;&amp;nbsp;&amp;nbsp; Rectangle = external entity&amp;nbsp;&amp;nbsp;&amp;nbsp; Yellow ellipse = CREMS process&amp;nbsp;&amp;nbsp;&amp;nbsp; Open rectangle = data store&amp;nbsp;&amp;nbsp;&amp;nbsp; Arrow = data flow" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9CC;strokeColor=#E8A302;fontSize=12;align=center;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="430" y="1040" width="1060" height="35" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

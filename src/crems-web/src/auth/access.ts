@@ -1,7 +1,11 @@
 export const roles = {
+  superAdministrator: 'SuperAdministrator',
   administrator: 'Administrator',
   branchManager: 'BranchManager',
   rentalOfficer: 'RentalOfficer',
+  maintenanceOfficer: 'MaintenanceOfficer',
+  financeOfficer: 'FinanceOfficer',
+  driver: 'Driver',
 } as const
 
 export type AppPage =
@@ -20,17 +24,17 @@ export type AppPage =
 
 const pageRoles: Record<AppPage, readonly string[]> = {
   dashboard: Object.values(roles),
-  assets: [roles.administrator, roles.branchManager, roles.rentalOfficer],
-  customers: [roles.administrator, roles.branchManager, roles.rentalOfficer],
-  bookings: [roles.administrator, roles.branchManager, roles.rentalOfficer],
-  rentals: [roles.administrator, roles.branchManager, roles.rentalOfficer],
-  scan: [roles.administrator, roles.branchManager, roles.rentalOfficer],
-  maintenance: [roles.administrator, roles.branchManager],
-  operations: [roles.administrator, roles.branchManager],
-  reports: [roles.administrator, roles.branchManager],
-  users: [roles.administrator],
-  branches: [roles.administrator, roles.branchManager],
-  divisions: [roles.administrator],
+  assets: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer, roles.maintenanceOfficer, roles.driver],
+  customers: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer],
+  bookings: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer],
+  rentals: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer],
+  scan: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer, roles.maintenanceOfficer, roles.driver],
+  maintenance: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.maintenanceOfficer],
+  operations: [roles.superAdministrator, roles.administrator, roles.branchManager],
+  reports: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.financeOfficer],
+  users: [roles.superAdministrator, roles.administrator],
+  branches: [roles.superAdministrator, roles.administrator],
+  divisions: [roles.superAdministrator],
 }
 
 export function canAccessPage(userRoles: string[], page: AppPage) {

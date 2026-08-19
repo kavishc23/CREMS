@@ -1,0 +1,1398 @@
+1 
+PROJECT MANAGEMENT PLAN  
+Carpenters Car Rental and Equipment Maintenance System (CREMS) 
+Semester 2, 2026  
+ 
+ 
+ 
+ 
+CARPENTERS FIJI PTE LIMITED 
+CS400 Industry Experience Project 
+Academic supervisor: Dr Ravneil Nand 
+ 
+ 
+ 
+ 
+Group 10  
+Name Student ID 
+Kavish Chandra S11219143 
+Shoneel Kumar S11219651 
+Sudhansu Kisun S11219520 
+Rahul Chand S11219885 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+2 
+Table of Contents 
+1.0 Introduction .........................................................................................................................3 
+2.0 Project Management Approach..........................................................................................3 
+3.0 Project Scope .....................................................................................................................3 
+3.1 In-scope divisions and services ............................................................................................... 3 
+3.2 In-scope shared capabilities .................................................................................................... 4 
+3.3 Out of scope for the MVP ........................................................................................................ 4 
+4.0 Milestone ............................................................................................................................4 
+5.0 Schedule Baseline ..............................................................................................................5 
+6.0 Work Breakdown Structure ................................................................................................6 
+6.1 Weekly sprint cadence ............................................................................................................. 6 
+7.0 Change Management Plan ................................................................................................7 
+7.1 Change Request Form............................................................................................................. 7 
+8.0 Communications Management Plan ..................................................................................7 
+8.1 Project team directory .............................................................................................................. 8 
+8.2 Communications conduct ........................................................................................................ 9 
+9.0 Cost Management Plan ......................................................................................................9 
+9.1 Cost Baseline ........................................................................................................................... 9 
+9.2 How we worked out the numbers .......................................................................................... 10 
+9.4 Cost Reporting and Roles ...................................................................................................... 11 
+10.0 Procurement Management Plan ................................................................................... 12 
+11.0 Project Scope Management Plan ................................................................................. 12 
+12.0 Schedule Management Plan ......................................................................................... 12 
+12.1 Scheduling Methodology and Tools .................................................................................... 12 
+12.2 Schedule Development ..................................................................................................... 13 
+13.0 Quality Management Plan ............................................................................................. 13 
+13.1 Quality Metrics ..................................................................................................................... 13 
+13.2 Quality Assurance Activities (Process-Focused) ................................................................. 14 
+13.3 Quality Control Activities (Product-Focused) ....................................................................... 15 
+14.0 Risk Management Plan ................................................................................................. 16 
+14.1 Purpose and Scope ............................................................................................................. 16 
+14.2 Risk Management Approach ............................................................................................... 16 
+14.3 Risk Register ........................................................................................................................ 16 
+14.4 Top Risks Summary............................................................................................................. 17 
+15.0 Reference ...................................................................................................................... 18 
+16.0 Appendix ........................................................................................................................ 18 
+
+3 
+16.1 Appendix A .................................................................................................................... 18 
+17.0 Sponsor Acceptance ..................................................................................................... 18 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+4 
+1.0 Introduction 
+The Carpenters Rental & Asset Management System (CREMS) is proposed as a modular web-based 
+platform for managing rentable assets across Carpenters Fiji. The approved initial implementation scope 
+covers Carpenters Motors and Carptrac. The system will be made such that it would include provision to 
+add future divisions and merchants such as Carpenters Shipping and Carpenters Properties. The 
+common business thread is the complete asset rental and maintenance lifecycle rather than the broader 
+operations of either division. 
+CREMS will provide a shared control point for registering and locating assets, checking availability, 
+managing customers and bookings, recording pre-hire and post-hire inspections, logging damage, 
+scheduling preventive and corrective maintenance, and reporting revenue and expenditure at asset level. 
+Division, branch and role boundaries will ensure users see only the work relevant to them while common 
+modules can be configured for future divisions. 
+The project will be delivered through twelve one-week sprints from 10 August to 30 October 2026. Week 
+1 finalizes requirements and scope while establishing the shared repository and initial database 
+foundation. Week 2 begins authentication, session security, and startup system services. Later sprints 
+deliver organization, customer, asset, pricing, booking, inspection, maintenance and reporting modules in 
+a dependency-aware sequence. The team will demonstrate increments regularly and maintain traceability 
+from approved requirements to implementation and test evidence. 
+ 
+2.0 Project Management Approach 
+CREMS is delivered under an agile operating model led by the project leader, who holds overall authority 
+and responsibility for managing and executing the project according to this plan and the team charter. 
+The project team consists of four student developers who each take a functional lead role while retaining 
+collective ownership of the codebase; members pair on higher-risk features, review one another's 
+changes, and rotate meeting-note, demonstration and support duties. 
+Delivery runs in weekly sprints (see Section 5) inside a twelve-week programme. Each sprint begins with 
+planning and acceptance-criteria confirmation, proceeds through development and peer review 
+3.0 Project Scope 
+3.1 In-scope divisions and services 
+Division / area Assets and services in the initial scope Division-specific considerations 
+Carpenters 
+Motors 
+Rental vehicles, including passenger and 
+commercial vehicles 
+Vehicle registration, odometer, 
+fuel, driver details, vehicle 
+inspection and daily rates 
+Carptrac Forklifts, cranes, excavators, generators and 
+related hire equipment 
+Engine hours, qualifications, 
+operator assignment, overtime, 
+safety checks and hourly/daily 
+rates 
+3.2 In-scope shared capabilities 
+• Secure customer and staff authentication with role, division, and branch-based access. 
+• Customer registration, corporate/individual profiles, contacts and approved renters. 
+• Asset master data, status history, QR/barcode, meter readings, and lifecycle events. 
+
+5 
+• Availability search, quotation, booking/reservation, configurable charges, deposit and optional 
+approvals. 
+• Rental agreement generation, customer acceptance, staff approval, invoice/quotation delivery 
+by email. 
+• Allocation, delivery/collection where applicable, operator assignment and return processing. 
+• Pre-hire and post-hire checklists, photos, signatures, and damage reports. 
+• Preventive and corrective maintenance, reminders, parts/labour/contractor costs and 
+downtime. 
+• Dashboards and reports for availability, rentals, overdue items, utilization, maintenance and 
+asset profitability. 
+• Audit logging and configurable business notifications. 
+CREMS future ready scope will support new divisions through configuration of division and branch 
+records, asset categories, custom field definitions, meter types, rate units, optional charges, checklist 
+templates, approval stages and document requirements. Adding an operational division remains a 
+controlled future increment with its own validation and UAT. 
+3.3 Out of scope for the MVP 
+• Full accounting/ERP replacement, payroll, human resources management, and banking 
+reconciliation. 
+• Live telematics/GPS vendor integration, advanced route optimization, and native offline 
+mobile applications. 
+• Production payment gateway and third-party identity integration unless separately approved. 
+• Historical data migration beyond an agreed representative pilot dataset. 
+4.0 Milestone 
+The milestone list below reflects the delivery baseline confirmed with the client on 10 August 2026: a 
+twelve-week programme running from 10 August to 30 October 2026. If a milestone or delivery date risks 
+slipping, the project leader will immediately take proactive measures; any approved change to a 
+milestone is communicated to the whole team and the client through the change control process. 
+Milestone Sprint Definition of done 
+M1 — Scope and engineering 
+foundation 
+Week 1 Approved Motors/Carptrac boundary; repository and initial 
+database baseline in place 
+M2 — Secure sign-in demo Week 2 Staff/customer sign-in, secure password handling, session 
+timeouts and API authorization default demonstrated 
+M3 — Access-isolation demo Week 3 Division/branch/role administration and API-level isolation 
+demonstrated 
+M4 — Configurable asset-
+register demo 
+Week 5 Categories, dynamic attributes, QR/barcode and status history 
+demonstrated for both divisions' asset types 
+M5 — Quotation-to-booking 
+demo 
+Week 7 Booking conversion, approvals, agreement generation and 
+notifications demonstrated 
+
+6 
+M6 — Motors lifecycle demo Week 8 End-to-end Motors scenario: availability → booking → pre-hire 
+→ QR check-out → return → post-hire demonstrated 
+M7 — Carptrac lifecycle demo Week 10 End-to-end Carptrac scenario including operator assignment 
+and engine-hour tracking demonstrated 
+M8 — Final handover Week 12 Stabilization complete; deployment/runbook, user/admin 
+guides, final report/presentation and acceptance delivered 
+ 
+5.0 Schedule Baseline 
+The schedule uses weekly increments so client feedback can refine the solution without losing control of 
+scope. Each sprint ends with a review, evidence update and prioritized backlog. 
+Week / dates Primary focus Planned outputs / milestone 
+1 | 10-14 Aug Scope, repository and 
+database foundation 
+Client meeting notes; domain research; approved 
+Motors/Carptrac boundary; requirements and risks; Git 
+repository/branch conventions; solution skeleton; initial 
+SQL Server container, DbContext and baseline 
+migration.  
+2 | 17-21 Aug Authentication and startup 
+system services 
+Staff/customer sign-in; secure password handling; 
+cookie/session timeouts; API authorization default; 
+health checks; error handling; configuration and audit 
+foundations. 
+3 | 24-28 Aug Organization, divisions, 
+branches, roles and 
+permissions 
+Division/branch administration; user assignments; role 
+matrix; API-level division and branch isolation; 
+configuration screens.  
+4 | 31 Aug-4 
+Sep 
+Customer module Individual/corporate profiles; contacts; approved 
+renters; documents; customer portal foundation; 
+validation and search. 
+5 | 7-11 Sep Flexible asset module Categories; dynamic attribute definitions/values; Motors 
+and Carptrac templates; branch/location/status history; 
+meters; QR/barcode; asset detail.  
+6 | 14-18 Sep Availability, rates and 
+quotations 
+Conflict-aware calendar; hourly/daily/per-unit rate 
+configuration; customer/division/branch rates; extra 
+charges, deposits, discounts, tax and quote revisions. 
+7 | 21-25 Sep Bookings, approvals, 
+agreements and 
+notifications 
+Booking conversion; configurable approval stages; 
+agreement/document generation; booking email and 
+status tracking.  
+8 | 28 Sep-2 
+Oct 
+Pre-hire, QR check-out, 
+return and post-hire 
+inspection 
+Checklist templates; photos/signatures; 
+meter/fuel/accessories; allocation; QR handover; post-
+hire comparison and damage initiation. 
+
+7 
+9 | 5-9 Oct Maintenance, damage and 
+detailed expenditure 
+Preventive/corrective jobs; date/meter triggers; 
+parts/labour/contractor costs; downtime; damage 
+recovery; return-to-service controls. 
+10 | 12-16 Oct Carptrac personnel and 
+equipment-hire variations 
+Operator qualifications/availability; assignments; 
+timesheets; engine hours; overtime; safety evidence; 
+transport/service charges.  
+11 | 19-23 Oct Dashboards, profitability, 
+integration and UAT 
+Role dashboards; revenue/expense/profit; utilization 
+and maintenance reports; alerts; authorization, timeout, 
+calculation, migration, integration and UAT testing. 
+12 | 26-30 Oct Stabilisation, handover and 
+closure 
+Critical fixes; performance/security checks; 
+deployment/runbook; user/admin guides; final 
+report/presentation; acceptance and retrospective.  
+ 
+6.0 Work Breakdown Structure 
+Leads coordinate the work package; they do not work alone. Every production change requires at least 
+one peer review, and all members participate in requirements, sprint reviews, testing, and documentation. 
+Assignments may be rebalanced through the weekly planning meeting. 
+6.1 Weekly sprint cadence 
+Event Timing Purpose 
+Planning Monday Agree sprint goal, tasks, owners, acceptance 
+criteria and risks 
+Team checkpoint At least twice weekly Surface blockers, integrate work and update 
+board 
+Client clarification As agreed, / when 
+required 
+Resolve business questions without inventing 
+policy 
+Code/ design review Before merge Check correctness, security, maintainability and 
+consistency 
+Sprint review and 
+demo 
+Friday Show working evidence or completed planning 
+artifact 
+Retrospective After review Record one or two improvements for the next 
+sprint 
+ 
+7.0 Change Management Plan 
+“The purpose of this change management process is to manage change requests so that approved 
+changes will be controlled, ensuring the project remains on schedule, within budget and provides the 
+agreed deliverables.” 
+
+8 
+7.1 Change Request Form 
+Refer to the appendix to view the change request form. 
+8.0 Communications Management Plan 
+This plan defines the communication requirements for CREMS and how information is distributed to 
+ensure project success. The project leader takes the lead role in ensuring effective communications; the 
+matrix below defines what is communicated, how often, in what format, and to whom. 
+Forum Frequency Participants Output 
+Team coordination Twice weekly Four students Progress, next actions, 
+blockers, and workload. 
+Sprint planning / 
+review 
+Weekly Team; client when 
+available 
+Goal, demonstration, 
+feedback and accepted 
+work. 
+Client checkpoint weekly or as 
+agreed 
+Team, client Decisions clarified rules, 
+and acceptance notes. 
+Supervisor update As scheduled Team and academic 
+supervisor 
+Academic guidance and 
+escalations. 
+Risk / scope review Weekly Whole team Updated risks, decisions, 
+and mitigations. 
+ 
+8.1 Project team directory 
+Name Role Contact 
+Kavish Chandra Project Leader / Client Liaison s11219143@student.usp.ac.fj 
+Shoneel Kumar Backend and Data Lead s11219651@student.usp.ac.fj 
+Sudhansu Kisun Frontend and UX Lead s11219520@student.usp.ac.fj 
+Rahul Chand Quality and DevOps Lead s11219885@student.usp.ac.fj 
+Dr Ravneil Nand Academic Supervisor ravneil.nand@usp.ac.fj 
+Amit Kumar Project Supervisor (Client) amit.it@carpenters.com.fj 
+Shanil Naidu Project Co-Supervisor (Client) shanil.it@carpenters.com.fj 
+ 
+ 
+8.2 Communications conduct 
+• Meetings:  
+o Writing meeting notes. 
+o Meeting minutes are sent to the client to get endorsement. 
+
+9 
+• Email:  
+o Professional, error-free and addressed formally 
+o When reporting a problem, we will include the issue, the background, and our suggested 
+solution. 
+• Informal communication:  
+o Any issue, concern, or update raised informally must be communicated to the project leader, 
+so appropriate action can be taken. 
+9.0 Cost Management Plan 
+The Cost Management Plan describes the process of estimation, budgeting, monitoring and control of 
+costs in the 12-week period of delivery (10 August - 30 October 2026). As a student effort is not invoiced 
+by CREMS, cost management within CREMS project is intended to be minimalistic and cash-oriented: it 
+includes control of few cash expenses (hosting, email sending, domain/TLS certificate) rather than a 
+comprehensive budget taking into account effort-related costs, however still following the established 
+approach to cost management (basis of cost estimate, baseline, thresholds, variances, reporting) in order 
+to apply it in case of a business project. 
+Besides a cash-based cost management, cost management in CREMS also includes a non-cash aspect 
+control of effort versus WBS to see if four-persons' limitation is maintained sprint after sprint. 
+9.1 Cost Baseline 
+Student labor, laptops and the tools we already have are our own contribution, Carpenters Fiji isn't 
+charged for any of that. This section is about a small handful of things that could cost real money. 
+Here's the short version: everything we need to build CREMS is free from the coding tools, the database, 
+and our own laptops. The only costs that could ever show up are three optional extras we might need for 
+the last few weeks of testing with the client, plus a small buffer just in case. Worst case, the whole project 
+costs FJD 170. Most likely, it costs nothing at all. 
+What it's for In plain English Most likely 
+cost 
+Cost if we 
+ever need it 
+Coding tools and 
+software 
+The programs we build with all free, 
+student or open-source versions. 
+FJD 0 FJD 0 
+Database and test setup Run on our own laptops at no extra 
+cost. 
+FJD 0 FJD 0 
+A practice website for 
+the client to test on 
+We'll use a free trial website first and 
+only pay if it needs to run more reliably 
+for the final demo. 
+FJD 0 up to FJD 60 
+Sending real test emails Booking confirmations and password-
+reset emails are free to test; a small 
+monthly fee only kicks in if we send 
+from a real account near the end. 
+FJD 0 up to FJD 45 
+A web address and 
+secure padlock (TLS) 
+We'd rather use a free Carpenters Fiji or 
+university web address. A standalone 
+one would be a small yearly fee. The 
+padlock/HTTPS itself is always free. 
+FJD 0 up to FJD 35 
+A safety buffer Held back in case something genuinely 
+unexpected comes up, nobody touches 
+it without the team agreeing first. 
+FJD 0 
+ 
+FJD 30 
+
+10 
+TOTAL What this could cost Carpenters Fiji, 
+worst case. 
+FJD 0 FJD 170 
+ 
+ 
+ 
+9.2 Cost Reporting and Roles 
+Role Cost responsibility 
+Project lead (Kavish Chandra) Owns the cost register, approves cash purchases within the green 
+band, and raises any Amber/Red variance at the weekly 
+risk/change review. 
+Architecture/database lead 
+(Sudhansu Jayshil Kisun) 
+Estimates and reports any hosting, database or infrastructure cost 
+implication before a technical decision is committed 
+All team members Record any cost-incurring action (even a free-tier sign-up that could 
+later convert to paid) in the cost log at the point of commitment, not 
+retrospectively 
+Client  Approves any spend that would draw on client-provided resources 
+or exceed the planning allowance 
+Academic supervisor Consulted where a cost decision affects assessment scope or 
+academic timeline. 
+ 
+10.0 Procurement Management Plan 
+CREMS has minimal procurement requirements. The tech stack (React, ASP.NET Core, SQL Server 
+Developer edition, Docker, GitHub, Postman and supporting libraries) is all either open-source or falls into 
+free tiers or already paid for by the students/developers, so there is no procurement process required for 
+the delivery of this product. 
+In those cases where the purchase of an additional cash component is required, such as temporary 
+hosting services or test email/domain limits. The project lead has the authority to agree to the cash ceiling 
+budget stated in the Cost Baseline document. In any case where a purchase is required that goes above 
+this ceiling or which provides a production service (such as hosting, payment or email/domain services), 
+written permission must first be gained from the client (sponsor). 
+11.0 Project Scope Management Plan 
+Scope is measured and verified through sprint demonstrations, UAT scenarios, and the reconciliation 
+checks described in the Quality Management Plan. 
+• Proposed scope changes may be initiated by the project leader, any team member, or the client, 
+and are submitted through the change control process. 
+
+11 
+• The project leader evaluates each request. 
+• Any changes will require client approval before implementation, and the academic supervisor will 
+be informed if the academic timeline is affected. 
+• The client is responsible for formally accepting the project's final deliverable, based on UAT 
+results, testing evidence, and completion of the agreed work packages. 
+12.0 Schedule Management Plan 
+Schedule Management Plan documents how the 12 weekly sprint schedules will be developed, 
+sequenced, baselined, tracked and controlled, using an Agile time-boxed approach appropriate to the 
+fixed 12-week academic window and four-person team. 
+12.1 Scheduling Methodology and Tools 
+Element Approach 
+Methodology Agile, fixed-length (one-week) sprints with a rolling backlog, rather than a 
+fixed-scope critical-path schedule is chosen because requirements are 
+expected to be changed through client feedback. 
+Scheduling unit Sprint (1 week) is the primary planning unit; within a sprint, tasks are 
+tracked at the work-package/task-board level rather than as a detailed 
+Gantt of individual hours. 
+Tooling Shared task board linked to the Git repository for day-to-day tracking; the 
+sprint table serves as the master schedule baseline document. 
+Dependency 
+management 
+Sequencing follows the dependency-aware order (e.g. authentication 
+before organization/branch management before asset module) rather than 
+a formal critical-path network diagram, given the sprint-boxed structure 
+12.2 Schedule Development 
+The task list is generated straight from the Work Breakdown Structure: every WBS work package gets 
+split up into sprintable tasks and assigned to a sprint which respects the corresponding technical 
+dependencies. This twelve-sprint schedule becomes the schedule baseline for this plan, whose primary 
+scheduling principles are as follows: 
+• Sprint #1 is a combination of scope confirmation and minimal common engineering baseline 
+(repository, initial database baseline), such that everything else has something to build on in the 
+coming sprints. 
+• Authentication and common system services immediately follow scope confirmation (Sprint #2) 
+because nearly every future module requires a proven authentication layer to work properly. 
+• Division/Branch/Role administration (Sprint #3) precedes the development of asset, booking, and 
+inspection modules (Sprints 4–8) because those modules require proven isolation by access first. 
+• Two division-specific lifecycle demonstrations (motors, Sprint #8; carptrac, Sprint #10) are 
+intentionally spaced by two sprints to leverage the first division's configuration model for reuse 
+and testing rather than duplication. 
+
+12 
+• The final two sprints (Sprints #11-#12) are reserved for integration and stabilization purposes and 
+will not accommodate slipped functionality features. 
+13.0 Quality Management Plan 
+Quality Management Plan extends the test approach to the quality policy, according to which CREMS 
+quality is defined as a characteristic of meeting its acceptance criteria and having no open critical issues. 
+The concept of MVP completion is used as the project’s quality gate. 
+13.1 Quality Metrics 
+Metric Target Measurement method 
+Must-requirement test 
+pass rate 
+100% of Must requirements 
+have a passing acceptance test 
+before the requirement is 
+marked done 
+Traceability Matrix cross-checked 
+against test results at each sprint 
+review 
+Critical/high defect count at 
+release 
+Zero unresolved critical/high 
+defects at each milestone demo; 
+none at final handover 
+Defect register reviewed at sprint 
+review. 
+Cross-division/branch data 
+leakage 
+Zero instances in API integration 
+testing 
+Authorization test suite covering 
+role/division/branch scenarios. 
+Performance — ordinary 
+interactions 
+95% of ordinary page/API 
+interactions complete within 2 
+seconds on the test network for 
+the agreed pilot dataset 
+Timed API/page checks against 
+representative pilot data. 
+Performance — reports Reports complete within 5 
+seconds where practical 
+Timed checks on report endpoints 
+using pilot dataset 
+Usability — unaided task 
+completion 
+At least 80% task completion in 
+moderated UAT without 
+facilitator intervention, for 
+defined core tasks 
+Moderated UAT sessions with 
+representative users. 
+Documentation quality A team member who did not 
+write the setup guide can 
+complete setup successfully 
+without undocumented steps 
+Clean-machine setup rehearsal. 
+Code review coverage No production-like merge without 
+at least one peer review 
+Pull-request review record in the Git 
+history. 
+
+13 
+ 
+13.2 Quality Assurance Activities (Process-Focused) 
+Quality assurance activities are preventive — they aim to stop defects entering the product — and run 
+continuously across the twelve sprints: 
+QA activity Frequency Purpose 
+Requirements review and 
+acceptance-criteria definition 
+At scope baseline 
+and whenever a 
+requirement 
+changes 
+Ensures every Must requirement is testable 
+before development starts. 
+Peer code/design review 
+before merge 
+Every merge to the 
+protected main 
+branch 
+Checks correctness, security, maintainability, 
+and consistency. 
+Secure-configuration and 
+dependency review 
+Each sprint Confirms no secrets are committed and 
+dependencies are free of known critical 
+vulnerabilities 
+Migration apply/rollback 
+rehearsal 
+Whenever a 
+database 
+migration is 
+introduced 
+Confirms that a clean database can be created, 
+and the upgrade path is documented. 
+Documentation-alongside-
+code discipline 
+Every feature Migration and API documentation are updated as 
+part of the definition of done, not deferred to 
+Week 12 
+ 
+13.3 Quality Control Activities (Product-Focused) 
+Quality control activities are detective; they verify the delivered product meets its acceptance criteria and 
+map directly to the test-strategy table already defined in PMP Section 16: 
+QC activity Scope Exit threshold 
+Unit testing Pricing, status transitions, availability and 
+profitability calculations 
+All critical business-rule tests 
+pass 
+API integration 
+testing 
+Authentication, authorization, validation, 
+database transactions, error contracts 
+All critical API scenarios 
+pass; no cross-
+division/branch leakage 
+Browser end-to-end 
+testing 
+Customer booking journey and staff asset 
+lifecycle (Motors and Carptrac scenarios) 
+Critical paths pass on agreed 
+Chrome/Edge versions 
+
+14 
+Security testing Session timeout, CSRF protection, access 
+control, rate limiting, file-upload validation, 
+dependency scan 
+No open critical/high issue 
+without sponsor-approved 
+treatment 
+Performance testing Representative pilot dataset, timed API/page 
+checks 
+Meets the 2-second/5-
+second targets. 
+Usability / UAT Moderated sessions with representative 
+users on defined core tasks 
+≥ 80% unaided completion; 
+feedback triaged into the 
+backlog 
+ 
+14.0 Risk Management Plan 
+Risks are reviewed weekly and after every client decision. The most likely and highest-impact risks are 
+reflected in the sprint schedule so that mitigation actions are taken at the appropriate time, and risk 
+owners provide status updates at team coordination meetings. 
+At project closure, the project leader will analyse each risk and the risk-management process itself, 
+capturing improvements as lessons learned for future group projects. 
+ 
+14.1 Risk Management Approach 
+• Risk identification is continuous: any team member, the client or the supervisor may raise a risk at 
+any time; it is not limited to the weekly review. 
+• Each risk is scored for Probability (1–5) and Impact (1–5) and rated using the Probability × Impact 
+matrix. 
+• Every risk has a single named member accountable for monitoring its triggers and executing its 
+mitigation actions. Group (“All”) is used only where the risk is genuinely team wide. 
+• A risk that has already occurred is closed on the register and moved to the issue log, then handled 
+through the change-control process of the Project Management Plan.  
+14.2 Risk Register 
+Twenty-four risks are currently tracked, carried forward from the Project Management Plan baseline (R1–
+R12) and extended with additional categories identified during detailed planning (R13–R24). All risks are 
+Open as of the document date; none have yet been moved to the issue log. 
+ID Category Risk / Trigger 
+Score 
+(Rating) 
+Response Mitigation 
+Actions Contingency Team 
+R1 Scope & 
+Requirements 
+Requirements 
+remain unclear or 
+expand across 
+divisions 
+4×5=20 
+High 
+Mitigate 
+Baseline MVP and 
+exclusions; 
+decision log; 
+prototypes; formal 
+change control. 
+Freeze scope at 
+the last approved 
+baseline; defer 
+new items to a 
+Kavish 
+
+15 
+post-MVP 
+backlog. 
+R2 Stakeholder 
+& Client 
+Limited client/user 
+availability delays 
+validation 
+4×4=16 
+High 
+Mitigate 
+Book reviews 
+early; send 
+focused questions; 
+document 
+assumptions and 
+expiry dates. 
+Proceed on the 
+documented 
+assumption with 
+an expiry date; 
+flag as an open 
+decision. 
+Kavish 
+R3 Resource & 
+Schedule 
+Twelve-week scope 
+exceeds four-
+person capacity 
+4×5=20 
+High 
+Mitigate 
+Must/Should/Could 
+priorities; vertical 
+slices; protect 
+testing/closure 
+weeks. 
+Descope 
+Should/Could 
+items first; the 
+Shipping-scope 
+module is the first 
+candidate for 
+reduction. 
+All 
+R4 Security & 
+Data 
+Division/branch 
+data leaks through 
+weak authorization 
+3×5=15 
+High 
+Mitigate 
+API-level policies, 
+query scoping, 
+isolation tests, 
+peer security 
+review. 
+Emergency hotfix 
+under Section 
+17.1; disable the 
+affected endpoint 
+until resolved. 
+Sudhansu 
+R5 Technical & 
+Quality 
+Conflicting bookings 
+or invalid asset 
+status 
+3×5=15 
+High 
+Mitigate 
+Transactional 
+conflict checks, 
+status rules, and 
+concurrency tests. 
+Manual 
+reconciliation 
+procedure and 
+booking-conflict 
+alert until the fix is 
+verified. 
+Shoneel 
+R6 Quality & 
+Technical 
+Incorrect 
+pricing/profit 
+calculations 
+undermine trust 
+3×5=15 
+High 
+Mitigate 
+Approved 
+examples, decimal 
+arithmetic, 
+traceable line 
+items, and 
+calculation tests. 
+Freeze the 
+affected 
+calculation, notify 
+users, and re-
+verify client 
+examples before 
+release. 
+Sudhansu 
+R7 Security & 
+Data 
+Inspection 
+photos/signatures 
+create 
+privacy/storage risk 
+3×4=12 
+Med 
+Mitigate 
+Restricted 
+types/sizes, 
+private storage 
+design, 
+authorization and 
+retention rules. 
+Restrict 
+access/downloads 
+pending fix; purge 
+any non-compliant 
+files. 
+Rahul 
+R8 Technical & 
+Operational 
+Team environment 
+differences block 
+integration 
+3×3=9 
+Med 
+Mitigate 
+Docker/setup 
+guide, pinned 
+versions, clean-
+machine validation 
+and shared config 
+example. 
+Pair-fix on a clean 
+machine and 
+update the setup 
+guide the same 
+day. 
+Sudhansu 
+
+16 
+R9 External & 
+Vendor 
+Email 
+provider/domain is 
+not ready 
+3×3=9 
+Med 
+Mitigate 
+Sandbox testing, 
+provider 
+abstraction, 
+queue/log, 
+controlled fallback 
+evidence. 
+Fall back to 
+logged/sandbox 
+delivery for 
+demos; delay 
+production 
+sending until 
+ready. 
+Rahul 
+R10 Technical & 
+Operational 
+Data loss or 
+destructive 
+migration 
+2×5=10 
+Med 
+Mitigate 
+Versioned 
+migrations, 
+backups, restore 
+rehearsal and non-
+production test 
+first. 
+Restore from the 
+last verified 
+backup using the 
+rehearsed restore 
+procedure. 
+Sudhansu 
+R11 Resource & 
+Team 
+Team availability or 
+uneven workload 
+3×4=12 
+Med 
+Mitigate 
+Small reviewed 
+tasks, shared 
+ownership, weekly 
+rebalancing and 
+early escalation. 
+Redistribute tasks 
+at the next 
+checkpoint; 
+escalate to the 
+supervisor if 
+unresolved after a 
+week. 
+All 
+R12 Quality & 
+Schedule 
+UAT discovers 
+major workflow 
+mismatch late 
+3×5=15 
+High 
+Mitigate 
+Weekly 
+demonstrations, 
+end-to-end 
+prototypes and 
+acceptance criteria 
+from Week 2. 
+Triage by 
+requirement 
+priority; fix Must-
+defects before 
+handover, 
+document 
+limitations for 
+Should/Could. 
+All 
+R13 Resource & 
+Academic 
+Coursework/exams 
+in other CS400-
+concurrent papers 
+reduce available 
+hours in Weeks 9–
+11 
+3×4=12 
+Med 
+Mitigate 
+Share academic 
+calendars early; 
+plan a lighter 
+individual load 
+during clash 
+weeks; buffer in 
+Week 12. 
+Reprioritize the 
+backlog to Must-
+only for the clash 
+week; extend a 
+work package 
+within the sprint. 
+All 
+R14 Financial & 
+Budget 
+Planning budget 
+(max FJD 580) 
+exceeded by 
+staging, email or 
+domain costs 
+2×3=6 
+Low 
+Accept 
+Cost log 
+maintained by the 
+project lead; free-
+tier default; spend 
+requires team and 
+client/academic 
+approval. 
+Revert to the free 
+tier resource or 
+pause the paid 
+service until 
+further approval is 
+obtained. 
+Kavish 
+R15 Academic & 
+Compliance 
+Client-provided 
+sample data 
+contains real 
+personal or financial 
+information, 
+2×5=10 
+Med 
+Avoid 
+Data-minimization 
+review before 
+importing; prefer 
+synthetic data; 
+confidentiality 
+clause enforced 
+Immediately 
+quarantine and 
+delete the dataset 
+from all 
+environments; 
+Sudhansu 
+
+17 
+breaching 
+confidentiality terms 
+per document 
+control. 
+notify client and 
+supervisor. 
+R16 Resource & 
+Technical 
+Architecture/security 
+knowledge 
+concentrated in one 
+team member (bus 
+factor) 
+3×4=12 
+Med 
+Mitigate 
+Architecture 
+decision records, 
+knowledge sharing 
+sessions, 
+mandatory peer 
+review on core 
+modules. 
+Run an 
+emergency 
+knowledge 
+transfer session; 
+temporarily pair 
+remaining 
+members on the 
+affected module. 
+Sudhansu 
+R17 Scope & 
+Stakeholder 
+Conflicting priorities 
+requested by 
+different division 
+stakeholders 
+(Motors vs Carptrac 
+vs Shipping) 
+3×4=12 
+Med 
+Mitigate 
+Single prioritized 
+backlog; client 
+sponsor arbitrates 
+conflicts; 
+Must/Should/Could 
+framework applied 
+consistently. 
+Escalate the 
+unresolved 
+conflict to the 
+client sponsor for 
+a binding decision 
+within one 
+business day. 
+Kavish 
+R18 Operational 
+Hardware failure, 
+device loss or 
+corrupted local 
+environment causes 
+lost work 
+2×3=6 
+Low 
+Mitigate 
+Git remote as 
+source of truth; 
+frequent 
+commits/pushes; 
+cloud-stored 
+documentation; 
+Dockerized 
+environment. 
+Rebuild the 
+environment from 
+the repository and 
+setup guide on a 
+spare device; 
+restore docs from 
+cloud copy. 
+All 
+R19 Technical & 
+Security 
+Third-party/open-
+source package 
+vulnerability or 
+breaking update 
+disrupts the build 
+2×3=6 
+Low 
+Mitigate 
+Dependency 
+scanning, pinned 
+package versions, 
+review before 
+upgrading. 
+Roll back to the 
+last known-good 
+version; patch or 
+replace the 
+affected package 
+before the next 
+release. 
+Sudhansu 
+R20 Schedule & 
+Stakeholder 
+Client or supervisor 
+sign-off on a 
+milestone (e.g., M1 
+scope baseline, M2 
+design) is delayed 
+3×4=12 
+Med 
+Mitigate 
+Schedule reviews 
+early in the sprint; 
+default to a 
+documented 
+assumption after 
+the agreed 
+response window. 
+Proceed on the 
+documented 
+assumption; 
+formally 
+supersede once 
+approval is 
+received. 
+Kavish 
+R21 Quality & 
+Testing 
+Automated test 
+coverage on critical 
+business rules 
+(pricing, availability, 
+RBAC) falls behind 
+under schedule 
+pressure 
+3×4=12 
+Med 
+Mitigate 
+Critical-path tests 
+defined at design 
+stage; tests 
+required in the 
+Definition of Done; 
+peer review gate. 
+Halt new feature 
+work on the 
+affected module 
+until critical tests 
+are restored. 
+Rahul 
+
+18 
+R22 Security & 
+Data 
+Session/cookie 
+security 
+misconfiguration 
+exposes user 
+accounts 
+2×5=10 
+Med 
+Mitigate 
+Security checklist 
+from the NFR 
+baseline; peer 
+security review; 
+automated 
+configuration 
+verification test. 
+Force session 
+invalidation and 
+password reset 
+for affected 
+accounts; hotfix 
+under the 
+emergency 
+change process. 
+Sudhansu 
+R23 External & 
+Operational 
+Staging/demo 
+environment 
+approval from client 
+or institution IT is 
+delayed, blocking 
+integrated demos 
+and UAT 
+3×4=12 
+Med 
+Mitigate 
+Request staging 
+approval by Week 
+2–3; document 
+environment 
+requirements to 
+expedite approval. 
+Demonstrate on 
+the local/dev 
+environment and 
+reschedule 
+staging-
+dependent UAT 
+once approved. 
+Sudhansu 
+R24 Academic & 
+Compliance 
+AI-assisted content 
+is used without 
+required disclosure, 
+breaching CS400 
+academic-integrity 
+policy 
+2×4=8 
+Med 
+Avoid 
+AI-use declaration 
+maintained in 
+document control; 
+team reviews and 
+rewrites AI-
+assisted content; 
+usage logged per 
+course policy. 
+Correct and re-
+declare the 
+affected 
+submission 
+immediately; 
+consult the 
+supervisor on 
+required 
+remediation. 
+ 
+  
+ 
+14.3 Top Risks Summary 
+7 risks currently carry a high rating (score 15–25) and receive priority attention at every weekly review: 
+ID Risk Score Response focus Team 
+R1 
+Requirements 
+remain unclear or 
+expand across 
+divisions 
+4×5=20 
+Baseline MVP and 
+exclusions; 
+decision log; 
+prototypes; formal 
+change control. 
+Kavish 
+R3 
+Twelve-week 
+scope exceeds 
+four-person 
+capacity 
+4×5=20 
+Must/Should/Could 
+priorities; vertical 
+slices; protect 
+testing/closure 
+weeks. 
+All 
+R2 
+Limited client/user 
+availability delays 
+validation 
+4×4=16 
+Book reviews 
+early; send 
+focused questions; 
+document 
+assumptions and 
+expiry dates. 
+Kavish 
+
+19 
+R4 
+Division/branch 
+data leaks through 
+weak authorization 
+3×5=15 
+API-level policies, 
+query scoping, 
+isolation tests, 
+peer security 
+review. 
+Sudhansu 
+R5 
+Conflicting 
+bookings or invalid 
+asset status 
+3×5=15 
+Transactional 
+conflict checks, 
+status rules and 
+concurrency tests. 
+Shoneel 
+R6 
+Incorrect 
+pricing/profit 
+calculations 
+undermine trust 
+3×5=15 
+Approved 
+examples, decimal 
+arithmetic, 
+traceable line 
+items, and 
+calculation tests. 
+Sudhansu 
+R12 
+UAT discovers 
+major workflow 
+mismatch late 
+3×5=15 
+Weekly 
+demonstrations, 
+end-to-end 
+prototypes and 
+acceptance criteria 
+from Week 2. 
+All 
+ 
+15. Resource Calendar 
+All four team members are required for the full duration of the twelve-week programme (10 August – 30 
+October 2026), at an assumed 6 and 1/2 hours per person per week, giving a planned team effort of 312 
+hours (4 people × 6.5 hours × 12 weeks). Levels of effort will vary week to week. If a member is not 
+needed for a full week at any point, their time outside CREMS remains at their own discretion, balanced 
+against other coursework. 
+15.1 Human resources 
+Project Role Assigned 
+Person 
+Responsibilities Effort 
+Project Leader / 
+Client Liaison 
+Kavish Chandra Plan, meetings, scope/decision control, 
+integration, submission and team 
+coordination. 
+6.5 h/week 
+Backend and Data 
+Lead 
+Shoneel Kumar Domain/API/database, authorization, 
+migrations, backend tests and security. 
+6.5 h/week 
+Frontend and UX 
+Lead 
+Sudhansu Kisun Responsive journeys, accessibility, API 
+integration, UI testing and user help. 
+6.5 h/week 
+Quality and DevOps 
+Lead 
+Rahul Chand Test plan/evidence, Docker/builds, 
+release, backup, documentation and 
+demonstrations. 
+6.5 h/week 
+  
+
+20 
+15.2 Technical and information resources 
+• Four development laptops (mixed macOS/Windows). 
+• GitHub repository with issues, feature branches, pull requests and version history. 
+• .NET 10 SDK, Node.js 22+, React, Material UI, SQL Server 2022, Docker Desktop, VS Code and 
+Postman. 
+• Client representatives, current forms/agreements, sample asset categories and branch/division 
+information. 
+• Academic supervisors for assessment guidance and escalation. 
+• Optional staging host, email sender/domain and secure configuration channel. 
+ 
+15.0 Reference 
+[1] Render, Inc., "Pricing," Render. [Online]. Available: https://render.com/pricing. [Accessed: Aug. 13, 
+2026] 
+[2] Twilio Inc., "Email API Pricing," Twilio SendGrid. [Online]. Available: https://www.twilio.com/en-
+us/products/email-api/pricing. [Accessed: Aug. 13, 2026] 
+[3] Namecheap, Inc., "Domain Name Prices — Domain Registration Costs," Namecheap. [Online]. 
+Available: https://www.namecheap.com/domains/. [Accessed: Aug. 13, 2026] 
+[4] Internet Security Research Group, "Frequently Asked Questions," Let's Encrypt. [Online]. Available: 
+https://letsencrypt.org/docs/faq/. [Accessed: Aug. 13, 2026] 
+[5] Microsoft Corp., "Editions and Supported Features of SQL Server 2022," Microsoft Learn. [Online]. 
+Available: https://learn.microsoft.com/en-us/sql/sql-server/editions-and-components-of-sql-server-2022. 
+[Accessed: Aug. 13, 2026] 
+[6] Docker Inc., "Docker Desktop License Agreement," Docker Docs. [Online]. Available: 
+https://docs.docker.com/subscription/desktop-license/. [Accessed: Aug. 13, 2026] 
+[7] Xe, "USD to FJD — US Dollar to Fijian Dollar Exchange Rate," Xe.com. [Online]. Available: 
+https://www.xe.com/currencyconverter/convert/?Amount=1&From=USD&To=FJD. [Accessed: Aug. 13, 
+2026] 
+ 
+
+21 
+16.0 Appendix 
+16.1 Appendix A 
+ 
+17.0 Sponsor Acceptance 
+ 
+Approved by the Client Sponsor: 
+Signature: ______________________________        Date: ______________ 
+Name: Amit Kumar 
+Title: Carpenters Fiji Pte Limited 
+
+
+22 
+Approved by the Academic Supervisor: 
+Signature: ______________________________        Date: ______________ 
+Name: Ravneil Nand 
+Title: Academic Supervisor 
+Approved by the Project Leader: 
+Signature: ______________________________        Date: ______________ 
+Name: Kavish Chandra 
+ 
+ 

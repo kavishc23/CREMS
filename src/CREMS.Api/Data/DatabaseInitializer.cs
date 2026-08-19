@@ -4,6 +4,7 @@ using CREMS.Api.Domain.Customers;
 using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
+using CREMS.Api.Domain.Operations;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,6 +32,7 @@ public static class DatabaseInitializer
                 EnsureSucceeded(roleResult, $"create the {roleName} role");
             }
         }
+        await SeedRolePermissionsAsync(db, cancellationToken);
 
         if (app.Environment.IsDevelopment())
         {
@@ -64,10 +66,10 @@ public static class DatabaseInitializer
             EnsureSucceeded(createResult, "create the bootstrap administrator");
         }
 
-        if (!await userManager.IsInRoleAsync(administrator, SystemRoles.Administrator))
+        if (!await userManager.IsInRoleAsync(administrator, SystemRoles.SuperAdministrator))
         {
-            var roleResult = await userManager.AddToRoleAsync(administrator, SystemRoles.Administrator);
-            EnsureSucceeded(roleResult, "assign the Administrator role");
+            var roleResult = await userManager.AddToRoleAsync(administrator, SystemRoles.SuperAdministrator);
+            EnsureSucceeded(roleResult, "assign the Super Administrator role");
         }
     }
 
@@ -101,16 +103,8 @@ public static class DatabaseInitializer
         {
             new DivisionSeed("MOTORS", "Carpenters Motors & Rentals", "Vehicle rental, fleet operations, servicing and parts.", DivisionCapabilities.Rental | DivisionCapabilities.Maintenance,
                 new[] { new ServiceSeed("VEHICLE_RENTAL", "Vehicle rental", ServiceOfferingType.VehicleRental, PersonnelRequirement.None, true, false) }),
-            new DivisionSeed("CARPTRAC", "Carptrac", "Heavy equipment, generators, parts and technical service. Hire availability remains configurable pending confirmation.", DivisionCapabilities.Maintenance | DivisionCapabilities.PersonnelSupportedHire,
+            new DivisionSeed("CARPTRAC", "Carptrac", "Caterpillar construction equipment, forklifts, power generation and technical support.", DivisionCapabilities.Maintenance | DivisionCapabilities.PersonnelSupportedHire,
                 new[] { new ServiceSeed("EQUIPMENT_HIRE", "Equipment hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.Optional, false, true) }),
-            new DivisionSeed("HARDWARE", "Carpenters Hardware", "Hardware, tools, builders equipment and materials. Tool hire remains configurable pending confirmation.", DivisionCapabilities.Retail,
-                Array.Empty<ServiceSeed>()),
-            new DivisionSeed("SHIPPING", "Carpenters Shipping & Logistics", "Shipping and logistics services for individual and corporate customers.", DivisionCapabilities.Logistics,
-                new[] { new ServiceSeed("LOGISTICS", "Shipping and logistics enquiry", ServiceOfferingType.LogisticsService, PersonnelRequirement.None, false, true) }),
-            new DivisionSeed("PROPERTY", "Carpenters Properties", "Residential and commercial property leasing.", DivisionCapabilities.PropertyLeasing | DivisionCapabilities.Maintenance,
-                new[] { new ServiceSeed("PROPERTY_LEASE", "Property leasing", ServiceOfferingType.PropertyLease, PersonnelRequirement.None, false, true) }),
-            new DivisionSeed("MH", "MH", "Retail division represented in the group structure; rental capabilities are not enabled.", DivisionCapabilities.Retail,
-                Array.Empty<ServiceSeed>()),
         };
         foreach (var seed in divisionSeeds)
         {
@@ -122,10 +116,28 @@ public static class DatabaseInitializer
                     Capabilities = seed.Capabilities, IsPublic = true, IsActive = true };
                 db.Divisions.Add(division);
             }
+            else { division.Name = seed.Name; division.Description = seed.Description; division.Capabilities = seed.Capabilities; }
             foreach (var service in seed.Services.Where(service => division.ServiceOfferings.All(x => x.Code != service.Code)))
-                division.ServiceOfferings.Add(new ServiceOffering { Code = service.Code, Name = service.Name, Type = service.Type,
+            {
+                var offering = new ServiceOffering { Division = division, DivisionId = division.Id, Code = service.Code, Name = service.Name, Type = service.Type,
                     PersonnelRequirement = service.PersonnelRequirement, IsBookableOnline = service.IsBookableOnline,
-                    RequiresQuote = service.RequiresQuote, IsActive = true });
+                    RequiresQuote = service.RequiresQuote, IsActive = true };
+                db.ServiceOfferings.Add(offering);
+                division.ServiceOfferings.Add(offering);
+            }
+        }
+        // Keep previously seeded future divisions for extensibility, but hide them from
+        // operational and customer workflows until the client brings them into scope.
+        var outOfScopeCodes = new[] { "HARDWARE", "SHIPPING", "PROPERTY", "MH" };
+        var outOfScopeDivisions = await db.Divisions
+            .Include(x => x.ServiceOfferings)
+            .Where(x => outOfScopeCodes.Contains(x.Code))
+            .ToListAsync(cancellationToken);
+        foreach (var division in outOfScopeDivisions)
+        {
+            division.IsActive = false;
+            division.IsPublic = false;
+            foreach (var service in division.ServiceOfferings) service.IsActive = false;
         }
         await db.SaveChangesAsync(cancellationToken);
 
@@ -156,16 +168,36 @@ public static class DatabaseInitializer
         var branches = await db.Branches
             .Where(branch => branchSeeds.Select(seed => seed.Code).Contains(branch.Code))
             .ToDictionaryAsync(branch => branch.Code, cancellationToken);
-        var divisions = await db.Divisions.ToDictionaryAsync(x => x.Code, cancellationToken);
-        var services = await db.ServiceOfferings.ToDictionaryAsync(x => x.Code, cancellationToken);
+        var divisions = await db.Divisions.Where(x => x.IsActive).ToDictionaryAsync(x => x.Code, cancellationToken);
+        var services = await db.ServiceOfferings.Where(x => x.IsActive).ToDictionaryAsync(x => x.Code, cancellationToken);
         foreach (var branch in branches.Values)
         {
-            foreach (var divisionCode in new[] { "MOTORS", "CARPTRAC", "HARDWARE", "SHIPPING", "PROPERTY", "MH" })
+            foreach (var divisionCode in new[] { "MOTORS", "CARPTRAC" })
             {
                 var division = divisions[divisionCode];
                 if (!await db.BranchDivisions.AnyAsync(x => x.BranchId == branch.Id && x.DivisionId == division.Id, cancellationToken))
                     db.BranchDivisions.Add(new BranchDivision { BranchId = branch.Id, DivisionId = division.Id, IsActive = true });
             }
+        }
+        var inactiveBranchDivisions = await db.BranchDivisions
+            .Where(x => outOfScopeDivisions.Select(d => d.Id).Contains(x.DivisionId))
+            .ToListAsync(cancellationToken);
+        foreach (var assignment in inactiveBranchDivisions) assignment.IsActive = false;
+        await db.SaveChangesAsync(cancellationToken);
+
+        var chargeSeeds = new[]
+        {
+            new { Division = "MOTORS", Service = "VEHICLE_RENTAL", Code = "BASE_DAILY", Name = "Vehicle hire", Category = ChargeCategory.BaseHire, Unit = ChargeUnit.Day, Sell = 0m, Cost = 0m, Required = true },
+            new { Division = "MOTORS", Service = "VEHICLE_RENTAL", Code = "DRIVER_HOUR", Name = "Professional driver", Category = ChargeCategory.Driver, Unit = ChargeUnit.Hour, Sell = 28m, Cost = 18m, Required = false },
+            new { Division = "CARPTRAC", Service = "EQUIPMENT_HIRE", Code = "BASE_EQUIPMENT_DAY", Name = "Equipment hire", Category = ChargeCategory.BaseHire, Unit = ChargeUnit.Day, Sell = 0m, Cost = 0m, Required = true },
+            new { Division = "CARPTRAC", Service = "EQUIPMENT_HIRE", Code = "OPERATOR_HOUR", Name = "Certified equipment operator", Category = ChargeCategory.Operator, Unit = ChargeUnit.Hour, Sell = 42m, Cost = 27m, Required = false },
+            new { Division = "CARPTRAC", Service = "EQUIPMENT_HIRE", Code = "EQUIPMENT_DELIVERY", Name = "Equipment delivery / collection", Category = ChargeCategory.Transport, Unit = ChargeUnit.Trip, Sell = 250m, Cost = 165m, Required = false },
+        };
+        foreach (var seed in chargeSeeds)
+        {
+            var division = divisions[seed.Division]; var service = services[seed.Service];
+            if (await db.ChargeDefinitions.AnyAsync(x => x.DivisionId == division.Id && x.Code == seed.Code, cancellationToken)) continue;
+            db.ChargeDefinitions.Add(new ChargeDefinition { DivisionId = division.Id, ServiceOfferingId = service.Id, Code = seed.Code, Name = seed.Name, Category = seed.Category, Unit = seed.Unit, DefaultSellingRate = seed.Sell, DefaultCostRate = seed.Cost, IsRequired = seed.Required, IsTaxable = true, IsCustomerVisible = true, IsActive = true });
         }
         await db.SaveChangesAsync(cancellationToken);
 
@@ -197,20 +229,20 @@ public static class DatabaseInitializer
             new AssetSeed("VEH-SUV-1004", "Isuzu NQR75L 37 Seater Coach", AssetType.Vehicle, "SUV", "LR 773", null, 550m, 1),
             new AssetSeed("VEH-NAD-1003", "Honda ZR-V LX", AssetType.Vehicle, "NAD", "LT 905", null, 195m, 4),
             new AssetSeed("VEH-LAU-1003", "BAIC X55 Elite", AssetType.Vehicle, "LAU", "LT 729", null, 175m, 3),
-            new AssetSeed("EQP-SUV-2001", "3.5T Mini Excavator", AssetType.Equipment, "SUV", null, "EXC-24017", 475m, 1),
-            new AssetSeed("EQP-LAU-2001", "2.5T Diesel Forklift", AssetType.Equipment, "LAU", null, "FLT-23108", 350m, 2),
-            new AssetSeed("EQP-NAD-2001", "60 kVA Diesel Generator", AssetType.Equipment, "NAD", null, "GEN-24126", 285m, 4),
-            new AssetSeed("EQP-LAB-2001", "Reversible Plate Compactor", AssetType.Equipment, "LAB", null, "COM-22049", 95m, 3),
-            new AssetSeed("EQP-SUV-2002", "Electric Scissor Lift 10m", AssetType.Equipment, "SUV", null, "LFT-23087", 390m, 2),
-            new AssetSeed("EQP-NAD-2002", "Towable Air Compressor 185 CFM", AssetType.Equipment, "NAD", null, "AIR-24112", 210m, 3),
-            new AssetSeed("EQP-LAU-2002", "Backhoe Loader", AssetType.Equipment, "LAU", null, "BHL-22031", 650m, 1),
+            new AssetSeed("EQP-SUV-2001", "CAT 303.5E CR Mini Excavator", AssetType.Equipment, "SUV", null, "CAT3035-24017", 475m, 1),
+            new AssetSeed("EQP-LAU-2001", "CAT DP25N 2.5T Diesel Forklift", AssetType.Equipment, "LAU", null, "CATDP25-23108", 350m, 2),
+            new AssetSeed("EQP-NAD-2001", "CAT DE65E0 60 kVA Generator", AssetType.Equipment, "NAD", null, "CATDE65-24126", 285m, 4),
+            new AssetSeed("EQP-LAB-2001", "CAT CB2.5 Utility Compactor", AssetType.Equipment, "LAB", null, "CATCB25-22049", 295m, 3),
+            new AssetSeed("EQP-SUV-2002", "CAT DP30N 3T Diesel Forklift", AssetType.Equipment, "SUV", null, "CATDP30-23087", 390m, 2),
+            new AssetSeed("EQP-NAD-2002", "CAT DE110E2 100 kVA Generator", AssetType.Equipment, "NAD", null, "CATDE110-24112", 470m, 3),
+            new AssetSeed("EQP-LAU-2002", "CAT 428 Backhoe Loader", AssetType.Equipment, "LAU", null, "CAT428-22031", 650m, 1),
             new AssetSeed("EQP-LAB-2002", "Concrete Mixer 350L", AssetType.Equipment, "LAB", null, "MIX-24044", 120m, 5),
-            new AssetSeed("EQP-SUV-2003", "25T Mobile Crane", AssetType.Equipment, "SUV", null, "CRN-25014", 1450m, 1),
-            new AssetSeed("EQP-NAD-2003", "5T Rough Terrain Forklift", AssetType.Equipment, "NAD", null, "RTF-24062", 620m, 2),
-            new AssetSeed("EQP-LAU-2003", "12m Telehandler", AssetType.Equipment, "LAU", null, "TEL-25008", 780m, 2),
-            new AssetSeed("EQP-LAB-2003", "3T Diesel Forklift", AssetType.Equipment, "LAB", null, "FLT-24173", 410m, 2),
-            new AssetSeed("EQP-SUV-2004", "20T Hydraulic Excavator", AssetType.Equipment, "SUV", null, "EXC-25021", 1180m, 1),
-            new AssetSeed("EQP-NAD-2004", "100 kVA Silent Diesel Generator", AssetType.Equipment, "NAD", null, "GEN-25036", 470m, 3),
+            new AssetSeed("EQP-SUV-2003", "CAT TH408D 4T Telehandler", AssetType.Equipment, "SUV", null, "CATTH408-25014", 780m, 1),
+            new AssetSeed("EQP-NAD-2003", "CAT DP50CN 5T Diesel Forklift", AssetType.Equipment, "NAD", null, "CATDP50-24062", 620m, 2),
+            new AssetSeed("EQP-LAU-2003", "CAT 320 Hydraulic Excavator", AssetType.Equipment, "LAU", null, "CAT320-25008", 1180m, 2),
+            new AssetSeed("EQP-LAB-2003", "CAT DP30N 3T Diesel Forklift", AssetType.Equipment, "LAB", null, "CATDP30-24173", 410m, 2),
+            new AssetSeed("EQP-SUV-2004", "CAT 330 Hydraulic Excavator", AssetType.Equipment, "SUV", null, "CAT330-25021", 1450m, 1),
+            new AssetSeed("EQP-NAD-2004", "CAT DE150E0 135 kVA Generator", AssetType.Equipment, "NAD", null, "CATDE150-25036", 595m, 3),
         };
 
         var existingAssets = await db.Assets
@@ -236,10 +268,33 @@ public static class DatabaseInitializer
             asset.BranchId = branch.Id;
             asset.RegistrationNumber = seed.RegistrationNumber;
             asset.SerialNumber = seed.SerialNumber;
+            var nameParts = seed.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            asset.Manufacturer = seed.Type == AssetType.Vehicle ? nameParts[0] : seed.Name.StartsWith("CAT ") ? "Caterpillar" : nameParts[0];
+            asset.Model = seed.Type == AssetType.Vehicle
+                ? string.Join(' ', nameParts.Skip(1).Take(Math.Min(3, nameParts.Length - 1)))
+                : string.Join(' ', nameParts.Skip(1).Take(Math.Min(2, nameParts.Length - 1)));
+            var stableSeed = seed.AssetNumber.Aggregate(17, (value, character) => value * 31 + character);
+            stableSeed = Math.Abs(stableSeed == int.MinValue ? 0 : stableSeed);
+            asset.ModelYear ??= 2021 + stableSeed % 5;
+            asset.MeterUnit = seed.Type == AssetType.Vehicle ? "km" : "hours";
+            asset.CurrentMeterReading ??= seed.Type == AssetType.Vehicle
+                ? 18_000 + stableSeed % 72_000
+                : 450 + stableSeed % 4_800;
+            asset.AcquisitionDate ??= new DateOnly(asset.ModelYear.Value, 2 + stableSeed % 9, 15);
+            asset.AcquisitionCost = asset.AcquisitionCost > 0 ? asset.AcquisitionCost : seed.Type == AssetType.Vehicle ? seed.DailyRate * 310m : seed.DailyRate * 520m;
+            asset.CurrentBookValue ??= Math.Round(asset.AcquisitionCost * 0.72m, 2);
+            asset.OwnershipType ??= "Owned";
+            asset.InsurancePolicyNumber ??= $"FLEET-{seed.AssetNumber}";
+            asset.InsuranceExpiry ??= DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(8));
+            asset.CurrentLocation = branch.Name;
             asset.DailyRate = seed.DailyRate;
             asset.NextServiceDate ??= DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(seed.ServiceMonths));
             asset.IsActive = true;
         }
+
+        var outOfScopeDivisionIds = outOfScopeDivisions.Select(x => x.Id).ToArray();
+        var outOfScopeAssets = await db.Assets.Where(x => x.DivisionId.HasValue && outOfScopeDivisionIds.Contains(x.DivisionId.Value)).ToListAsync(cancellationToken);
+        foreach (var asset in outOfScopeAssets) { asset.IsActive = false; asset.Status = AssetStatus.Retired; }
 
         var legacyCustomerNumbers = new Dictionary<string, string>
         {
@@ -255,18 +310,18 @@ public static class DatabaseInitializer
 
         var customerSeeds = new[]
         {
-            new CustomerSeed("CUS-000001", CustomerType.Individual, "Arieta Vula", "arieta.vula@customer.example", "+679 992 4101", "Laucala Bay, Suva", "DL-458210"),
-            new CustomerSeed("CUS-000002", CustomerType.Individual, "Jone Ratu", "jone.ratu@customer.example", "+679 991 2740", "Namaka, Nadi", "DL-472905"),
-            new CustomerSeed("CUS-000003", CustomerType.Individual, "Mere Tawake", "mere.tawake@customer.example", "+679 990 6382", "Naseakula, Labasa", "DL-491726"),
-            new CustomerSeed("BUS-000001", CustomerType.Business, "Pacific Civil Works Ltd", "hire@pacificcivil.example", "+679 995 3021", "Vuda, Lautoka", "TIN-71-45821"),
-            new CustomerSeed("BUS-000002", CustomerType.Business, "Island Events & Logistics Ltd", "operations@islandevents.example", "+679 998 1446", "Walu Bay, Suva", "TIN-71-49206"),
-            new CustomerSeed("CUS-000004", CustomerType.Individual, "Rakesh Kumar", "rakesh.kumar@customer.example", "+679 934 8261", "Martintar, Nadi", "DL-463188"),
-            new CustomerSeed("CUS-000005", CustomerType.Individual, "Ana Marama", "ana.marama@customer.example", "+679 977 0534", "Samabula, Suva", "DL-480357"),
-            new CustomerSeed("CUS-000006", CustomerType.Individual, "Samuela Nacewa", "samuela.nacewa@customer.example", "+679 936 7158", "Waiyavi, Lautoka", "DL-475602"),
-            new CustomerSeed("BUS-000003", CustomerType.Business, "Northern Builders Ltd", "plant@northernbuilders.example", "+679 988 6512", "Nasekula Road, Labasa", "TIN-71-50684"),
-            new CustomerSeed("BUS-000004", CustomerType.Business, "Coral Coast Tours Ltd", "fleet@coralcoasttours.example", "+679 972 4480", "Queens Road, Nadi", "TIN-71-51739"),
-            new CustomerSeed("BUS-000005", CustomerType.Business, "Viti Freight Services Ltd", "dispatch@vitifreight.example", "+679 933 2917", "Walu Bay, Suva", "TIN-71-52816"),
-            new CustomerSeed("CUS-000007", CustomerType.Individual, "Litia Rokotui", "litia.rokotui@customer.example", "+679 940 1836", "Field 40, Lautoka", "DL-487233"),
+            new CustomerSeed("CUS-000001", CustomerType.Individual, "Arieta Vula", "customer.arieta@crems.local", "+679 992 4101", "Laucala Bay, Suva", "TEST-DL-458210"),
+            new CustomerSeed("CUS-000002", CustomerType.Individual, "Jone Ratu", "customer.jone@crems.local", "+679 991 2740", "Namaka, Nadi", "TEST-DL-472905"),
+            new CustomerSeed("CUS-000003", CustomerType.Individual, "Mere Tawake", "customer.mere@crems.local", "+679 990 6382", "Naseakula, Labasa", "TEST-DL-491726"),
+            new CustomerSeed("BUS-000001", CustomerType.Business, "Pacific Civil Works Ltd", "customer.pacificcivil@crems.local", "+679 995 3021", "Vuda, Lautoka", "TEST-TIN-71-45821"),
+            new CustomerSeed("BUS-000002", CustomerType.Business, "Island Events & Logistics Ltd", "customer.islandevents@crems.local", "+679 998 1446", "Walu Bay, Suva", "TEST-TIN-71-49206"),
+            new CustomerSeed("CUS-000004", CustomerType.Individual, "Rakesh Kumar", "customer.rakesh@crems.local", "+679 934 8261", "Martintar, Nadi", "TEST-DL-463188"),
+            new CustomerSeed("CUS-000005", CustomerType.Individual, "Ana Marama", "customer.ana@crems.local", "+679 977 0534", "Samabula, Suva", "TEST-DL-480357"),
+            new CustomerSeed("CUS-000006", CustomerType.Individual, "Samuela Nacewa", "customer.samuela@crems.local", "+679 936 7158", "Waiyavi, Lautoka", "TEST-DL-475602"),
+            new CustomerSeed("BUS-000003", CustomerType.Business, "Northern Builders Ltd", "customer.northernbuilders@crems.local", "+679 988 6512", "Nasekula Road, Labasa", "TEST-TIN-71-50684"),
+            new CustomerSeed("BUS-000004", CustomerType.Business, "Coral Coast Tours Ltd", "customer.coralcoast@crems.local", "+679 972 4480", "Queens Road, Nadi", "TEST-TIN-71-51739"),
+            new CustomerSeed("BUS-000005", CustomerType.Business, "Viti Freight Services Ltd", "customer.vitifreight@crems.local", "+679 933 2917", "Walu Bay, Suva", "TEST-TIN-71-52816"),
+            new CustomerSeed("CUS-000007", CustomerType.Individual, "Litia Rokotui", "customer.litia@crems.local", "+679 940 1836", "Field 40, Lautoka", "TEST-DL-487233"),
         };
 
         var existingCustomers = await db.Customers
@@ -296,20 +351,45 @@ public static class DatabaseInitializer
             .ToDictionaryAsync(customer => customer.CustomerNumber, cancellationToken);
 
         const string developmentPassword = "CremsTest!2026";
+        var legacyPortalEmails = new Dictionary<string, string>
+        {
+            ["arieta.vula@customer.example"] = "customer.arieta@crems.local",
+            ["rakesh.kumar@customer.example"] = "customer.rakesh@crems.local",
+            ["hire@pacificcivil.example"] = "customer.pacificcivil@crems.local",
+            ["fleet@coralcoasttours.example"] = "customer.coralcoast@crems.local",
+            ["operations@islandevents.example"] = "customer.islandevents@crems.local",
+        };
+        foreach (var emailChange in legacyPortalEmails)
+            await MigrateDevelopmentUserEmailAsync(userManager, emailChange.Key, emailChange.Value);
+
         var developmentUsers = new[]
         {
+            new DevelopmentUserSeed("administrator@crems.local", "Priya Singh", SystemRoles.Administrator, null, null, null),
             new DevelopmentUserSeed("rentals.manager.suva@crems.local", "Laisenia Vakalalabure", SystemRoles.BranchManager, "MOTORS", "SUV", null),
             new DevelopmentUserSeed("rentals.officer.suva@crems.local", "Kelera Waqa", SystemRoles.RentalOfficer, "MOTORS", "SUV", null),
             new DevelopmentUserSeed("rentals.manager.nadi@crems.local", "Rohit Prasad", SystemRoles.BranchManager, "MOTORS", "NAD", null),
             new DevelopmentUserSeed("rentals.officer.nadi@crems.local", "Alipate Tuisese", SystemRoles.RentalOfficer, "MOTORS", "NAD", null),
+            new DevelopmentUserSeed("rentals.manager.lautoka@crems.local", "Sanjay Narayan", SystemRoles.BranchManager, "MOTORS", "LAU", null),
+            new DevelopmentUserSeed("rentals.officer.lautoka@crems.local", "Salote Waqanivalu", SystemRoles.RentalOfficer, "MOTORS", "LAU", null),
+            new DevelopmentUserSeed("rentals.manager.labasa@crems.local", "Mohammed Khan", SystemRoles.BranchManager, "MOTORS", "LAB", null),
+            new DevelopmentUserSeed("rentals.officer.labasa@crems.local", "Asenaca Ravuvu", SystemRoles.RentalOfficer, "MOTORS", "LAB", null),
             new DevelopmentUserSeed("carptrac.manager.suva@crems.local", "Mereoni Bale", SystemRoles.BranchManager, "CARPTRAC", "SUV", null),
             new DevelopmentUserSeed("carptrac.officer.suva@crems.local", "Savenaca Driu", SystemRoles.RentalOfficer, "CARPTRAC", "SUV", null),
-            new DevelopmentUserSeed("carptrac.manager.nadi@crems.local", "Anish Chand", SystemRoles.BranchManager, "CARPTRAC", "NAD", null),
-            new DevelopmentUserSeed("carptrac.officer.nadi@crems.local", "Ilisapeci Raloga", SystemRoles.RentalOfficer, "CARPTRAC", "NAD", null),
-            new DevelopmentUserSeed("arieta.vula@customer.example", "Arieta Vula", SystemRoles.Customer, null, null, "CUS-000001"),
-            new DevelopmentUserSeed("rakesh.kumar@customer.example", "Rakesh Kumar", SystemRoles.Customer, null, null, "CUS-000004"),
-            new DevelopmentUserSeed("hire@pacificcivil.example", "Pacific Civil Works", SystemRoles.Customer, null, null, "BUS-000001"),
-            new DevelopmentUserSeed("fleet@coralcoasttours.example", "Coral Coast Tours", SystemRoles.Customer, null, null, "BUS-000004"),
+            new DevelopmentUserSeed("carptrac.manager.lautoka@crems.local", "Anish Chand", SystemRoles.BranchManager, "CARPTRAC", "LAU", null),
+            new DevelopmentUserSeed("carptrac.officer.lautoka@crems.local", "Ilisapeci Raloga", SystemRoles.RentalOfficer, "CARPTRAC", "LAU", null),
+            new DevelopmentUserSeed("carptrac.manager.labasa@crems.local", "Peni Cakau", SystemRoles.BranchManager, "CARPTRAC", "LAB", null),
+            new DevelopmentUserSeed("carptrac.officer.labasa@crems.local", "Shalini Devi", SystemRoles.RentalOfficer, "CARPTRAC", "LAB", null),
+            new DevelopmentUserSeed("maintenance.suva@crems.local", "Kelera Waqa", SystemRoles.MaintenanceOfficer, "CARPTRAC", "SUV", null),
+            new DevelopmentUserSeed("maintenance.lautoka@crems.local", "Viliame Mataitoga", SystemRoles.MaintenanceOfficer, "CARPTRAC", "LAU", null),
+            new DevelopmentUserSeed("maintenance.labasa@crems.local", "Arun Prasad", SystemRoles.MaintenanceOfficer, "CARPTRAC", "LAB", null),
+            new DevelopmentUserSeed("finance.suva@crems.local", "Ana Rokovada", SystemRoles.FinanceOfficer, "MOTORS", "SUV", null),
+            new DevelopmentUserSeed("driver.suva@crems.local", "Rajnesh Kumar", SystemRoles.Driver, "MOTORS", "SUV", null),
+            new DevelopmentUserSeed("driver.nadi@crems.local", "Josaia Tawake", SystemRoles.Driver, "MOTORS", "NAD", null),
+            new DevelopmentUserSeed("customer.arieta@crems.local", "Arieta Vula", SystemRoles.Customer, null, null, "CUS-000001"),
+            new DevelopmentUserSeed("customer.rakesh@crems.local", "Rakesh Kumar", SystemRoles.Customer, null, null, "CUS-000004"),
+            new DevelopmentUserSeed("customer.pacificcivil@crems.local", "Pacific Civil Works", SystemRoles.Customer, null, null, "BUS-000001"),
+            new DevelopmentUserSeed("customer.coralcoast@crems.local", "Coral Coast Tours", SystemRoles.Customer, null, null, "BUS-000004"),
+            new DevelopmentUserSeed("customer.islandevents@crems.local", "Island Events & Logistics", SystemRoles.Customer, null, null, "BUS-000002"),
         };
         foreach (var seed in developmentUsers)
         {
@@ -317,6 +397,16 @@ public static class DatabaseInitializer
             Guid? branchId = seed.BranchCode is null ? null : branches[seed.BranchCode].Id;
             Guid? customerId = seed.CustomerNumber is null ? null : seededCustomers[seed.CustomerNumber].Id;
             await SeedDevelopmentUserAsync(userManager, seed, developmentPassword, divisionId, branchId, customerId);
+        }
+        foreach (var obsoleteEmail in new[] { "carptrac.manager.nadi@crems.local", "carptrac.officer.nadi@crems.local" })
+        {
+            var obsoleteUser = await userManager.FindByEmailAsync(obsoleteEmail);
+            if (obsoleteUser is null) continue;
+            obsoleteUser.IsActive = false;
+            obsoleteUser.AccountStatus = AccountLifecycleStatus.Deactivated;
+            obsoleteUser.DeactivatedAt = DateTimeOffset.UtcNow;
+            EnsureSucceeded(await userManager.UpdateSecurityStampAsync(obsoleteUser), $"revoke obsolete development user {obsoleteEmail}");
+            EnsureSucceeded(await userManager.UpdateAsync(obsoleteUser), $"deactivate obsolete development user {obsoleteEmail}");
         }
 
         var seededAssets = await db.Assets
@@ -408,6 +498,24 @@ public static class DatabaseInitializer
                 new ManagementTask { BranchId = branches["SUV"].Id, Category = TaskCategory.QuoteFollowUp, Priority = TaskPriority.Normal, Title = "Follow up corporate equipment enquiry", DueAt = DateTimeOffset.UtcNow.AddDays(2) });
             await db.SaveChangesAsync(cancellationToken);
         }
+
+        if (!await db.Personnel.AnyAsync(cancellationToken))
+        {
+            db.Personnel.AddRange(
+                new Personnel { EmployeeNumber = "CP-OP-0142", FullName = "Jone Vakalala", BranchId = branches["SUV"].Id, DivisionId = divisions["CARPTRAC"].Id, Type = PersonnelType.Operator, StandardCostRate = 27m, OvertimeCostRate = 40.5m, StandardChargeRate = 42m, OvertimeChargeRate = 63m, Qualifications = [new PersonnelQualification { Name = "Heavy equipment operator competency", CertificateNumber = "FNU-HEO-260142", IssuedOn = new DateOnly(2025, 3, 4), ExpiresOn = new DateOnly(2027, 3, 3), SafetyInduction = true }] },
+                new Personnel { EmployeeNumber = "CP-OP-0188", FullName = "Samuela Koroi", BranchId = branches["NAD"].Id, DivisionId = divisions["CARPTRAC"].Id, Type = PersonnelType.Operator, StandardCostRate = 28m, OvertimeCostRate = 42m, StandardChargeRate = 44m, OvertimeChargeRate = 66m, Qualifications = [new PersonnelQualification { Name = "Forklift operator certificate", CertificateNumber = "FJO-2025-188", IssuedOn = new DateOnly(2025, 7, 1), ExpiresOn = new DateOnly(2027, 6, 30), SafetyInduction = true }] },
+                new Personnel { EmployeeNumber = "CP-DRV-0097", FullName = "Rajnesh Kumar", BranchId = branches["SUV"].Id, DivisionId = divisions["MOTORS"].Id, Type = PersonnelType.Driver, StandardCostRate = 18m, OvertimeCostRate = 27m, StandardChargeRate = 28m, OvertimeChargeRate = 42m, Qualifications = [new PersonnelQualification { Name = "Group 2 driving licence", CertificateNumber = "DL-2-409781", IssuedOn = new DateOnly(2024, 11, 10), ExpiresOn = new DateOnly(2027, 11, 9), SafetyInduction = true }] },
+                new Personnel { EmployeeNumber = "CP-TECH-0064", FullName = "Kelera Waqa", BranchId = branches["SUV"].Id, DivisionId = divisions["CARPTRAC"].Id, Type = PersonnelType.Technician, StandardCostRate = 31m, OvertimeCostRate = 46.5m, StandardChargeRate = 58m, OvertimeChargeRate = 87m });
+        }
+        if (!await db.Suppliers.AnyAsync(cancellationToken))
+            db.Suppliers.AddRange(new Supplier { SupplierNumber = "SUP-0001", Name = "Carpenters Parts", Email = "parts@carpenters.com.fj", Phone = "+679 338 1555", PaymentTermsDays = 30 }, new Supplier { SupplierNumber = "SUP-0002", Name = "Industrial Battery Fiji", Phone = "+679 672 2288", PaymentTermsDays = 14 }, new Supplier { SupplierNumber = "SUP-0003", Name = "Fiji Tyre Services", Phone = "+679 331 2455", PaymentTermsDays = 30 });
+        if (!await db.DeliveryZones.AnyAsync(cancellationToken))
+            db.DeliveryZones.AddRange(new DeliveryZone { Name = "Suva urban", BranchId = branches["SUV"].Id, BaseCharge = 85m, CostPerKilometre = 2.1m, ChargePerKilometre = 3.4m, FailedDeliveryCharge = 95m }, new DeliveryZone { Name = "Nadi–Lautoka corridor", DivisionId = divisions["CARPTRAC"].Id, BaseCharge = 165m, CostPerKilometre = 2.8m, ChargePerKilometre = 4.5m, FailedDeliveryCharge = 185m });
+        if (!await db.BusinessAlertRules.AnyAsync(cancellationToken))
+            db.BusinessAlertRules.AddRange(new BusinessAlertRule { Name = "Overdue rental", Category = AlertCategory.OverdueReturn, LeadTimeHours = 0, Priority = TaskPriority.Critical, EmailEnabled = true }, new BusinessAlertRule { Name = "Maintenance due within seven days", Category = AlertCategory.MaintenanceDue, LeadTimeHours = 168, Priority = TaskPriority.High }, new BusinessAlertRule { Name = "Licence expiry within 30 days", Category = AlertCategory.ExpiringLicence, LeadTimeHours = 720, Priority = TaskPriority.High }, new BusinessAlertRule { Name = "Unpaid invoice after terms", Category = AlertCategory.UnpaidInvoice, LeadTimeHours = 720, Priority = TaskPriority.High, EmailEnabled = true });
+        if (!await db.AssetLifecycleEvents.AnyAsync(cancellationToken))
+            foreach (var asset in seededAssets.Values) db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = asset.Id, Type = asset.AcquisitionDate.HasValue ? AssetLifecycleEventType.Commissioned : AssetLifecycleEventType.Available, ToStatus = asset.Status, OccurredAt = asset.AcquisitionDate.HasValue ? new DateTimeOffset(asset.AcquisitionDate.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(12)) : asset.CreatedAt, MeterReading = asset.CurrentMeterReading, Notes = "Initial lifecycle record created from the asset register.", RecordedByUserId = Guid.Empty, RecordedByName = "CREMS System" });
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private static void EnsureSucceeded(IdentityResult result, string operation)
@@ -416,6 +524,28 @@ public static class DatabaseInitializer
 
         var errors = string.Join("; ", result.Errors.Select(error => error.Description));
         throw new InvalidOperationException($"Unable to {operation}: {errors}");
+    }
+
+    private static async Task SeedRolePermissionsAsync(ApplicationDbContext db, CancellationToken token)
+    {
+        var grants = new Dictionary<string, string[]>
+        {
+            [SystemRoles.Administrator] = [SystemPermissions.UsersCreate, SystemPermissions.UsersResetPassword, SystemPermissions.UsersManageAccess, SystemPermissions.CustomersManageAccess, SystemPermissions.RentalsApprove, SystemPermissions.MaintenanceComplete, SystemPermissions.ReportsFinancial, SystemPermissions.BranchesConfigure, SystemPermissions.ServicesConfigure, SystemPermissions.AssetCategoriesConfigure, SystemPermissions.BranchCalendarManage, SystemPermissions.PricingConfigure, SystemPermissions.AssetsView, SystemPermissions.AssetsCreate, SystemPermissions.AssetsEdit, SystemPermissions.AssetsTransfer, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter, SystemPermissions.AssetsRetire, SystemPermissions.AssetsViewFinancials],
+            [SystemRoles.BranchManager] = [SystemPermissions.CustomersManageAccess, SystemPermissions.RentalsApprove, SystemPermissions.MaintenanceComplete, SystemPermissions.ReportsFinancial, SystemPermissions.BranchCalendarManage, SystemPermissions.AssetsView, SystemPermissions.AssetsCreate, SystemPermissions.AssetsEdit, SystemPermissions.AssetsTransfer, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter, SystemPermissions.AssetsRetire, SystemPermissions.AssetsViewFinancials],
+            [SystemRoles.RentalOfficer] = [SystemPermissions.CustomersManageAccess, SystemPermissions.AssetsView, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter],
+            [SystemRoles.MaintenanceOfficer] = [SystemPermissions.MaintenanceComplete, SystemPermissions.AssetsView, SystemPermissions.AssetsEdit, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter],
+            [SystemRoles.FinanceOfficer] = [SystemPermissions.ReportsFinancial, SystemPermissions.AssetsView, SystemPermissions.AssetsViewFinancials],
+            [SystemRoles.Driver] = [SystemPermissions.AssetsView, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter],
+        };
+        foreach (var grant in grants)
+            foreach (var permission in grant.Value)
+                if (!await db.RolePermissions.AnyAsync(x => x.RoleName == grant.Key && x.Permission == permission, token))
+                    db.RolePermissions.Add(new RolePermission { RoleName = grant.Key, Permission = permission });
+        var obsoleteBranchManagerGrant = await db.RolePermissions
+            .Where(x => x.RoleName == SystemRoles.BranchManager && x.Permission == SystemPermissions.BranchesConfigure)
+            .ToListAsync(token);
+        db.RolePermissions.RemoveRange(obsoleteBranchManagerGrant);
+        await db.SaveChangesAsync(token);
     }
 
     private static async Task SeedDevelopmentUserAsync(UserManager<ApplicationUser> userManager,
@@ -443,6 +573,18 @@ public static class DatabaseInitializer
             EnsureSucceeded(await userManager.RemoveFromRolesAsync(user, currentRoles), $"correct roles for {seed.Email}");
         if (!await userManager.IsInRoleAsync(user, seed.Role))
             EnsureSucceeded(await userManager.AddToRoleAsync(user, seed.Role), $"assign {seed.Role} to {seed.Email}");
+    }
+
+    private static async Task MigrateDevelopmentUserEmailAsync(
+        UserManager<ApplicationUser> userManager, string oldEmail, string newEmail)
+    {
+        if (await userManager.FindByEmailAsync(newEmail) is not null) return;
+        var user = await userManager.FindByEmailAsync(oldEmail);
+        if (user is null) return;
+        EnsureSucceeded(await userManager.SetEmailAsync(user, newEmail), $"update development email {oldEmail}");
+        EnsureSucceeded(await userManager.SetUserNameAsync(user, newEmail), $"update development username {oldEmail}");
+        user.EmailConfirmed = true;
+        EnsureSucceeded(await userManager.UpdateAsync(user), $"save development email {newEmail}");
     }
 
     private sealed record BranchSeed(string Code, string Name, string Address, string Phone);

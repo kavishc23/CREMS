@@ -1,8 +1,7 @@
 import { type ReactNode, useState } from 'react'
 import DashboardOutlined from '@mui/icons-material/DashboardOutlined'
-import DirectionsCarOutlined from '@mui/icons-material/DirectionsCarOutlined'
+import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
-import PeopleOutline from '@mui/icons-material/PeopleOutline'
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined'
 import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined'
 import CorporateFareOutlined from '@mui/icons-material/CorporateFareOutlined'
@@ -46,11 +45,10 @@ const collapsedDrawerWidth = 76
 const navigation = [
   { label: 'Today', id: 'dashboard', icon: <DashboardOutlined />, section: 'Work' },
   { label: 'Booking requests', id: 'bookings', icon: <EventAvailableOutlined />, section: 'Work' },
-  { label: 'Agreements & returns', id: 'rentals', icon: <ReceiptLongOutlined />, section: 'Work' },
-  { label: 'Customers', id: 'customers', icon: <PeopleOutline />, section: 'Work' },
-  { label: 'Vehicles & equipment', id: 'assets', icon: <DirectionsCarOutlined />, section: 'Fleet' },
+  { label: 'Hire operations', id: 'rentals', icon: <ReceiptLongOutlined />, section: 'Work' },
+  { label: 'Assets', id: 'assets', icon: <Inventory2Outlined />, section: 'Fleet' },
   { label: 'Maintenance', id: 'maintenance', icon: <BuildOutlined />, section: 'Fleet' },
-  { label: 'Scan QR code', id: 'scan', icon: <QrCodeScannerOutlined />, section: 'Fleet' },
+  { label: 'Scan QR', id: 'scan', icon: <QrCodeScannerOutlined />, section: 'Fleet' },
   { label: 'Manager overview', id: 'operations', icon: <CorporateFareOutlined />, section: 'Insights' },
   { label: 'Reports', id: 'reports', icon: <AssessmentOutlined />, section: 'Insights' },
   { label: 'Staff & access', id: 'users', icon: <ManageAccountsOutlined />, section: 'Administration' },
@@ -61,10 +59,10 @@ const sections = ['Work', 'Fleet', 'Insights', 'Administration']
 const pageHelp: Record<string, { purpose: string; steps: string[] }> = {
   dashboard: { purpose: 'See what needs attention today and start the most common tasks.', steps: ['Check overdue returns and pending requests.', 'Choose a quick action.', 'Use the left menu to move to another area.'] },
   bookings: { purpose: 'Review customer requests and turn approved requests into confirmed bookings.', steps: ['Open a pending request.', 'Confirm the customer, dates, branch and asset.', 'Approve it when everything is correct.'] },
-  rentals: { purpose: 'Prepare agreements, check assets out and complete returns.', steps: ['Open the confirmed booking.', 'Complete the agreement and collection checks.', 'On return, record condition, charges and maintenance needs.'] },
+  rentals: { purpose: 'Work through today’s pickups, active hires and controlled returns.', steps: ['Choose the relevant work queue.', 'Follow each guided check in order.', 'Complete check-out or return only when every requirement is ready.'] },
   scan: { purpose: 'Scan a CREMS QR label to find the correct asset quickly.', steps: ['Scan or enter the asset code.', 'Confirm the asset details.', 'Choose the suggested check-out, check-in or view action.'] },
   customers: { purpose: 'Find customer details, check eligibility and enable secure online access.', steps: ['Search before creating a duplicate customer.', 'Check contact and identification details.', 'Use the email icon to invite an existing customer online.'] },
-  assets: { purpose: 'Manage vehicles, equipment and maintenance availability.', steps: ['Search by asset number, name or registration.', 'Check its current status and branch.', 'Record maintenance before making an unavailable asset rentable.'] },
+  assets: { purpose: 'Manage every rentable asset from one register.', steps: ['Search by asset number, name, registration or serial number.', 'Open the asset profile to review its status, location and history.', 'Use Maintenance from the Fleet menu when servicing or repairs are required.'] },
   maintenance: { purpose: 'Plan servicing and resolve faults before assets return to service.', steps: ['Review overdue and upcoming work.', 'Open or update the maintenance job.', 'Return the asset to available only after work is complete.'] },
   operations: { purpose: 'Review manager-level exceptions, approvals and operational work.', steps: ['Start with urgent items.', 'Assign or complete the required action.', 'Use reports for trends rather than daily processing.'] },
   reports: { purpose: 'Review utilization, revenue, rental history and maintenance performance.', steps: ['Choose the report needed.', 'Confirm the date and operating scope.', 'Export or use the result for management decisions.'] },

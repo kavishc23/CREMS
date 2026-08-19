@@ -72,7 +72,12 @@ public sealed class RentalInvoice : Entity
     public decimal BalanceDue { get; set; }
     public InvoiceStatus Status { get; set; }
     public DateTimeOffset IssuedAt { get; set; } = DateTimeOffset.UtcNow;
+    public bool TaxInclusive { get; set; }
+    public ICollection<InvoiceLine> Lines { get; set; } = [];
 }
+public sealed class InvoiceLine : Entity { public Guid InvoiceId{get;set;} public RentalInvoice? Invoice{get;set;} public required string Description{get;set;} public decimal Quantity{get;set;} public decimal UnitPrice{get;set;} public decimal TaxRate{get;set;} public bool IsTaxable{get;set;}=true; }
+public sealed class PaymentAllocation : Entity { public Guid PaymentId{get;set;} public RentalPayment? Payment{get;set;} public Guid InvoiceId{get;set;} public RentalInvoice? Invoice{get;set;} public decimal Amount{get;set;} public Guid AllocatedByUserId{get;set;} }
+public sealed class CreditNote : Entity { public required string CreditNoteNumber{get;set;} public Guid InvoiceId{get;set;} public RentalInvoice? Invoice{get;set;} public required string Reason{get;set;} public decimal Subtotal{get;set;} public decimal TaxAmount{get;set;} public decimal Total{get;set;} public CreditNoteStatus Status{get;set;}=CreditNoteStatus.Issued; public Guid IssuedByUserId{get;set;} }
 
 public sealed class RentalAgreementAddendum : Entity
 {
@@ -95,3 +100,4 @@ public enum NotificationStatus { Queued, Sent, Failed }
 public enum IncidentType { Accident, Damage, Breakdown, Theft, TrafficOffence, Other }
 public enum IncidentStatus { Open, Investigating, AwaitingInsurance, Resolved, Closed }
 public enum InvoiceStatus { Draft, Issued, PartiallyPaid, Paid, Voided }
+public enum CreditNoteStatus { Draft, Issued, Applied, Voided }

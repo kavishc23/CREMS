@@ -1,0 +1,8 @@
+Inspect result written to file: /Users/kavishchandra/Documents/CS400/outputs/crems-client-data-validation/CREMS_Client_Data_Mapping_and_Import.xlsx.inspect.ndjson
+{
+  "workbookPath": "/Users/kavishchandra/Documents/CS400/outputs/crems-client-data-validation/CREMS_Client_Data_Mapping_and_Import.xlsx",
+  "seedPath": "/Users/kavishchandra/Documents/CS400/outputs/crems-client-data-validation/CREMS_Client_Validation_Seed.json",
+  "sheets": 8,
+  "assets": 118,
+  "templates": 8
+}

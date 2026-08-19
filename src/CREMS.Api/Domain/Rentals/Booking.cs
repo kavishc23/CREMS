@@ -27,7 +27,25 @@ public sealed class Booking : Entity
     public ICollection<RentalPayment> Payments { get; set; } = [];
     public ICollection<RentalNotification> Notifications { get; set; } = [];
     public ICollection<RentalIncident> Incidents { get; set; } = [];
+    public ICollection<BookingCharge> Charges { get; set; } = [];
     public RentalInvoice? Invoice { get; set; }
+}
+
+public sealed class BookingCharge : Entity
+{
+    public Guid BookingId { get; set; }
+    public Booking? Booking { get; set; }
+    public Guid? AssetId { get; set; }
+    public Asset? Asset { get; set; }
+    public Guid? ChargeDefinitionId { get; set; }
+    public ChargeDefinition? ChargeDefinition { get; set; }
+    public required string Description { get; set; }
+    public ChargeCategory Category { get; set; }
+    public ChargeUnit Unit { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal UnitRate { get; set; }
+    public decimal UnitCost { get; set; }
+    public bool IsTaxable { get; set; } = true;
 }
 
 public sealed class RentalInspection : Entity

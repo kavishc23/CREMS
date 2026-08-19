@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Customers;
+using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
@@ -170,6 +171,62 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         await db.SaveChangesAsync(token);
         return Accepted(new { message = "Activation instructions have been queued for the customer email." });
     }
+
+    [HttpGet("{id:guid}/activity")]
+    public async Task<ActionResult> Activity(Guid id, CancellationToken token)
+    {
+        var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, token);
+        if (customer is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || (!scope.IsAdministrator && !await db.Bookings.AnyAsync(x => x.CustomerId == id && x.BranchId == scope.BranchId, token))) return Forbid();
+
+        var bookings = await db.Bookings.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator || x.BranchId == scope.BranchId))
+            .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.BookingNumber, x.Status, x.CreatedAt, x.ApprovedAt, x.BranchId, branchName = x.Branch!.Name, assetCount = x.Items.Count }).Take(100).ToListAsync(token);
+        var bookingIds = bookings.Select(x => x.Id).ToArray();
+        var invoices = await db.RentalInvoices.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId)).OrderByDescending(x => x.IssuedAt)
+            .Select(x => new { x.Id, x.BookingId, x.InvoiceNumber, x.Status, x.Total, x.AmountPaid, x.BalanceDue, x.IssuedAt }).ToListAsync(token);
+        var cases = await db.CustomerCases.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator || x.BranchId == scope.BranchId)).OrderByDescending(x => x.CreatedAt)
+            .Select(x => new { x.Id, x.CaseNumber, x.Type, x.Priority, x.Subject, x.Status, x.CreatedAt }).Take(100).ToListAsync(token);
+        var account = await db.Users.AsNoTracking().Where(x => x.CustomerId == id).Select(x => new { x.Id, x.Email, x.EmailConfirmed, x.IsActive, x.LastLoginAt, x.LastActivityAt, x.LockoutEnd }).FirstOrDefaultAsync(token);
+        return Ok(new { customer = new { customer.Id, customer.CustomerNumber, customer.Name, customer.Type, customer.Email, customer.Phone, customer.IsActive, customer.IsBlocked }, account, bookings, invoices, cases,
+            summary = new { bookings = bookings.Count, invoices = invoices.Count, totalBilled = invoices.Sum(x => x.Total), outstanding = invoices.Sum(x => x.BalanceDue), openCases = cases.Count(x => x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed) } });
+    }
+
+    [HttpPost("{id:guid}/security/reset-password")]
+    [Authorize(Policy = SystemPermissions.CustomersManageAccess)]
+    public async Task<ActionResult> ResetCustomerPassword(Guid id, CancellationToken token)
+    {
+        var actorId = userManager.GetUserId(User); if (!Guid.TryParse(actorId, out var actor) || !await db.SecurityEvents.AnyAsync(x => x.UserId == actor && x.Type == SecurityEventType.MfaSucceeded && x.Succeeded && x.OccurredAt > DateTimeOffset.UtcNow.AddMinutes(-15), token)) return StatusCode(StatusCodes.Status403Forbidden, new { message = "Recent MFA verification is required." });
+        var user = await userManager.Users.FirstOrDefaultAsync(x => x.CustomerId == id, token); if (user is null) return NotFound(new { message = "This customer has no online account." });
+        var customer = await db.Customers.FindAsync([id], token); if (customer?.Email is null) return BadRequest(new { message = "The customer has no email address." });
+        var resetToken = await userManager.GeneratePasswordResetTokenAsync(user); var temporary = $"Crems!{RandomNumberGenerator.GetInt32(100000, 999999)}Aa"; var result = await userManager.ResetPasswordAsync(user, resetToken, temporary); if (!result.Succeeded) return BadRequest(result.Errors);
+        user.MustChangePassword = true; await userManager.UpdateSecurityStampAsync(user); emailQueue.Queue(db, customer.Email, "Your CREMS password was reset", EmailTemplate.Branded("Temporary CREMS password", $"<p>Your temporary password is <strong>{temporary}</strong>.</p><p>You must replace it after signing in.</p>"), $"Your temporary CREMS password is {temporary}. Replace it after signing in.", "CustomerPasswordReset");
+        db.SecurityEvents.Add(Security(user, SecurityEventType.PasswordResetCompleted, "Customer password reset by administrator")); await db.SaveChangesAsync(token); return Accepted(new { message = "A temporary password has been queued to the customer email." });
+    }
+
+    [HttpPost("{id:guid}/security/revoke-sessions")]
+    [Authorize(Policy = SystemPermissions.CustomersManageAccess)]
+    public async Task<ActionResult> RevokeCustomerSessions(Guid id, CancellationToken token)
+    { var user = await userManager.Users.FirstOrDefaultAsync(x => x.CustomerId == id, token); if (user is null) return NotFound(); await userManager.UpdateSecurityStampAsync(user); var active = await db.UserSessions.Where(x => x.UserId == user.Id && x.EndedAt == null).ToListAsync(token); foreach (var session in active) { session.EndedAt = DateTimeOffset.UtcNow; session.EndReason = "Revoked by administrator"; } db.SecurityEvents.Add(Security(user, SecurityEventType.SessionRevoked, "Customer sessions revoked")); await db.SaveChangesAsync(token); return NoContent(); }
+
+    [HttpPost("{id:guid}/security/{action}")]
+    [Authorize(Policy = SystemPermissions.CustomersManageAccess)]
+    public async Task<ActionResult> CustomerSecurityAction(Guid id, string action, CancellationToken token)
+    {
+        var user = await userManager.Users.FirstOrDefaultAsync(x => x.CustomerId == id, token); if (user is null) return NotFound();
+        switch (action.ToLowerInvariant())
+        {
+            case "lock": await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue); user.AccountStatus = AccountLifecycleStatus.Locked; break;
+            case "unlock": await userManager.SetLockoutEndDateAsync(user, null); await userManager.ResetAccessFailedCountAsync(user); user.AccountStatus = AccountLifecycleStatus.Active; break;
+            case "verify-email": user.EmailConfirmed = true; break;
+            case "disable": user.IsActive = false; user.AccountStatus = AccountLifecycleStatus.Deactivated; user.DeactivatedAt = DateTimeOffset.UtcNow; await userManager.UpdateSecurityStampAsync(user); break;
+            case "enable": user.IsActive = true; user.AccountStatus = user.EmailConfirmed ? AccountLifecycleStatus.Active : AccountLifecycleStatus.ActivationPending; user.DeactivatedAt = null; break;
+            default: return BadRequest(new { message = "Unsupported customer security action." });
+        }
+        await userManager.UpdateAsync(user); db.SecurityEvents.Add(Security(user, SecurityEventType.AccessChanged, $"Customer portal action: {action}")); await db.SaveChangesAsync(token); return NoContent();
+    }
+
+    private SecurityEvent Security(ApplicationUser user, SecurityEventType type, string detail) => new() { UserId = user.Id, Email = user.Email, Type = type, Succeeded = true, Detail = detail, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(), UserAgent = Request.Headers.UserAgent.ToString() };
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

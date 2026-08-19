@@ -11,7 +11,7 @@ namespace CREMS.Api.Controllers;
 
 [ApiController]
 [Route("api/asset-qr")]
-[Authorize(Policy = SystemPolicies.ManageRentals)]
+[Authorize(Policy = SystemPolicies.UseAssetQr)]
 public sealed class AssetQrController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
     [HttpPost("resolve")]

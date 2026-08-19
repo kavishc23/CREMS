@@ -1,8 +1,11 @@
 using System.Text.Json;
+using System.Text.Encodings.Web;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
+using CREMS.Api.Domain.Operations;
+using CREMS.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -12,7 +15,7 @@ namespace CREMS.Api.Controllers;
 [ApiController]
 [Route("api/rental-agreements")]
 [Authorize(Policy = SystemPolicies.ManageRentals)]
-public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
+public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentStaffScope staffScope, IEmailQueue emailQueue) : ControllerBase
 {
     private const string TermsVersion = "CREMS-RA-2026.1-DRAFT";
     private static readonly JsonSerializerOptions SnapshotJson = new(JsonSerializerDefaults.Web)
@@ -89,21 +92,34 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
                     ? $"RCPT-{now:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}" : request.ReceiptNumber.Trim(),
                 RecordedByUserId = scope.UserId, RecordedByName = scope.UserName,
             });
-        if (!string.IsNullOrWhiteSpace(booking.Customer?.Email))
-            booking.Notifications.Add(new RentalNotification
-            {
-                BookingId = booking.Id, Channel = NotificationChannel.Email, Recipient = booking.Customer.Email,
-                Subject = $"Your signed rental agreement {agreement.AgreementNumber}",
-                Message = $"Your rental {booking.BookingNumber} has been collected. Your signed agreement is ready. Please contact {booking.Branch?.Name} if you need assistance.",
-            });
+        if (!string.IsNullOrWhiteSpace(booking.Customer?.Email)) QueueAgreementEmail(agreement, booking);
         booking.Status = BookingStatus.ConvertedToRental;
         booking.UpdatedAt = now;
         foreach (var item in booking.Items.Where(item => item.Asset is not null))
-            item.Asset!.Status = CREMS.Api.Domain.Assets.AssetStatus.Rented;
+        {
+            var asset = item.Asset!; var fromStatus = asset.Status; asset.Status = CREMS.Api.Domain.Assets.AssetStatus.Rented;
+            db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = asset.Id, BookingId = booking.Id, Type = AssetLifecycleEventType.CheckedOut, FromStatus = fromStatus, ToStatus = asset.Status, MeterReading = request.MeterReading, Notes = $"Checked out on {agreement.AgreementNumber}", RecordedByUserId = scope.UserId, RecordedByName = scope.UserName });
+            if (request.MeterReading.HasValue) db.AssetMeterReadings.Add(new AssetMeterReading { AssetId = asset.Id, BookingId = booking.Id, Type = asset.MeterUnit?.Contains("hour", StringComparison.OrdinalIgnoreCase) == true ? MeterType.EngineHours : MeterType.Odometer, Unit = asset.MeterUnit ?? "unit", Reading = request.MeterReading.Value, FuelPercent = request.FuelLevelPercent, Source = MeterReadingSource.PreHireInspection, RecordedByUserId = scope.UserId });
+        }
         AuditWriter.Record(db, scope, "Rental pickup completed", "Booking", booking.Id,
             $"{agreement.AgreementNumber} was signed and {booking.BookingNumber} was handed over to the customer.", booking.BranchId);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(BuildApproved(agreement, booking));
+    }
+
+    [HttpPost("{bookingId:guid}/send")]
+    public async Task<ActionResult> Send(Guid bookingId, CancellationToken cancellationToken)
+    {
+        var booking = await LoadBooking(bookingId, cancellationToken); if (booking is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
+        var agreement = await db.RentalAgreements.FirstOrDefaultAsync(x => x.BookingId == bookingId, cancellationToken);
+        if (agreement is null || agreement.Status is AgreementStatus.Draft or AgreementStatus.ReadyForPickup) return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["agreement"] = ["Only a signed and agent-approved agreement can be emailed."] }));
+        if (string.IsNullOrWhiteSpace(booking.Customer?.Email)) return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["email"] = ["The customer must have an email address before the agreement can be sent."] }));
+        QueueAgreementEmail(agreement, booking);
+        AuditWriter.Record(db, scope, "Rental agreement queued for email", nameof(RentalAgreement), agreement.Id, $"{agreement.AgreementNumber} queued to {agreement.LastEmailedTo}.", agreement.BranchId);
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(new { agreement.AgreementNumber, agreement.LastEmailedTo, agreement.LastEmailedAt, emailId = agreement.LastEmailId, status = EmailDeliveryStatus.Queued });
     }
 
     private async Task<Booking?> LoadBooking(Guid id, CancellationToken cancellationToken) => await db.Bookings
@@ -127,7 +143,17 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             Asset = Deserialize<AssetAgreementSnapshot>(agreement.AssetSnapshotJson), current.Rental,
             Pricing = Deserialize<PricingAgreementSnapshot>(agreement.PricingSnapshotJson),
             Terms = Deserialize<IReadOnlyList<AgreementTerm>>(agreement.TermsJson),
-            agreement.CustomerSignatureName, agreement.CustomerSignatureDataUrl, agreement.CustomerSignedAt, agreement.ApprovedByName, agreement.ApprovedAt };
+            agreement.CustomerSignatureName, agreement.CustomerSignatureDataUrl, agreement.CustomerSignedAt, agreement.ApprovedByName, agreement.ApprovedAt,
+            agreement.LastEmailedTo, agreement.LastEmailedAt };
+    }
+
+    private void QueueAgreementEmail(RentalAgreement agreement, Booking booking)
+    {
+        var customer = booking.Customer!; var data = BuildAgreementData(booking);
+        var terms = string.Join("", data.Terms.Select(term => $"<h3 style=\"font-size:14px;margin:18px 0 5px\">{HtmlEncoder.Default.Encode(term.Title)}</h3><p style=\"font-size:13px;line-height:1.5;margin:0\">{HtmlEncoder.Default.Encode(term.Content)}</p>"));
+        var content = $"<p>Dear {HtmlEncoder.Default.Encode(customer.Name)},</p><p>This is your signed and agent-approved rental agreement. Keep this email with your rental records.</p><table role=\"presentation\" width=\"100%\" style=\"background:#f5f5f2;padding:14px\"><tr><td><strong>Agreement</strong></td><td>{agreement.AgreementNumber}</td></tr><tr><td><strong>Booking</strong></td><td>{booking.BookingNumber}</td></tr><tr><td><strong>Asset</strong></td><td>{HtmlEncoder.Default.Encode(data.Asset.Name)} ({HtmlEncoder.Default.Encode(data.Asset.AssetNumber)})</td></tr><tr><td><strong>Rental period</strong></td><td>{data.Rental.StartAt:dd MMM yyyy} – {data.Rental.EndAt:dd MMM yyyy}</td></tr><tr><td><strong>Total</strong></td><td>FJD {data.Pricing.Total:N2}</td></tr><tr><td><strong>Deposit</strong></td><td>FJD {data.Pricing.DepositRequired:N2}</td></tr></table><h2 style=\"font-size:18px\">Terms and conditions</h2>{terms}<h2 style=\"font-size:18px\">Acceptance record</h2><p>Signed by <strong>{HtmlEncoder.Default.Encode(agreement.CustomerSignatureName)}</strong> on {agreement.CustomerSignedAt:dd MMM yyyy 'at' HH:mm}. Approved by <strong>{HtmlEncoder.Default.Encode(agreement.ApprovedByName)}</strong>. Terms version: {agreement.TermsVersion}.</p><p>Contact {HtmlEncoder.Default.Encode(booking.Branch?.Name ?? "the issuing branch")} on {HtmlEncoder.Default.Encode(booking.Branch?.Phone ?? "the published branch number")} if any detail is incorrect.</p>";
+        var email = emailQueue.Queue(db, customer.Email!, $"Signed rental agreement {agreement.AgreementNumber}", EmailTemplate.Branded($"Rental agreement {agreement.AgreementNumber}", content), $"Signed rental agreement {agreement.AgreementNumber} for booking {booking.BookingNumber}. Asset {data.Asset.Name}. Total FJD {data.Pricing.Total:N2}.", "RentalAgreement");
+        agreement.LastEmailedTo = customer.Email!.Trim(); agreement.LastEmailedAt = DateTimeOffset.UtcNow; agreement.LastEmailId = email.Id;
     }
 
     private static AgreementData BuildAgreementData(Booking booking)

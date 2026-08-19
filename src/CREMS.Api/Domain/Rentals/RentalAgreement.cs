@@ -21,6 +21,9 @@ public sealed class RentalAgreement : Entity
     public required string ApprovedByName { get; set; }
     public DateTimeOffset ApprovedAt { get; set; }
     public AgreementStatus Status { get; set; } = AgreementStatus.Signed;
+    public string? LastEmailedTo { get; set; }
+    public DateTimeOffset? LastEmailedAt { get; set; }
+    public Guid? LastEmailId { get; set; }
     public ICollection<RentalAgreementAddendum> Addendums { get; set; } = [];
 }
 

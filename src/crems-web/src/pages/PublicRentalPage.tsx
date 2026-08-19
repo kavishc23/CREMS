@@ -9,8 +9,12 @@ import LocationOnOutlined from '@mui/icons-material/LocationOnOutlined'
 import MenuOutlined from '@mui/icons-material/MenuOutlined'
 import PhoneOutlined from '@mui/icons-material/PhoneOutlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
+import VerifiedOutlined from '@mui/icons-material/VerifiedOutlined'
+import SupportAgentOutlined from '@mui/icons-material/SupportAgentOutlined'
+import LocalShippingOutlined from '@mui/icons-material/LocalShippingOutlined'
+import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined'
 import {
-  Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress,
+  Accordion, AccordionDetails, AccordionSummary, Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress,
   Checkbox, Container, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
   Drawer, FormControl, FormControlLabel, Grid, IconButton, InputLabel, Link,
   MenuItem, Select, Stack, Step, StepLabel, Stepper, TextField, Toolbar, Typography,
@@ -65,6 +69,7 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
   const [divisionId, setDivisionId] = useState('')
   const [branchId, setBranchId] = useState('')
   const [type, setType] = useState<AssetType | ''>('')
+  const [category, setCategory] = useState('All')
   const [startDate, setStartDate] = useState(dateInputValue(1))
   const [endDate, setEndDate] = useState(dateInputValue(3))
   const [loading, setLoading] = useState(true)
@@ -102,6 +107,16 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
   }, [loadBranches, loadDivisions, searchAssets])
 
   const availableCount = useMemo(() => assets.filter((asset) => asset.isAvailable).length, [assets])
+  const displayedAssets = useMemo(() => assets.filter((asset) => {
+    if (category === 'All') return true
+    const value = `${asset.name} ${asset.category}`.toLowerCase()
+    if (category === 'Cars & SUVs') return asset.type === 'Vehicle' && !/truck|van|urvan|staria|coach|seater/.test(value)
+    if (category === 'Vans & trucks') return asset.type === 'Vehicle' && /truck|van|urvan|staria|coach|seater|cargo/.test(value)
+    if (category === 'Earthmoving') return /excavator|backhoe|loader/.test(value)
+    if (category === 'Lifting') return /crane|forklift|telehandler|scissor/.test(value)
+    if (category === 'Power & site') return /generator|compressor|compactor|mixer/.test(value)
+    return true
+  }), [assets, category])
   const rentalDays = Math.max(1, Math.ceil((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86400000))
   function scrollTo(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }); setMobileMenu(false) }
   function openRequest(asset: PublicAsset) { setSelected(asset); setBooking(emptyBooking); setBookingStep(0); setTermsAccepted(false); setReference(''); setError('') }
@@ -135,7 +150,7 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
   }
 
   const nav = <Stack direction={{ xs: 'column', md: 'row' }} gap={{ xs: 1, md: 3 }} alignItems={{ md: 'center' }}>
-    <Button color="inherit" onClick={() => scrollTo('services')}>Services</Button><Button color="inherit" onClick={() => scrollTo('rentals')}>Browse</Button><Button color="inherit" onClick={() => scrollTo('how-it-works')}>How it works</Button>
+    <Button color="inherit" onClick={() => scrollTo('services')}>Services</Button><Button color="inherit" onClick={() => scrollTo('rentals')}>Browse fleet</Button><Button color="inherit" onClick={() => scrollTo('how-it-works')}>How it works</Button><Button color="inherit" onClick={() => scrollTo('faq')}>Help</Button>
     <Button color="inherit" onClick={() => scrollTo('contact')}>Contact</Button><Button variant="contained" color="secondary" onClick={onCustomerAccount}>{customerAuthenticated ? 'My bookings' : 'Customer login'}</Button>
   </Stack>
 
@@ -153,6 +168,7 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
       <Container maxWidth="lg" sx={{ position: 'relative' }}><Typography color="secondary.main" fontWeight={750} letterSpacing={1.5}>FIJI-WIDE RENTAL SERVICE</Typography>
         <Typography variant="h2" fontWeight={800} maxWidth={760} mt={1} sx={{ fontSize: { xs: '2.5rem', md: '4rem' } }}>The right vehicle or equipment, when you need it.</Typography>
         <Typography variant="h6" color="rgba(255,255,255,.7)" maxWidth={650} mt={2}>Choose Carpenters Rentals for vehicles or Carptrac for equipment. Browse prices and live availability without creating an account.</Typography>
+        <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5} mt={3} alignItems={{ sm: 'center' }}><Button size="large" variant="contained" color="secondary" endIcon={<SearchOutlined />} onClick={() => scrollTo('search')}>Check availability</Button><Button size="large" variant="outlined" color="inherit" onClick={onCustomerAccount}>{customerAuthenticated ? 'Manage my bookings' : 'Sign in to book'}</Button><Typography variant="body2" color="rgba(255,255,255,.6)">No account needed to browse</Typography></Stack>
       </Container>
     </Box>
 
@@ -168,7 +184,7 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
 
     <Container id="search" maxWidth="lg" sx={{ position: 'relative' }}>
       <Card elevation={5}><CardContent sx={{ p: { xs: 2.5, md: 3 } }}><Grid container spacing={2} alignItems="end">
-        <Grid size={{ xs: 12, md: 2.5 }}><FormControl fullWidth><InputLabel>Division</InputLabel><Select label="Division" value={divisionId} onChange={(e) => setDivisionId(e.target.value)}><MenuItem value="">Carpenters Rentals & Carptrac</MenuItem>{divisions.filter(x => (x.capabilities & 1) === 1 && /rental|carptrac/i.test(`${x.code} ${x.name}`)).map((division) => <MenuItem key={division.id} value={division.id}>{division.name}</MenuItem>)}</Select></FormControl></Grid>
+        <Grid size={{ xs: 12, md: 2.5 }}><FormControl fullWidth><InputLabel>Hire from</InputLabel><Select label="Hire from" value={divisionId} onChange={(e) => { const value = e.target.value; setDivisionId(value); const division = divisions.find(x => x.id === value); if (division) setType(/carptrac/i.test(`${division.code} ${division.name}`) ? 'Equipment' : 'Vehicle') }}><MenuItem value="">Rentals and Carptrac</MenuItem>{divisions.filter(x => /rental|carptrac/i.test(`${x.code} ${x.name}`)).map((division) => <MenuItem key={division.id} value={division.id}>{division.name}</MenuItem>)}</Select></FormControl></Grid>
         <Grid size={{ xs: 12, md: 2.5 }}><FormControl fullWidth><InputLabel>Pickup branch</InputLabel><Select label="Pickup branch" value={branchId} onChange={(e) => setBranchId(e.target.value)}><MenuItem value="">All branches</MenuItem>{branches.map((branch) => <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>)}</Select></FormControl></Grid>
         <Grid size={{ xs: 12, sm: 6, md: 2 }}><FormControl fullWidth><InputLabel>Rental type</InputLabel><Select label="Rental type" value={type} onChange={(e) => setType(e.target.value as AssetType | '')}><MenuItem value="">All</MenuItem><MenuItem value="Vehicle">Vehicles</MenuItem><MenuItem value="Equipment">Equipment</MenuItem></Select></FormControl></Grid>
         <Grid size={{ xs: 12, sm: 6, md: 2 }}><TextField fullWidth type="date" label="Pickup date" InputLabelProps={{ shrink: true }} inputProps={{ min: dateInputValue(0) }} value={startDate} onChange={(e) => setStartDate(e.target.value)} /></Grid>
@@ -180,10 +196,11 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
     <Container id="rentals" maxWidth="lg" sx={{ py: 9 }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} mb={4}><Box><Typography variant="h3" fontWeight={800} sx={{ fontSize: { xs: '2rem', md: '3rem' } }}>Available rentals</Typography><Typography color="text.secondary" mt={1}>{searched ? `${availableCount} options available for your dates` : 'Our rental fleet'}</Typography></Box>
         <Chip label="Live availability" color="success" variant="outlined" icon={<CheckCircleOutlined />} sx={{ alignSelf: 'flex-start' }} /></Stack>
+      <Stack direction="row" gap={1} flexWrap="wrap" mb={3}>{['All', 'Cars & SUVs', 'Vans & trucks', 'Earthmoving', 'Lifting', 'Power & site'].map(item => <Chip key={item} clickable label={item} color={category === item ? 'primary' : 'default'} variant={category === item ? 'filled' : 'outlined'} onClick={() => setCategory(item)} />)}</Stack>
       {error && !selected && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
       {loading ? <Box sx={{ py: 10, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : <Grid container spacing={3}>
-        {assets.length === 0 && <Grid size={12}><Card variant="outlined"><CardContent sx={{ textAlign: 'center', py: 8 }}><Typography variant="h6">No rentals match this search</Typography><Typography color="text.secondary">Try another branch, type, or date range.</Typography></CardContent></Card></Grid>}
-        {assets.map((asset) => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 4 }}><Card variant="outlined" sx={{ height: '100%', overflow: 'hidden' }}>
+        {displayedAssets.length === 0 && <Grid size={12}><Card variant="outlined"><CardContent sx={{ textAlign: 'center', py: 8 }}><Typography variant="h6">No rentals match this search</Typography><Typography color="text.secondary">Try another category, branch or date range.</Typography><Button sx={{ mt: 2 }} onClick={() => setCategory('All')}>Clear category</Button></CardContent></Card></Grid>}
+        {displayedAssets.map((asset) => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 4 }}><Card variant="outlined" sx={{ height: '100%', overflow: 'hidden' }}>
           <Box sx={{ height: 210, bgcolor: '#e8e8e2', position: 'relative', overflow: 'hidden' }}>
             <Box component="img" src={catalogueImage(asset)} alt={`${asset.name} available from ${asset.branchName}`} loading="lazy" sx={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover', transition: 'transform .3s ease', '.MuiCard-root:hover &': { transform: 'scale(1.035)' } }} />
             <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,.04) 45%, rgba(0,0,0,.36) 100%)', pointerEvents: 'none' }} />
@@ -192,7 +209,8 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
             {asset.personnelRequirement !== 'None' && <Chip size="small" sx={{ mt: 1 }} label={`Trained personnel ${asset.personnelRequirement.toLowerCase()}`} color={asset.personnelRequirement === 'Required' ? 'warning' : 'default'} />}
             <Stack direction="row" alignItems="center" gap={.5} mt={1}><LocationOnOutlined fontSize="small" color="action" /><Typography variant="body2" color="text.secondary">{asset.branchName}</Typography></Stack>
             <Divider sx={{ my: 2 }} /><Stack direction="row" justifyContent="space-between" alignItems="end"><Box><Typography variant="caption" color="text.secondary">Estimated for {rentalDays} {rentalDays === 1 ? 'day' : 'days'}</Typography><Typography variant="h5" fontWeight={800}>${(asset.dailyRate * rentalDays).toFixed(2)}<Typography component="span" variant="body2" color="text.secondary"> FJD</Typography></Typography><Typography variant="caption" color="text.secondary">${asset.dailyRate.toFixed(2)} per day</Typography></Box>
-              <Button variant="contained" disabled={!asset.isAvailable} endIcon={<ArrowForwardOutlined />} onClick={() => requestBooking(asset)}>{customerAuthenticated ? 'Book' : 'Sign in to book'}</Button></Stack>
+              <Button variant="contained" disabled={!asset.isAvailable} endIcon={<ArrowForwardOutlined />} onClick={() => requestBooking(asset)}>{customerAuthenticated ? (asset.type === 'Equipment' ? 'Request quote' : 'Book vehicle') : 'Sign in to continue'}</Button></Stack>
+            <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>Estimate excludes VAT, deposit, delivery, fuel and optional operator charges. Final price is confirmed before approval.</Typography>
           </CardContent></Card></Grid>)}
       </Grid>}
     </Container>
@@ -202,6 +220,10 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
     <Box id="how-it-works" sx={{ bgcolor: '#111', color: 'white', py: 9 }}><Container maxWidth="lg"><Typography variant="h3" fontWeight={800} textAlign="center" sx={{ fontSize: { xs: '2rem', md: '3rem' } }}>Simple from search to pickup</Typography><Grid container spacing={3} mt={3}>
       {[['1', 'Choose a division', 'Select Carpenters Rentals for vehicles or Carptrac for equipment.'], ['2', 'Compare options', 'Check prices, branches and live availability without signing in.'], ['3', 'Sign in and book', 'Use your customer account to submit and track bookings securely.']].map(([number, title, text]) => <Grid key={number} size={{ xs: 12, md: 4 }}><Stack alignItems="center" textAlign="center"><Avatar sx={{ bgcolor: 'secondary.main', color: '#111', fontWeight: 800, width: 52, height: 52 }}>{number}</Avatar><Typography variant="h6" fontWeight={700} mt={2}>{title}</Typography><Typography color="rgba(255,255,255,.65)" mt={1}>{text}</Typography></Stack></Grid>)}
     </Grid></Container></Box>
+
+    <Container maxWidth="lg" sx={{ py: 8 }}><Grid container spacing={3}>{[[<VerifiedOutlined />, 'Maintained and inspected', 'Availability and maintenance status are managed by the operating branch.'], [<SupportAgentOutlined />, 'Local support', 'A Carpenters team member reviews every request and confirms collection requirements.'], [<LocalShippingOutlined />, 'Pickup or delivery planning', 'Equipment transport and trained personnel can be included in the final quote.']].map(([icon, title, text]) => <Grid key={String(title)} size={{ xs: 12, md: 4 }}><Card variant="outlined" sx={{ height: '100%' }}><CardContent sx={{ p: 3 }}><Avatar sx={{ bgcolor: 'secondary.main', color: '#111' }}>{icon}</Avatar><Typography variant="h6" fontWeight={750} mt={2}>{title}</Typography><Typography color="text.secondary" mt={1}>{text}</Typography></CardContent></Card></Grid>)}</Grid></Container>
+
+    <Box id="faq" sx={{ bgcolor: 'white', py: 8 }}><Container maxWidth="md"><Typography variant="h3" fontWeight={800} textAlign="center" sx={{ fontSize: { xs: '2rem', md: '2.7rem' } }}>Before you make a request</Typography><Typography color="text.secondary" textAlign="center" mt={1} mb={4}>Clear answers to common rental questions.</Typography>{[['Is the displayed price final?', 'No. It is an estimated base hire charge. VAT, deposit, delivery, fuel, damage waiver, excess usage and operator charges may apply. Staff confirm the complete quote before approval.'], ['What do I need at pickup?', 'Individual vehicle customers normally need valid identification, an appropriate driver licence, their booking reference and an accepted payment method. Business and equipment hires may require a purchase order, site details or approved operator.'], ['Does an online request reserve the asset?', 'The request is held for staff review. It becomes confirmed only after eligibility, availability, pricing and any deposit or documentation requirements are approved.'], ['Can Carptrac equipment include an operator?', 'Yes, where the service supports it. Some assets require trained personnel, while others offer personnel as an option. This is shown on the asset card and confirmed in the quote.']].map(([question, answer]) => <Accordion key={question} disableGutters elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>{question}</Typography></AccordionSummary><AccordionDetails><Typography color="text.secondary">{answer}</Typography></AccordionDetails></Accordion>)}</Container></Box>
 
     <Container id="contact" maxWidth="lg" sx={{ py: 9 }}><Typography variant="h3" fontWeight={800} sx={{ fontSize: { xs: '2rem', md: '3rem' } }}>Contact our branches</Typography><Typography color="text.secondary" mt={1} mb={4}>Need advice before requesting? Speak with a local rental team.</Typography><Grid container spacing={3}>
       {branches.map((branch) => <Grid key={branch.id} size={{ xs: 12, md: 6 }}><Card variant="outlined"><CardContent sx={{ p: 3 }}><Typography variant="h6" fontWeight={750}>{branch.name}</Typography><Stack gap={1.25} mt={2}>{branch.address && <Stack direction="row" gap={1}><LocationOnOutlined color="action" /><Typography color="text.secondary">{branch.address}</Typography></Stack>}{branch.phone && <Stack direction="row" gap={1}><PhoneOutlined color="action" /><Link href={`tel:${branch.phone}`} color="inherit">{branch.phone}</Link></Stack>}</Stack></CardContent></Card></Grid>)}

@@ -1,5 +1,3 @@
-import { jsPDF } from 'jspdf'
-
 export type AgreementTerm = { title: string; content: string }
 export type RentalAgreementData = {
   approved: boolean; agreementNumber: string | null; termsVersion: string
@@ -7,7 +5,7 @@ export type RentalAgreementData = {
   asset: { assetNumber: string; name: string; type: string; registrationNumber: string | null; serialNumber: string | null }
   rental: { bookingNumber: string; branchName: string; branchAddress: string | null; branchPhone: string | null; startAt: string; endAt: string; days: number }
   pricing: { dailyRate: number; subtotal: number; discountAmount: number; additionalCharges: number; additionalChargesDescription: string | null; taxRate: number; taxAmount: number; total: number; depositRequired: number }
-  terms: AgreementTerm[]; customerSignatureName: string | null; customerSignatureDataUrl: string | null; customerSignedAt: string | null; approvedByName: string | null; approvedAt: string | null
+  terms: AgreementTerm[]; customerSignatureName: string | null; customerSignatureDataUrl: string | null; customerSignedAt: string | null; approvedByName: string | null; approvedAt: string | null; lastEmailedTo?: string | null; lastEmailedAt?: string | null
 }
 
 async function loadLogo() {
@@ -16,14 +14,14 @@ async function loadLogo() {
 }
 
 export async function downloadRentalAgreementPdf(data: RentalAgreementData) {
-  const logo = await loadLogo()
-  const doc = createRentalAgreementPdf(data, logo)
+  const [{ jsPDF }, logo] = await Promise.all([import('jspdf'), loadLogo()])
+  const doc = createRentalAgreementPdf(data, logo, jsPDF)
   doc.save(`${data.agreementNumber}.pdf`)
 }
 
-export function createRentalAgreementPdf(data: RentalAgreementData, logo: string) {
+function createRentalAgreementPdf(data: RentalAgreementData, logo: string, Pdf: typeof import('jspdf').jsPDF) {
   if (!data.approved || !data.agreementNumber) throw new Error('Only approved agreements can be exported.')
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' }); const pageWidth = 210; const margin = 16; const contentWidth = pageWidth - margin * 2
+  const doc = new Pdf({ unit: 'mm', format: 'a4' }); const pageWidth = 210; const margin = 16; const contentWidth = pageWidth - margin * 2
   let y = 18
   const addHeader = () => { doc.addImage(logo, 'PNG', margin, 10, 18, 18); doc.setTextColor(20); doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text('CARPENTERS RENTALS', 38, 17); doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.text('Vehicle & Equipment Rental Agreement', 38, 23); doc.setDrawColor(255, 220, 0); doc.setLineWidth(1.2); doc.line(margin, 31, pageWidth - margin, 31); y = 38 }
   const ensure = (height: number) => { if (y + height > 278) { doc.addPage(); addHeader() } }

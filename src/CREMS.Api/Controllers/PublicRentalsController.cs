@@ -57,6 +57,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             ModelState.AddModelError(nameof(endDate), "Choose a return date after the pickup date.");
             return ValidationProblem(ModelState);
         }
+        if (startDate.HasValue && startDate < DateOnly.FromDateTime(DateTime.UtcNow))
+        { ModelState.AddModelError(nameof(startDate), "Pickup cannot be in the past."); return ValidationProblem(ModelState); }
 
         var query = db.Assets.AsNoTracking()
             .Where(asset => asset.IsActive && asset.Branch!.IsActive &&
@@ -74,8 +76,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             var end = new DateTimeOffset(endDate.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
             unavailableAssetIds = (await db.BookingItems.AsNoTracking()
                 .Where(item => item.StartAt < end && item.EndAt > start &&
-                    item.Booking!.Status != BookingStatus.Cancelled &&
-                    item.Booking.Status != BookingStatus.Expired)
+                    (item.Booking!.Status == BookingStatus.Confirmed ||
+                     item.Booking.Status == BookingStatus.ConvertedToRental ||
+                     item.Booking.Status == BookingStatus.Draft && item.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)))
                 .Select(item => item.AssetId)
                 .Distinct()
                 .ToListAsync(cancellationToken)).ToHashSet();
@@ -113,6 +116,10 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             ModelState.AddModelError(nameof(request.EndDate), "Choose a return date after the pickup date.");
             return ValidationProblem(ModelState);
         }
+        if (request.StartDate < DateOnly.FromDateTime(DateTime.UtcNow))
+        { ModelState.AddModelError(nameof(request.StartDate), "Pickup cannot be in the past."); return ValidationProblem(ModelState); }
+        if (request.EndDate.DayNumber - request.StartDate.DayNumber > 366)
+        { ModelState.AddModelError(nameof(request.EndDate), "Online requests cannot exceed 12 months. Contact the branch for long-term hire."); return ValidationProblem(ModelState); }
         if (request.CustomerType == CustomerType.Business && string.IsNullOrWhiteSpace(request.CompanyName))
         {
             ModelState.AddModelError(nameof(request.CompanyName), "Enter the registered business name.");
@@ -129,8 +136,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var end = new DateTimeOffset(request.EndDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var overlaps = await db.BookingItems.AnyAsync(item =>
             item.AssetId == asset.Id && item.StartAt < end && item.EndAt > start &&
-            item.Booking!.Status != BookingStatus.Cancelled &&
-            item.Booking.Status != BookingStatus.Expired, cancellationToken);
+            (item.Booking!.Status == BookingStatus.Confirmed ||
+             item.Booking.Status == BookingStatus.ConvertedToRental ||
+             item.Booking.Status == BookingStatus.Draft && item.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)), cancellationToken);
         if (overlaps)
         {
             ModelState.AddModelError(nameof(request.AssetId), "This item is no longer available for the selected dates.");

@@ -16,7 +16,8 @@ export type AuthenticatedUser = {
 type AuthContextValue = {
   user: AuthenticatedUser | null
   checkingSession: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<{ requiresMfa: boolean; challengeId?: string; maskedDestination?: string }>
+  verifyMfa: (challengeId: string, code: string) => Promise<void>
   logout: () => Promise<void>
   refreshSession: () => Promise<void>
 }
@@ -45,9 +46,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadSession])
 
   const login = useCallback(async (email: string, password: string) => {
-    await api.post('/auth/login?useCookies=true', { email, password })
-    await loadSession()
+    const response = await api.post<{ requiresMfa?: boolean; challengeId?: string; maskedDestination?: string }>('/auth/login?useCookies=true', { email, password })
+    if (response.status === 202) return { requiresMfa: true, challengeId: response.data.challengeId, maskedDestination: response.data.maskedDestination }
+    await loadSession(); return { requiresMfa: false }
   }, [loadSession])
+  const verifyMfa = useCallback(async (challengeId: string, code: string) => { await api.post('/auth/mfa/verify?useCookies=true', { challengeId, code }); await loadSession() }, [loadSession])
 
   const logout = useCallback(async () => {
     await api.post('/auth/logout')
@@ -55,8 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ user, checkingSession, login, logout, refreshSession: loadSession }),
-    [user, checkingSession, login, logout, loadSession],
+    () => ({ user, checkingSession, login, verifyMfa, logout, refreshSession: loadSession }),
+    [user, checkingSession, login, verifyMfa, logout, loadSession],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

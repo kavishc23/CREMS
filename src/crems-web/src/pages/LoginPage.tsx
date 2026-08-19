@@ -19,7 +19,7 @@ import { useAuth } from '../auth/AuthContext'
 import { api } from '../api/client'
 
 export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) {
-  const { login } = useAuth()
+  const { login, verifyMfa } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -31,13 +31,18 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [notice, setNotice] = useState('')
+  const [mfaChallengeId, setMfaChallengeId] = useState('')
+  const [mfaCode, setMfaCode] = useState('')
+  const [mfaDestination, setMfaDestination] = useState('')
+  const [mfaNotice,setMfaNotice]=useState('')
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
     setSubmitting(true)
     try {
-      await login(email.trim(), password)
+      const result = await login(email.trim(), password)
+      if (result.requiresMfa) { setMfaChallengeId(result.challengeId ?? ''); setMfaDestination(result.maskedDestination ?? 'your email') }
     } catch (reason) {
       if (axios.isAxiosError(reason) && reason.response?.status === 401) {
         setError('The email address or password is incorrect.')
@@ -48,6 +53,8 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
       setSubmitting(false)
     }
   }
+  async function submitMfa(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setSubmitting(true); setError(''); try { await verifyMfa(mfaChallengeId, mfaCode) } catch { setError('The verification code is invalid or has expired.') } finally { setSubmitting(false) } }
+  async function resendMfa(){setSubmitting(true);setError('');setMfaNotice('');try{const response=await api.post<{challengeId?:string;maskedDestination?:string;message:string}>(`/auth/mfa/${mfaChallengeId}/resend`);if(response.data.challengeId)setMfaChallengeId(response.data.challengeId);if(response.data.maskedDestination)setMfaDestination(response.data.maskedDestination);setMfaCode('');setMfaNotice(response.data.message)}catch(reason){if(axios.isAxiosError(reason)&&reason.response?.status===429)setError(reason.response.data?.message??'Please wait before requesting another code.');else setError('A new verification code could not be requested.')}finally{setSubmitting(false)}}
 
   async function requestReset(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSubmitting(true); setError(''); setNotice('')
@@ -85,7 +92,7 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
               <Typography color="text.secondary" mt={1}>{recovery ? 'Use the six-digit code sent to your email' : 'Sign in to your CREMS account'}</Typography>
             </Stack>
 
-            {!recovery ? <Box component="form" onSubmit={handleSubmit} noValidate>
+            {!recovery && mfaChallengeId ? <Box component="form" onSubmit={submitMfa}><Stack spacing={2.5}>{error && <Alert severity="error">{error}</Alert>}{mfaNotice&&<Alert severity="success">{mfaNotice}</Alert>}<Alert severity="info">Enter the six-digit code sent to {mfaDestination}. Delivery normally takes a few seconds.</Alert><TextField autoFocus required label="Verification code" value={mfaCode} onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputProps={{ inputMode: 'numeric', maxLength: 6 }} /><Button type="submit" variant="contained" size="large" disabled={submitting || mfaCode.length !== 6}>{submitting ? <CircularProgress size={24} /> : 'Verify and sign in'}</Button><Button type="button" disabled={submitting} onClick={()=>void resendMfa()}>Send a new code</Button><Button onClick={() => { setMfaChallengeId(''); setMfaCode(''); setPassword('');setMfaNotice('') }}>Back to sign in</Button></Stack></Box> : !recovery ? <Box component="form" onSubmit={handleSubmit} noValidate>
               <Stack spacing={2.5}>
                 {error && <Alert severity="error">{error}</Alert>}
                 {notice && <Alert severity="success">{notice}</Alert>}

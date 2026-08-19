@@ -67,6 +67,12 @@ Open `http://localhost:5173`. During development, Vite proxies `/api` requests t
 
 ## Current status
 
+### API session security
+
+Authenticated requests must include an `X-CREMS-Window-Id` header containing a UUID. The web application creates this value in `sessionStorage`. In Postman, add a collection variable such as `windowId` and send `X-CREMS-Window-Id: {{windowId}}` on every request after login.
+
+Security defaults are enforced server-side: a 20-minute idle authentication timeout, an eight-hour absolute window-session limit, one active browser window per user, a 30-second API execution timeout, and global request rate limiting. A new login in another browser window transfers the active session to that window.
+
 The repository contains the technical foundation, responsive application shell, identity configuration, core roles, initial domain entities, SQL Server configuration, and a protected asset endpoint. Feature workflows remain intentionally unimplemented until the client validates the business rules in `docs/requirements-register.md`.
 
 ## Engineering rules

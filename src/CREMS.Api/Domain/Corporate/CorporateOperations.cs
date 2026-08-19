@@ -7,6 +7,7 @@ public sealed class SalesQuote : Entity
     public required string QuoteNumber { get; set; }
     public Guid CustomerId { get; set; }
     public Guid BranchId { get; set; }
+    public Guid? DivisionId { get; set; }
     public Guid? AssignedUserId { get; set; }
     public QuoteStatus Status { get; set; } = QuoteStatus.Draft;
     public DateTimeOffset ValidUntil { get; set; }
@@ -20,6 +21,9 @@ public sealed class SalesQuote : Entity
     public string? LineItemsJson { get; set; }
     public string? LostReason { get; set; }
     public Guid? ConvertedBookingId { get; set; }
+    public string? LastEmailedTo { get; set; }
+    public DateTimeOffset? LastEmailedAt { get; set; }
+    public Guid? LastEmailId { get; set; }
 }
 
 public sealed class CorporateAccount : Entity
@@ -51,6 +55,11 @@ public sealed class DispatchJob : Entity
     public string? AssignedDriver { get; set; }
     public string? TransportVehicle { get; set; }
     public decimal DeliveryCharge { get; set; }
+    public Guid? DeliveryZoneId { get; set; }
+    public decimal DistanceKilometres { get; set; }
+    public decimal InternalTransportCost { get; set; }
+    public decimal FailedDeliveryCharge { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
     public string? ProofJson { get; set; }
 }
 
@@ -77,12 +86,21 @@ public sealed class PricingRule : Entity
     public required string Name { get; set; }
     public Guid? BranchId { get; set; }
     public Guid? CustomerId { get; set; }
+    public Guid? DivisionId { get; set; }
+    public Guid? ServiceOfferingId { get; set; }
+    public Guid? AssetCategoryId { get; set; }
+    public Guid? AssetId { get; set; }
+    public Guid? ChargeDefinitionId { get; set; }
+    public string? CustomerType { get; set; }
     public string? AssetType { get; set; }
     public RatePeriod Period { get; set; }
     public decimal Rate { get; set; }
     public decimal IncludedUsage { get; set; }
     public decimal ExcessUsageRate { get; set; }
     public int MinimumDuration { get; set; } = 1;
+    public decimal WeekendMultiplier { get; set; } = 1;
+    public decimal HolidayMultiplier { get; set; } = 1;
+    public decimal OvertimeMultiplier { get; set; } = 1;
     public DateTimeOffset? EffectiveFrom { get; set; }
     public DateTimeOffset? EffectiveTo { get; set; }
     public bool IsActive { get; set; } = true;
@@ -99,6 +117,47 @@ public sealed class ApprovalRequest : Entity
     public decimal Amount { get; set; }
     public required string Reason { get; set; }
     public Guid RequestedByUserId { get; set; }
+    public Guid? DecidedByUserId { get; set; }
+    public string? DecisionNote { get; set; }
+    public DateTimeOffset? DecidedAt { get; set; }
+    public Guid? WorkflowId { get; set; }
+    public int CurrentStage { get; set; } = 1;
+    public int TotalStages { get; set; } = 1;
+    public ICollection<ApprovalStageDecision> StageDecisions { get; set; } = [];
+}
+
+public sealed class ApprovalWorkflow : Entity
+{
+    public required string Name { get; set; }
+    public ApprovalType Type { get; set; }
+    public string? EntityType { get; set; }
+    public Guid? BranchId { get; set; }
+    public Guid? DivisionId { get; set; }
+    public bool IsActive { get; set; } = true;
+    public ICollection<ApprovalWorkflowStage> Stages { get; set; } = [];
+}
+
+public sealed class ApprovalWorkflowStage : Entity
+{
+    public Guid WorkflowId { get; set; }
+    public ApprovalWorkflow? Workflow { get; set; }
+    public int Sequence { get; set; }
+    public required string Name { get; set; }
+    public string? AssignedRole { get; set; }
+    public Guid? AssignedUserId { get; set; }
+    public int EscalateAfterHours { get; set; } = 24;
+    public string? EscalationRole { get; set; }
+}
+
+public sealed class ApprovalStageDecision : Entity
+{
+    public Guid ApprovalRequestId { get; set; }
+    public ApprovalRequest? ApprovalRequest { get; set; }
+    public int StageNumber { get; set; }
+    public required string StageName { get; set; }
+    public string? AssignedRole { get; set; }
+    public Guid? AssignedUserId { get; set; }
+    public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
     public Guid? DecidedByUserId { get; set; }
     public string? DecisionNote { get; set; }
     public DateTimeOffset? DecidedAt { get; set; }

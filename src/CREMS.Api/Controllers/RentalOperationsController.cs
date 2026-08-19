@@ -4,6 +4,7 @@ using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
+using CREMS.Api.Domain.Operations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,54 @@ namespace CREMS.Api.Controllers;
 [Authorize(Policy = SystemPolicies.ManageRentals)]
 public sealed class RentalOperationsController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
+    [HttpGet("work-queue")]
+    public async Task<ActionResult<RentalWorkQueueResponse>> GetWorkQueue(
+        [FromQuery] string queue = "PickupToday", [FromQuery] string? search = null,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 25,
+        CancellationToken cancellationToken = default)
+    {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
+        page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 10, 100);
+        var now = DateTimeOffset.UtcNow; var todayStart = new DateTimeOffset(now.ToOffset(TimeSpan.FromHours(12)).Date, TimeSpan.FromHours(12));
+        var todayEnd = todayStart.AddDays(1); var recent = now.AddDays(-14);
+        var baseQuery = db.Bookings.AsNoTracking().Where(x => x.Status == BookingStatus.Confirmed || x.Status == BookingStatus.ConvertedToRental || x.Status == BookingStatus.Completed);
+        if (!scope.IsAdministrator) baseQuery = baseQuery.Where(x => x.BranchId == scope.BranchId && x.Items.Any(i => i.Asset!.DivisionId == scope.DivisionId));
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            baseQuery = baseQuery.Where(x => x.BookingNumber.Contains(term) || x.Customer!.Name.Contains(term) ||
+                (x.Customer.Phone != null && x.Customer.Phone.Contains(term)) || x.Items.Any(i => i.Asset!.Name.Contains(term) || i.Asset.AssetNumber.Contains(term)));
+        }
+        IQueryable<Booking> selected = queue switch
+        {
+            "OnHire" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayEnd)),
+            "DueToday" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayStart && i.EndAt < todayEnd)),
+            "Overdue" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt < todayStart)),
+            "ReturnInProgress" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Inspections.Any(i => i.Type == InspectionType.Return)),
+            "RecentlyCompleted" => baseQuery.Where(x => x.Status == BookingStatus.Completed && x.UpdatedAt >= recent),
+            _ => baseQuery.Where(x => x.Status == BookingStatus.Confirmed && x.Items.Any(i => i.StartAt < todayEnd)),
+        };
+        var counts = new RentalQueueCounts(
+            await baseQuery.CountAsync(x => x.Status == BookingStatus.Confirmed && x.Items.Any(i => i.StartAt < todayEnd), cancellationToken),
+            await baseQuery.CountAsync(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayEnd), cancellationToken),
+            await baseQuery.CountAsync(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayStart && i.EndAt < todayEnd), cancellationToken),
+            await baseQuery.CountAsync(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt < todayStart), cancellationToken),
+            await baseQuery.CountAsync(x => x.Status == BookingStatus.ConvertedToRental && x.Inspections.Any(i => i.Type == InspectionType.Return), cancellationToken),
+            await baseQuery.CountAsync(x => x.Status == BookingStatus.Completed && x.UpdatedAt >= recent, cancellationToken));
+        var total = await selected.CountAsync(cancellationToken);
+        var rows = await selected.OrderBy(x => x.Items.Select(i => i.StartAt).FirstOrDefault()).Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(x => new RentalWorkQueueRow(x.Id, x.BookingNumber, x.Status.ToString(), x.Customer!.Name, x.Customer.Phone,
+                x.Branch!.Name, x.Items.Select(i => i.Asset!.AssetNumber).FirstOrDefault(), x.Items.Select(i => i.Asset!.Name).FirstOrDefault(),
+                x.Items.Select(i => (DateTimeOffset?)i.StartAt).FirstOrDefault(), x.Items.Select(i => (DateTimeOffset?)i.EndAt).FirstOrDefault(),
+                x.RentalAgreement != null, x.RentalAgreement != null ? x.RentalAgreement.Status.ToString() : "Not prepared",
+                x.Payments.Where(p => p.Status == PaymentStatus.Recorded).Sum(p => (decimal?)p.Amount) ?? 0, x.DepositRequired,
+                x.Inspections.Any(i => i.Type == InspectionType.Handover), x.Inspections.Any(i => i.Type == InspectionType.Return),
+                x.Items.Any(i => i.EndAt < now) ? "Return is overdue" : x.Customer.IsBlocked ? "Customer account is blocked" : null))
+            .ToListAsync(cancellationToken);
+        return Ok(new RentalWorkQueueResponse(rows, counts, page, pageSize, total));
+    }
+
     [HttpGet("{bookingId:guid}")]
     public async Task<ActionResult> Get(Guid bookingId, CancellationToken cancellationToken)
     {
@@ -49,7 +98,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         booking.Inspections.Add(CreateInspection(booking.Id, InspectionType.Handover, request, scope));
         booking.Status = BookingStatus.ConvertedToRental;
         booking.UpdatedAt = DateTimeOffset.UtcNow;
-        foreach (var item in booking.Items.Where(item => item.Asset is not null)) item.Asset!.Status = AssetStatus.Rented;
+        foreach (var item in booking.Items.Where(item => item.Asset is not null)) { var asset=item.Asset!;var from=asset.Status;asset.Status=AssetStatus.Rented;db.AssetLifecycleEvents.Add(new AssetLifecycleEvent{AssetId=asset.Id,BookingId=booking.Id,Type=AssetLifecycleEventType.CheckedOut,FromStatus=from,ToStatus=asset.Status,MeterReading=request.MeterReading,Notes=$"Checked out on {booking.BookingNumber}",RecordedByUserId=scope.UserId,RecordedByName=scope.UserName});if(request.MeterReading.HasValue)db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=asset.MeterUnit?.Contains("hour",StringComparison.OrdinalIgnoreCase)==true?MeterType.EngineHours:MeterType.Odometer,Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PreHireInspection,RecordedByUserId=scope.UserId});}
         AuditWriter.Record(db, scope, "Rental handed over", "Booking", booking.Id,
             $"{booking.BookingNumber} was handed over to the customer.", booking.BranchId);
         await db.SaveChangesAsync(cancellationToken);
@@ -74,7 +123,13 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         booking.UpdatedAt = DateTimeOffset.UtcNow;
         var hasDamage = !string.IsNullOrWhiteSpace(request.DamageNotes);
         foreach (var item in booking.Items.Where(item => item.Asset is not null))
-            item.Asset!.Status = hasDamage ? AssetStatus.Inspection : AssetStatus.Available;
+        {
+            var asset=item.Asset!;var from=asset.Status;asset.Status=hasDamage?AssetStatus.Inspection:AssetStatus.Available;
+            db.AssetLifecycleEvents.Add(new AssetLifecycleEvent{AssetId=asset.Id,BookingId=booking.Id,Type=hasDamage?AssetLifecycleEventType.DamageReported:AssetLifecycleEventType.PostHireInspection,FromStatus=from,ToStatus=asset.Status,MeterReading=request.MeterReading,Notes=Normalize(request.DamageNotes)??$"Returned on {booking.BookingNumber}",RecordedByUserId=scope.UserId,RecordedByName=scope.UserName});
+            if(request.MeterReading.HasValue){asset.CurrentMeterReading=request.MeterReading;db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=asset.MeterUnit?.Contains("hour",StringComparison.OrdinalIgnoreCase)==true?MeterType.EngineHours:MeterType.Odometer,Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PostHireInspection,RecordedByUserId=scope.UserId});}
+            if (hasDamage && !await db.MaintenanceJobs.AnyAsync(x => x.AssetId == asset.Id && x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled, cancellationToken))
+                db.MaintenanceJobs.Add(new MaintenanceJob { JobNumber = $"MNT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}", AssetId = asset.Id, BranchId = asset.BranchId, ServiceType = "Post-hire damage assessment", FaultDescription = request.DamageNotes!.Trim(), Description = $"Automatically referred from return of {booking.BookingNumber}.", Priority = MaintenancePriority.High, Status = MaintenanceStatus.Open, MeterReading = request.MeterReading });
+        }
         var rentalSubtotal = booking.Items.Sum(item => item.DailyRate * Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)));
         var invoiceSubtotal = Math.Max(0, rentalSubtotal - booking.DiscountAmount + booking.AdditionalCharges);
         var invoiceTax = invoiceSubtotal * booking.TaxRate / 100m;
@@ -157,3 +212,9 @@ public sealed record ReturnInspectionRequest(
     [Range(0, 1000000)] decimal DamageCharge) : InspectionRequest(
         IdentificationVerified, DriverLicenceVerified, MeterReading, FuelLevelPercent,
         ConditionNotes, DamageNotes, SignatureName);
+public sealed record RentalQueueCounts(int PickupToday, int OnHire, int DueToday, int Overdue, int ReturnInProgress, int RecentlyCompleted);
+public sealed record RentalWorkQueueResponse(IReadOnlyList<RentalWorkQueueRow> Items, RentalQueueCounts Counts, int Page, int PageSize, int Total);
+public sealed record RentalWorkQueueRow(Guid Id, string BookingNumber, string Status, string CustomerName, string? CustomerPhone,
+    string BranchName, string? AssetNumber, string? AssetName, DateTimeOffset? StartAt, DateTimeOffset? EndAt,
+    bool HasAgreement, string AgreementStatus, decimal AmountPaid, decimal DepositRequired,
+    bool PreHireInspectionComplete, bool ReturnInspectionComplete, string? Warning);

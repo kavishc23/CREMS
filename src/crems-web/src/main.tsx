@@ -1,6 +1,6 @@
-import '@fontsource/inter/400.css'
-import '@fontsource/inter/500.css'
-import '@fontsource/inter/600.css'
+import '@fontsource/inter/latin-400.css'
+import '@fontsource/inter/latin-500.css'
+import '@fontsource/inter/latin-600.css'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -8,7 +8,17 @@ import { CssBaseline, GlobalStyles, ThemeProvider, createTheme } from '@mui/mate
 import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+    mutations: { retry: 0 },
+  },
+})
 const theme = createTheme({
   palette: {
     primary: { main: '#111111', dark: '#000000', contrastText: '#ffffff' },

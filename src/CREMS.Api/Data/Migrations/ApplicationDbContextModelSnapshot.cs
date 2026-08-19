@@ -28,6 +28,16 @@ namespace CREMS.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<decimal>("AcquisitionCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateOnly?>("AcquisitionDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid?>("AssetCategoryId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("AssetNumber")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -43,6 +53,17 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<decimal?>("CurrentBookValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("CurrentLocation")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal?>("CurrentMeterReading")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<decimal>("DailyRate")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -50,8 +71,29 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<Guid?>("DivisionId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("EngineNumber")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateOnly?>("InsuranceExpiry")
+                        .HasColumnType("date");
+
+                    b.Property<string>("InsurancePolicyNumber")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
+
+                    b.Property<string>("Manufacturer")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("MeterUnit")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Model")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("ModelYear")
+                        .HasColumnType("int");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -61,8 +103,15 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<DateOnly?>("NextServiceDate")
                         .HasColumnType("date");
 
+                    b.Property<string>("OwnershipType")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("PersonnelRequirement")
                         .HasColumnType("int");
+
+                    b.Property<string>("PhotoUrlsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("RegistrationNumber")
                         .HasColumnType("nvarchar(max)");
@@ -85,7 +134,15 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("VinOrChassisNumber")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateOnly?>("WarrantyExpiry")
+                        .HasColumnType("date");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("AssetCategoryId");
 
                     b.HasIndex("AssetNumber")
                         .IsUnique();
@@ -97,6 +154,217 @@ namespace CREMS.Api.Data.Migrations
                     b.HasIndex("ServiceOfferingId");
 
                     b.ToTable("Assets");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Assets.AssetAttributeValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AttributeDefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AttributeDefinitionId");
+
+                    b.HasIndex("AssetId", "AttributeDefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("AssetAttributeValues");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Assets.AssetCostEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BookingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateOnly>("OccurredOn")
+                        .HasColumnType("date");
+
+                    b.Property<string>("RecordedByName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ReferenceNumber")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Supplier")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookingId");
+
+                    b.HasIndex("AssetId", "OccurredOn");
+
+                    b.ToTable("AssetCostEntries");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Assets.AssetInspection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BookingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CompletedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CompletedByName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("CompletedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CustomerSignatureDataUrl")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("CustomerSignatureName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DamageMapJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("EvidenceJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal?>("FuelPercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<decimal?>("MeterReading")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ResponsesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("StaffSignatureDataUrl")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("StaffSignatureName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Stage")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("TemplateId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TemplateId");
+
+                    b.HasIndex("AssetId", "CompletedAt");
+
+                    b.ToTable("AssetInspections");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Assets.InspectionTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssetCategoryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ChecklistJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<bool>("RequiresCustomerSignature")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("RequiresStaffSignature")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Stage")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssetCategoryId", "Name", "Stage")
+                        .IsUnique();
+
+                    b.ToTable("InspectionTemplates");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Assets.MaintenanceJob", b =>
@@ -124,7 +392,17 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("DowntimeHours")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("EstimatedCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("ExternalServiceCost")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
@@ -132,16 +410,48 @@ namespace CREMS.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("InvoiceNumber")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsPreventive")
+                        .HasColumnType("bit");
+
                     b.Property<string>("JobNumber")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<decimal>("LabourCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("MeterReading")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<DateOnly?>("NextServiceDate")
                         .HasColumnType("date");
 
+                    b.Property<decimal?>("NextServiceMeter")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("OtherCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid?>("ParentFailureJobId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("PartsCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("PartsUsed")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
 
                     b.Property<DateTimeOffset>("ReportedAt")
                         .HasColumnType("datetimeoffset");
@@ -156,8 +466,25 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<string>("Supplier")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid?>("SupplierId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("TaxCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("TransportCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("WarrantyClaimNumber")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("WarrantyCovered")
+                        .HasColumnType("bit");
 
                     b.HasKey("Id");
 
@@ -169,6 +496,110 @@ namespace CREMS.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("MaintenanceJobs");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Common.AssetAttributeDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssetCategoryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("DataType")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsCustomerVisible")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsReportable")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsSearchable")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("OptionsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Unit")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssetCategoryId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("AssetAttributeDefinitions");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Common.AssetCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DefaultMeterType")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("PersonnelRequirement")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("ServiceOfferingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceOfferingId");
+
+                    b.HasIndex("DivisionId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("AssetCategories");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Common.AuditEvent", b =>
@@ -235,6 +666,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<string>("Address")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid?>("BranchManagerUserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -243,8 +677,25 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("DeliveryCoverage")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
+
+                    b.Property<bool>("IsPublic")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal?>("Latitude")
+                        .HasPrecision(10, 7)
+                        .HasColumnType("decimal(10,7)");
+
+                    b.Property<decimal?>("Longitude")
+                        .HasPrecision(10, 7)
+                        .HasColumnType("decimal(10,7)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -252,6 +703,15 @@ namespace CREMS.Api.Data.Migrations
                         .HasColumnType("nvarchar(150)");
 
                     b.Property<string>("Phone")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PickupInstructions")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PostalAddress")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ReturnInstructions")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
@@ -265,6 +725,49 @@ namespace CREMS.Api.Data.Migrations
                     b.ToTable("Branches");
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Common.BranchCalendarException", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("AfterHoursCharge")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<TimeOnly?>("ClosesAt")
+                        .HasColumnType("time");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("IsClosed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<TimeOnly?>("OpensAt")
+                        .HasColumnType("time");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BranchId", "Date")
+                        .IsUnique();
+
+                    b.ToTable("BranchCalendarExceptions");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Common.BranchDivision", b =>
                 {
                     b.Property<Guid>("BranchId")
@@ -273,8 +776,37 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<Guid>("DivisionId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("AcceptsBookings")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("DefaultApprovalWorkflowId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("DivisionManagerUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("HasMaintenanceCapability")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
+
+                    b.Property<string>("LocalContactEmail")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("LocalContactPhone")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("LocalTermsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateOnly?>("OpenedOn")
+                        .HasColumnType("date");
+
+                    b.Property<string>("PricingOverridesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("BranchId", "DivisionId");
 
@@ -283,11 +815,167 @@ namespace CREMS.Api.Data.Migrations
                     b.ToTable("BranchDivisions");
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Common.BranchDivisionService", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BranchDivisionBranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BranchDivisionDivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsBookable")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("ServiceOfferingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BranchDivisionBranchId", "BranchDivisionDivisionId");
+
+                    b.HasIndex("BranchId", "DivisionId", "ServiceOfferingId")
+                        .IsUnique();
+
+                    b.ToTable("BranchDivisionServices");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Common.BranchOperatingPeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("AfterHoursCharge")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<TimeOnly>("ClosesAt")
+                        .HasColumnType("time");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("DayOfWeek")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsClosed")
+                        .HasColumnType("bit");
+
+                    b.Property<TimeOnly>("OpensAt")
+                        .HasColumnType("time");
+
+                    b.Property<TimeOnly?>("PickupCutoff")
+                        .HasColumnType("time");
+
+                    b.Property<TimeOnly?>("ReturnCutoff")
+                        .HasColumnType("time");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BranchId", "DayOfWeek")
+                        .IsUnique();
+
+                    b.ToTable("BranchOperatingPeriods");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Common.ChargeDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<decimal>("DefaultCostRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("DefaultSellingRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsCustomerVisible")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsTaxable")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<Guid?>("ServiceOfferingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Unit")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceOfferingId");
+
+                    b.HasIndex("DivisionId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("ChargeDefinitions");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Common.Division", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BrandingJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Capabilities")
                         .HasColumnType("int");
@@ -305,6 +993,24 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CustomerBookingConfigurationJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("DefaultApprovalWorkflowId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DefaultCurrency")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DefaultRentalTerms")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("DefaultTaxRate")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
 
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
@@ -345,17 +1051,35 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<decimal>("DefaultDepositAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("DefaultHireUnit")
+                        .HasColumnType("int");
+
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("DivisionId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("InspectionRequirementsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
                     b.Property<bool>("IsBookableOnline")
                         .HasColumnType("bit");
+
+                    b.Property<string>("MaintenanceRulesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("MeterType")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -364,6 +1088,13 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<int>("PersonnelRequirement")
                         .HasColumnType("int");
+
+                    b.Property<string>("RequiredDocumentsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("RequiresDelivery")
+                        .HasColumnType("bit");
 
                     b.Property<bool>("RequiresQuote")
                         .HasColumnType("bit");
@@ -398,6 +1129,11 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<int>("CurrentStage")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
                     b.Property<DateTimeOffset?>("DecidedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -428,6 +1164,103 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<int>("TotalStages")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("WorkflowId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestNumber")
+                        .IsUnique();
+
+                    b.HasIndex("WorkflowId");
+
+                    b.ToTable("ApprovalRequests");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Corporate.ApprovalStageDecision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApprovalRequestId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AssignedRole")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("AssignedUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DecidedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DecisionNote")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("StageName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("StageNumber")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalRequestId", "StageNumber")
+                        .IsUnique();
+
+                    b.ToTable("ApprovalStageDecisions");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Corporate.ApprovalWorkflow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EntityType")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("Type")
                         .HasColumnType("int");
 
@@ -436,10 +1269,51 @@ namespace CREMS.Api.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("RequestNumber")
+                    b.HasIndex("Type", "BranchId", "DivisionId", "IsActive");
+
+                    b.ToTable("ApprovalWorkflows");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Corporate.ApprovalWorkflowStage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AssignedRole")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("AssignedUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("EscalateAfterHours")
+                        .HasColumnType("int");
+
+                    b.Property<string>("EscalationRole")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("WorkflowId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkflowId", "Sequence")
                         .IsUnique();
 
-                    b.ToTable("ApprovalRequests");
+                    b.ToTable("ApprovalWorkflowStages");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Corporate.AssetTransfer", b =>
@@ -638,6 +1512,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -645,9 +1522,24 @@ namespace CREMS.Api.Data.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<Guid?>("DeliveryZoneId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("DispatchNumber")
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
+
+                    b.Property<decimal>("DistanceKilometres")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("FailedDeliveryCharge")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("InternalTransportCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal?>("Latitude")
                         .HasPrecision(10, 7)
@@ -841,16 +1733,31 @@ namespace CREMS.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("AssetCategoryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AssetId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("AssetType")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("BranchId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("ChargeDefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
                     b.Property<Guid?>("CustomerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CustomerType")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("DivisionId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTimeOffset?>("EffectiveFrom")
@@ -860,6 +1767,10 @@ namespace CREMS.Api.Data.Migrations
                         .HasColumnType("datetimeoffset");
 
                     b.Property<decimal>("ExcessUsageRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("HolidayMultiplier")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
@@ -877,6 +1788,10 @@ namespace CREMS.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<decimal>("OvertimeMultiplier")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<int>("Period")
                         .HasColumnType("int");
 
@@ -884,8 +1799,15 @@ namespace CREMS.Api.Data.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<Guid?>("ServiceOfferingId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<decimal>("WeekendMultiplier")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
@@ -967,7 +1889,19 @@ namespace CREMS.Api.Data.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<Guid?>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("JobSite")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("LastEmailId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("LastEmailedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastEmailedTo")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("LineItemsJson")
@@ -1008,6 +1942,8 @@ namespace CREMS.Api.Data.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DivisionId");
 
                     b.HasIndex("QuoteNumber")
                         .IsUnique();
@@ -1130,6 +2066,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("int");
 
+                    b.Property<int>("AccountStatus")
+                        .HasColumnType("int");
+
                     b.Property<string>("AdminNote")
                         .HasColumnType("nvarchar(max)");
 
@@ -1142,6 +2081,9 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<Guid?>("CustomerId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("DeactivatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<Guid?>("DivisionId")
                         .HasColumnType("uniqueidentifier");
@@ -1156,6 +2098,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("InvitedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -1174,6 +2119,12 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<DateTimeOffset?>("LockoutEnd")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("MfaEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("MfaRequired")
+                        .HasColumnType("bit");
 
                     b.Property<bool>("MustChangePassword")
                         .HasColumnType("bit");
@@ -1200,6 +2151,9 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("SuspendedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("SuspensionReason")
                         .HasColumnType("nvarchar(max)");
@@ -1314,6 +2268,49 @@ namespace CREMS.Api.Data.Migrations
                     b.HasIndex("UserId", "ExpiresAt");
 
                     b.ToTable("EmailVerificationOtps");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.MfaChallenge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Salt")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ExpiresAt");
+
+                    b.ToTable("MfaChallenges");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Identity.NotificationTemplate", b =>
@@ -1461,6 +2458,85 @@ namespace CREMS.Api.Data.Migrations
                     b.ToTable("PasswordResetOtps");
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.RolePermission", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Permission")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("RoleName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleName", "Permission")
+                        .IsUnique();
+
+                    b.ToTable("RolePermissions");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.SecurityEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(254)
+                        .HasColumnType("nvarchar(254)");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("Succeeded")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UserAgent")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("WindowId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "OccurredAt");
+
+                    b.ToTable("SecurityEvents");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Identity.SystemSetting", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1499,6 +2575,748 @@ namespace CREMS.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("SystemSettings");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.UserAccessScope", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("EffectiveFrom")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("GrantedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Type", "DivisionId", "BranchId", "IsActive");
+
+                    b.ToTable("UserAccessScopes");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.UserPermissionOverride", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("GrantedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsGranted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Permission")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Permission")
+                        .IsUnique();
+
+                    b.ToTable("UserPermissionOverrides");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.UserSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DeviceLabel")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("EndReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("IpAddress")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("LastSeenAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UserAgent")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("WindowId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "EndedAt", "ExpiresAt");
+
+                    b.ToTable("UserSessions");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.ApprovalDelegation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("EndsAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("FromUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset>("StartsAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ToUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FromUserId", "StartsAt", "EndsAt");
+
+                    b.ToTable("ApprovalDelegations");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.AssetLifecycleEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BookingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("EvidenceJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("FromStatus")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("MeterReading")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RecordedByName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("ToStatus")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssetId", "OccurredAt");
+
+                    b.ToTable("AssetLifecycleEvents");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.AssetMeterReading", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BookingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<decimal?>("FuelPercent")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Reading")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssetId", "Type", "RecordedAt");
+
+                    b.ToTable("AssetMeterReadings");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.BookingPersonnelAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BookingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<decimal>("CustomerHourlyRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset>("EndAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<decimal>("InternalHourlyCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("PersonnelId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("StartAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookingId");
+
+                    b.HasIndex("PersonnelId", "StartAt", "EndAt");
+
+                    b.ToTable("BookingPersonnelAssignments");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.BusinessAlert", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("AcknowledgedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("AcknowledgedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("EntityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EntityType")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("RaisedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("RuleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RuleId");
+
+                    b.HasIndex("AcknowledgedAt", "RaisedAt");
+
+                    b.ToTable("BusinessAlerts");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.BusinessAlertRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("EmailEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("LeadTimeHours")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("Threshold")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Category", "BranchId", "DivisionId", "IsActive");
+
+                    b.ToTable("BusinessAlertRules");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.DeliveryZone", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("BaseCharge")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("ChargePerKilometre")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("CostPerKilometre")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("FailedDeliveryCharge")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DeliveryZones");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.MaintenancePartUsage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("InventoryPartId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("MaintenanceJobId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InventoryPartId");
+
+                    b.HasIndex("MaintenanceJobId", "InventoryPartId");
+
+                    b.ToTable("MaintenancePartUsages");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.Personnel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Availability")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EmployeeNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal>("OvertimeChargeRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("OvertimeCostRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("StandardChargeRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("StandardCostRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeNumber")
+                        .IsUnique();
+
+                    b.ToTable("Personnel");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.PersonnelQualification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CertificateNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateOnly>("ExpiresOn")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly>("IssuedOn")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("PersonnelId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("SafetyInduction")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PersonnelId", "CertificateNumber")
+                        .IsUnique();
+
+                    b.ToTable("PersonnelQualifications");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.PersonnelTimesheet", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssignmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("OvertimeHours")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("RegularHours")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateOnly>("WorkDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignmentId", "WorkDate")
+                        .IsUnique();
+
+                    b.ToTable("PersonnelTimesheets");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.QuoteRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ChangeReason")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("ChangedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("SalesQuoteId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SalesQuoteId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("QuoteRevisions");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.Supplier", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Address")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int>("PaymentTermsDays")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Phone")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SupplierNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("TaxNumber")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SupplierNumber")
+                        .IsUnique();
+
+                    b.ToTable("Suppliers");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.AuthorizedDriver", b =>
@@ -1612,6 +3430,63 @@ namespace CREMS.Api.Data.Migrations
                     b.ToTable("Bookings");
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.BookingCharge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AssetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BookingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("ChargeDefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsTaxable")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int>("Unit")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("UnitRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssetId");
+
+                    b.HasIndex("BookingId");
+
+                    b.HasIndex("ChargeDefinitionId");
+
+                    b.ToTable("BookingCharges");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.BookingItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1647,6 +3522,132 @@ namespace CREMS.Api.Data.Migrations
                     b.HasIndex("AssetId", "StartAt", "EndAt");
 
                     b.ToTable("BookingItems");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.CreditNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreditNoteNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("IssuedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Total")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreditNoteNumber")
+                        .IsUnique();
+
+                    b.HasIndex("InvoiceId");
+
+                    b.ToTable("CreditNotes");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.InvoiceLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsTaxable")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("TaxRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.ToTable("InvoiceLines");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.PaymentAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AllocatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("PaymentId", "InvoiceId");
+
+                    b.ToTable("PaymentAllocations");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.RentalAgreement", b =>
@@ -1695,6 +3696,15 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<string>("CustomerSnapshotJson")
                         .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("LastEmailId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("LastEmailedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastEmailedTo")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("PricingSnapshotJson")
@@ -1948,6 +3958,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<decimal>("TaxAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool>("TaxInclusive")
+                        .HasColumnType("bit");
 
                     b.Property<decimal>("Total")
                         .HasPrecision(18, 2)
@@ -2206,6 +4219,11 @@ namespace CREMS.Api.Data.Migrations
 
             modelBuilder.Entity("CREMS.Api.Domain.Assets.Asset", b =>
                 {
+                    b.HasOne("CREMS.Api.Domain.Common.AssetCategory", "AssetCategory")
+                        .WithMany()
+                        .HasForeignKey("AssetCategoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("CREMS.Api.Domain.Common.Branch", "Branch")
                         .WithMany()
                         .HasForeignKey("BranchId")
@@ -2222,11 +4240,77 @@ namespace CREMS.Api.Data.Migrations
                         .HasForeignKey("ServiceOfferingId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.Navigation("AssetCategory");
+
                     b.Navigation("Branch");
 
                     b.Navigation("Division");
 
                     b.Navigation("ServiceOffering");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Assets.AssetAttributeValue", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Assets.Asset", "Asset")
+                        .WithMany("AttributeValues")
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CREMS.Api.Domain.Common.AssetAttributeDefinition", "AttributeDefinition")
+                        .WithMany()
+                        .HasForeignKey("AttributeDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Asset");
+
+                    b.Navigation("AttributeDefinition");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Assets.AssetCostEntry", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Assets.Asset", "Asset")
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CREMS.Api.Domain.Rentals.Booking", null)
+                        .WithMany()
+                        .HasForeignKey("BookingId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Asset");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Assets.AssetInspection", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Assets.Asset", "Asset")
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CREMS.Api.Domain.Assets.InspectionTemplate", "Template")
+                        .WithMany()
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Asset");
+
+                    b.Navigation("Template");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Assets.InspectionTemplate", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Common.AssetCategory", "AssetCategory")
+                        .WithMany()
+                        .HasForeignKey("AssetCategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AssetCategory");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Assets.MaintenanceJob", b =>
@@ -2246,6 +4330,35 @@ namespace CREMS.Api.Data.Migrations
                     b.Navigation("Asset");
 
                     b.Navigation("Branch");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Common.AssetAttributeDefinition", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Common.AssetCategory", "AssetCategory")
+                        .WithMany("AttributeDefinitions")
+                        .HasForeignKey("AssetCategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AssetCategory");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Common.AssetCategory", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Common.Division", "Division")
+                        .WithMany()
+                        .HasForeignKey("DivisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CREMS.Api.Domain.Common.ServiceOffering", "ServiceOffering")
+                        .WithMany()
+                        .HasForeignKey("ServiceOfferingId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Division");
+
+                    b.Navigation("ServiceOffering");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Common.AuditEvent", b =>
@@ -2277,6 +4390,31 @@ namespace CREMS.Api.Data.Migrations
                     b.Navigation("Division");
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Common.BranchDivisionService", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Common.BranchDivision", null)
+                        .WithMany("Services")
+                        .HasForeignKey("BranchDivisionBranchId", "BranchDivisionDivisionId");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Common.ChargeDefinition", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Common.Division", "Division")
+                        .WithMany()
+                        .HasForeignKey("DivisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CREMS.Api.Domain.Common.ServiceOffering", "ServiceOffering")
+                        .WithMany("ChargeDefinitions")
+                        .HasForeignKey("ServiceOfferingId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Division");
+
+                    b.Navigation("ServiceOffering");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Common.ServiceOffering", b =>
                 {
                     b.HasOne("CREMS.Api.Domain.Common.Division", "Division")
@@ -2286,6 +4424,44 @@ namespace CREMS.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Division");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Corporate.ApprovalRequest", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Corporate.ApprovalWorkflow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Corporate.ApprovalStageDecision", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Corporate.ApprovalRequest", "ApprovalRequest")
+                        .WithMany("StageDecisions")
+                        .HasForeignKey("ApprovalRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApprovalRequest");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Corporate.ApprovalWorkflowStage", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Corporate.ApprovalWorkflow", "Workflow")
+                        .WithMany("Stages")
+                        .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Workflow");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Corporate.SalesQuote", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Common.Division", null)
+                        .WithMany()
+                        .HasForeignKey("DivisionId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Identity.ApplicationUser", b =>
@@ -2333,6 +4509,17 @@ namespace CREMS.Api.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.MfaChallenge", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Identity.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Identity.PasswordResetOtp", b =>
                 {
                     b.HasOne("CREMS.Api.Domain.Identity.ApplicationUser", "User")
@@ -2342,6 +4529,142 @@ namespace CREMS.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.UserAccessScope", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Identity.ApplicationUser", "User")
+                        .WithMany("AccessScopes")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.UserPermissionOverride", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Identity.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.UserSession", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Identity.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.AssetLifecycleEvent", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Assets.Asset", "Asset")
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Asset");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.AssetMeterReading", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Assets.Asset", "Asset")
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Asset");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.BookingPersonnelAssignment", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Rentals.Booking", "Booking")
+                        .WithMany()
+                        .HasForeignKey("BookingId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CREMS.Api.Domain.Operations.Personnel", "Personnel")
+                        .WithMany()
+                        .HasForeignKey("PersonnelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Booking");
+
+                    b.Navigation("Personnel");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.BusinessAlert", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Operations.BusinessAlertRule", "Rule")
+                        .WithMany()
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Rule");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.MaintenancePartUsage", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Corporate.InventoryPart", "InventoryPart")
+                        .WithMany()
+                        .HasForeignKey("InventoryPartId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CREMS.Api.Domain.Assets.MaintenanceJob", "MaintenanceJob")
+                        .WithMany()
+                        .HasForeignKey("MaintenanceJobId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("InventoryPart");
+
+                    b.Navigation("MaintenanceJob");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.PersonnelQualification", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Operations.Personnel", "Personnel")
+                        .WithMany("Qualifications")
+                        .HasForeignKey("PersonnelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Personnel");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.PersonnelTimesheet", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Operations.BookingPersonnelAssignment", "Assignment")
+                        .WithMany("Timesheets")
+                        .HasForeignKey("AssignmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Assignment");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.QuoteRevision", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Corporate.SalesQuote", "SalesQuote")
+                        .WithMany()
+                        .HasForeignKey("SalesQuoteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SalesQuote");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.AuthorizedDriver", b =>
@@ -2374,6 +4697,31 @@ namespace CREMS.Api.Data.Migrations
                     b.Navigation("Customer");
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.BookingCharge", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Assets.Asset", "Asset")
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CREMS.Api.Domain.Rentals.Booking", "Booking")
+                        .WithMany("Charges")
+                        .HasForeignKey("BookingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CREMS.Api.Domain.Common.ChargeDefinition", "ChargeDefinition")
+                        .WithMany()
+                        .HasForeignKey("ChargeDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Asset");
+
+                    b.Navigation("Booking");
+
+                    b.Navigation("ChargeDefinition");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.BookingItem", b =>
                 {
                     b.HasOne("CREMS.Api.Domain.Assets.Asset", "Asset")
@@ -2391,6 +4739,47 @@ namespace CREMS.Api.Data.Migrations
                     b.Navigation("Asset");
 
                     b.Navigation("Booking");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.CreditNote", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Rentals.RentalInvoice", "Invoice")
+                        .WithMany()
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Invoice");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.InvoiceLine", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Rentals.RentalInvoice", "Invoice")
+                        .WithMany("Lines")
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Invoice");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.PaymentAllocation", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Rentals.RentalInvoice", "Invoice")
+                        .WithMany()
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CREMS.Api.Domain.Rentals.RentalPayment", "Payment")
+                        .WithMany()
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Invoice");
+
+                    b.Navigation("Payment");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.RentalAgreement", b =>
@@ -2529,9 +4918,24 @@ namespace CREMS.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Assets.Asset", b =>
+                {
+                    b.Navigation("AttributeValues");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Common.AssetCategory", b =>
+                {
+                    b.Navigation("AttributeDefinitions");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Common.Branch", b =>
                 {
                     b.Navigation("Divisions");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Common.BranchDivision", b =>
+                {
+                    b.Navigation("Services");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Common.Division", b =>
@@ -2539,9 +4943,41 @@ namespace CREMS.Api.Data.Migrations
                     b.Navigation("ServiceOfferings");
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Common.ServiceOffering", b =>
+                {
+                    b.Navigation("ChargeDefinitions");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Corporate.ApprovalRequest", b =>
+                {
+                    b.Navigation("StageDecisions");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Corporate.ApprovalWorkflow", b =>
+                {
+                    b.Navigation("Stages");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Identity.ApplicationUser", b =>
+                {
+                    b.Navigation("AccessScopes");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.BookingPersonnelAssignment", b =>
+                {
+                    b.Navigation("Timesheets");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.Personnel", b =>
+                {
+                    b.Navigation("Qualifications");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.Booking", b =>
                 {
                     b.Navigation("AuthorizedDrivers");
+
+                    b.Navigation("Charges");
 
                     b.Navigation("Incidents");
 
@@ -2561,6 +4997,11 @@ namespace CREMS.Api.Data.Migrations
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.RentalAgreement", b =>
                 {
                     b.Navigation("Addendums");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.RentalInvoice", b =>
+                {
+                    b.Navigation("Lines");
                 });
 #pragma warning restore 612, 618
         }

@@ -2,6 +2,8 @@ using System.ComponentModel.DataAnnotations;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Customers;
 using CREMS.Api.Domain.Identity;
+using CREMS.Api.Domain.Corporate;
+using CREMS.Api.Domain.Rentals;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -108,6 +110,51 @@ public sealed class CustomerAccountController(
             }).ToListAsync(token));
     }
 
+    [HttpPost("bookings/{bookingId:guid}/cancellation-request")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> RequestCancellation(Guid bookingId, CustomerBookingChangeRequest request, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User); if (user?.CustomerId is null) return Unauthorized();
+        var booking = await db.Bookings.FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
+        if (booking is null) return NotFound();
+        if (booking.Status == BookingStatus.Draft)
+        { booking.Status = BookingStatus.Cancelled; booking.Notes = Append(booking.Notes, $"Customer cancelled online: {Clean(request.Reason) ?? "No reason supplied"}"); await db.SaveChangesAsync(token); return Ok(new { status = "Cancelled" }); }
+        if (booking.Status != BookingStatus.Confirmed) return BadRequest(new { message = "Only pending or confirmed future bookings can be cancelled online." });
+        if (!await db.CustomerCases.AnyAsync(x => x.CustomerId == user.CustomerId && x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed && x.Subject.Contains(booking.BookingNumber), token))
+            db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.General, Priority = CasePriority.Normal, Subject = $"Cancellation request — {booking.BookingNumber}", Description = Clean(request.Reason) ?? "Customer requested cancellation through the portal.", DueAt = DateTimeOffset.UtcNow.AddHours(4) });
+        await db.SaveChangesAsync(token); return Accepted(new { status = "Cancellation requested" });
+    }
+
+    [HttpPost("bookings/{bookingId:guid}/extension-request")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> RequestExtension(Guid bookingId, CustomerExtensionRequest request, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User); if (user?.CustomerId is null) return Unauthorized();
+        var booking = await db.Bookings.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
+        if (booking is null) return NotFound();
+        if (booking.Status is not (BookingStatus.Confirmed or BookingStatus.ConvertedToRental)) return BadRequest(new { message = "Only confirmed or active rentals can be extended." });
+        var currentEnd = booking.Items.Max(x => x.EndAt);
+        if (request.RequestedEndAt <= currentEnd || request.RequestedEndAt > currentEnd.AddMonths(6)) return BadRequest(new { message = "Choose a later return date within six months of the current return date." });
+        var assetIds = booking.Items.Select(x => x.AssetId).ToList();
+        var conflict = await db.BookingItems.AnyAsync(x => x.BookingId != booking.Id && assetIds.Contains(x.AssetId) && x.StartAt < request.RequestedEndAt && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
+        if (conflict) return Conflict(new { message = "The asset has another booking after your return date. Contact the branch for alternatives." });
+        db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Enquiry, Priority = booking.Status == BookingStatus.ConvertedToRental ? CasePriority.High : CasePriority.Normal, Subject = $"Extension request — {booking.BookingNumber}", Description = $"Requested new return: {request.RequestedEndAt:u}. {Clean(request.Reason)}", DueAt = DateTimeOffset.UtcNow.AddHours(4) });
+        await db.SaveChangesAsync(token); return Accepted(new { status = "Extension requested" });
+    }
+
+    [HttpPost("bookings/{bookingId:guid}/incident")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> ReportIncident(Guid bookingId, CustomerIncidentRequest request, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User); if (user?.CustomerId is null) return Unauthorized();
+        var booking = await db.Bookings.FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
+        if (booking is null) return NotFound();
+        if (booking.Status != BookingStatus.ConvertedToRental) return BadRequest(new { message = "Incidents can only be reported for an active hire." });
+        var incident = new RentalIncident { BookingId = booking.Id, IncidentNumber = Number("INC"), Type = request.Type, OccurredAt = request.OccurredAt, Description = request.Description.Trim(), Location = Clean(request.Location), PoliceReference = Clean(request.PoliceReference), EvidenceJson = "[]" };
+        db.RentalIncidents.Add(incident); db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Breakdown, Priority = CasePriority.Critical, Subject = $"Customer incident — {booking.BookingNumber}", Description = request.Description.Trim(), DueAt = DateTimeOffset.UtcNow.AddMinutes(30) });
+        await db.SaveChangesAsync(token); return Accepted(new { incident.IncidentNumber });
+    }
+
     [HttpPost("logout")]
     [Authorize(Policy = SystemPolicies.CustomerPortal)]
     public async Task<ActionResult> Logout() { await signInManager.SignOutAsync(); return NoContent(); }
@@ -163,11 +210,16 @@ public sealed class CustomerAccountController(
     private BadRequestObjectResult InvalidCode() => BadRequest(new { message = "The verification code is invalid or expired. Request a new code and try again." });
     private BadRequestObjectResult InvalidActivation() => BadRequest(new { message = "The activation details are invalid or expired. Ask Carpenters staff to send a new invitation." });
     private static string Hash(string code, byte[] salt) => Convert.ToHexString(Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(code), salt, 100_000, HashAlgorithmName.SHA256, 32));
+    private static string Append(string? existing, string next) => string.IsNullOrWhiteSpace(existing) ? next : $"{existing}\n{next}";
+    private static string Number(string prefix) => $"{prefix}-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
 public sealed record VerifyEmailRequest([Required, RegularExpression("^[0-9]{6}$")] string Code);
+public sealed record CustomerBookingChangeRequest([MaxLength(1000)] string? Reason);
+public sealed record CustomerExtensionRequest(DateTimeOffset RequestedEndAt, [MaxLength(1000)] string? Reason);
+public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required, MaxLength(2000)] string Description, [MaxLength(500)] string? Location, [MaxLength(100)] string? PoliceReference);
 public sealed record ActivateCustomerAccountRequest([Required, EmailAddress] string Email,
     [Required, RegularExpression("^[0-9]{6}$")] string Code, [Required, MinLength(10)] string Password);
 

@@ -21,4 +21,11 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public DateTimeOffset? LastActivityAt { get; set; }
     public string? AdminNote { get; set; }
     public string? SuspensionReason { get; set; }
+    public AccountLifecycleStatus AccountStatus { get; set; } = AccountLifecycleStatus.Active;
+    public bool MfaEnabled { get; set; }
+    public bool MfaRequired { get; set; }
+    public DateTimeOffset? InvitedAt { get; set; }
+    public DateTimeOffset? SuspendedAt { get; set; }
+    public DateTimeOffset? DeactivatedAt { get; set; }
+    public ICollection<UserAccessScope> AccessScopes { get; set; } = [];
 }

@@ -1,129 +1,91 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
-import CancelOutlined from '@mui/icons-material/CancelOutlined'
-import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
-import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
-import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
-import EditOutlined from '@mui/icons-material/EditOutlined'
+import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined'
+import MoreHorizOutlined from '@mui/icons-material/MoreHorizOutlined'
+import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined'
+import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import {
-  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
-  DialogActions, DialogContent, DialogTitle, Divider, Grid, IconButton, InputAdornment,
-  MenuItem, Stack, Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, TextField, Tooltip, Typography,
+  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, Drawer, Grid,
+  IconButton, InputAdornment, Menu, MenuItem, Pagination, Stack, Tab, Tabs, Table, TableBody,
+  TableCell, TableContainer, TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
+import { useAuth } from '../auth/AuthContext'
+import { roles } from '../auth/access'
 
-const statuses = ['All', 'Draft', 'Confirmed', 'Cancelled', 'ConvertedToRental', 'Completed', 'Expired'] as const
-type BookingStatus = Exclude<typeof statuses[number], 'All'>
-type BookingItem = {
-  id: string; assetId: string; assetNumber: string; assetName: string
-  startAt: string; endAt: string; dailyRate: number
+type QueueKey = 'NewRequests' | 'QuotationRequired' | 'AwaitingApproval' | 'Confirmed' | 'Closed'
+type Counts = { newRequests: number; quotationRequired: number; awaitingApproval: number; confirmed: number; closed: number }
+type QueueRow = { id:string; bookingNumber:string; createdAt:string; status:string; customerName:string; customerEmail:string|null; customerPhone:string|null; customerIsBlocked:boolean; customerType:string; branchName:string; divisionName:string; serviceName:string; assetNumber:string|null; assetName:string|null; category:string|null; startAt:string|null; endAt:string|null; estimatedValue:number; depositRequired:number; warning:string|null }
+type QueueResponse = { items:QueueRow[]; counts:Counts; page:number; pageSize:number; total:number }
+type Workspace = {
+  id:string; bookingNumber:string; status:string; createdAt:string; notes:string|null
+  customer:{ customerId:string; customerNumber:string; name:string; type:string; email:string|null; phone:string|null; address:string|null; identificationNumber:string|null; isBlocked:boolean }
+  branch:{ branchId:string; name:string; address:string|null; phone:string|null }
+  item:null|{ assetId:string; assetNumber:string; name:string; category:string|null; assetStatus:string; divisionId:string|null; division:string|null; service:string|null; startAt:string; endAt:string; dailyRate:number; currentMeterReading:number|null; meterUnit:string|null }
+  pricing:{ duration:number; hire:number; discountAmount:number; additionalCharges:number; additionalChargesDescription:string|null; taxRate:number; tax:number; total:number; depositRequired:number; paid:number; balance:number; internalCost:number; charges:{description:string;category:string;quantity:number;unitRate:number;unitCost:number}[] }
+  readiness:{ confirmed:boolean; assetAllocated:boolean; customerEligible:boolean; identificationVerified:boolean; licenceVerified:boolean; paymentSatisfied:boolean; preHireInspectionComplete:boolean; agreementSigned:boolean }
+  quotation:null|{ id:string; quoteNumber:string; status:string; validUntil:string; subtotal:number; discount:number; tax:number; total:number; version:number; lastEmailedAt:string|null }
+  agreement:null|{ agreementNumber:string; status:string; customerSignedAt:string; approvedByName:string; lastEmailedAt:string|null; addendumCount:number }
+  approvals:{requestNumber:string;status:string;amount:number;reason:string;currentStage:number;totalStages:number;decisionNote:string|null;createdAt:string;decidedAt:string|null}[]
+  documents:{id:string;fileName:string;type:string;createdAt:string}[]
+  activity:{id:string;action:string;summary:string;userName:string;occurredAt:string}[]
 }
-type Booking = {
-  id: string; bookingNumber: string; status: BookingStatus; createdAt: string; notes: string | null
-  customerId: string; customerName: string; customerEmail: string | null; customerPhone: string | null
-  customerIsBlocked: boolean; branchId: string; branchName: string; discountAmount: number; taxRate: number
-  depositRequired: number; additionalCharges: number; additionalChargesDescription: string | null; items: BookingItem[]
-}
-type Asset = { id: string; assetNumber: string; name: string; branchId: string; dailyRate: number; isActive: boolean }
-type Customer = { id: string; customerNumber: string; name: string; isActive: boolean }
-type EditForm = { customerId: string; assetId: string; startAt: string; endAt: string; dailyRate: string; notes: string; discountAmount: string; taxRate: string; depositRequired: string; additionalCharges: string; additionalChargesDescription: string }
 
-const statusColors: Record<BookingStatus, 'warning' | 'success' | 'error' | 'info' | 'default'> = {
-  Draft: 'warning', Confirmed: 'success', Cancelled: 'error', ConvertedToRental: 'info', Completed: 'default', Expired: 'default',
-}
-function displayStatus(status: string) { return status.replace(/([a-z])([A-Z])/g, '$1 $2') }
-function displayDate(value: string) { return new Intl.DateTimeFormat('en-FJ', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)) }
+const queues:{key:QueueKey;label:string;count:keyof Counts}[] = [
+  { key:'NewRequests', label:'New requests', count:'newRequests' }, { key:'QuotationRequired', label:'Quotation required', count:'quotationRequired' },
+  { key:'AwaitingApproval', label:'Awaiting approval', count:'awaitingApproval' }, { key:'Confirmed', label:'Confirmed', count:'confirmed' },
+  { key:'Closed', label:'Cancelled / expired', count:'closed' },
+]
+const money = (value:number) => new Intl.NumberFormat('en-FJ',{style:'currency',currency:'FJD'}).format(value)
+const date = (value:string|null) => value ? new Intl.DateTimeFormat('en-FJ',{day:'numeric',month:'short',year:'numeric'}).format(new Date(value)) : 'Not set'
+const errorText = (reason:unknown, fallback:string) => { const data=axios.isAxiosError(reason)?reason.response?.data:undefined; const errors=data?.errors as Record<string,string[]>|undefined; return errors?Object.values(errors).flat().join(' '):data?.message??fallback }
+function primaryLabel(queue:QueueKey, row:QueueRow){ if(queue==='NewRequests')return 'Review request'; if(queue==='QuotationRequired')return 'Prepare quotation'; if(queue==='AwaitingApproval')return 'Review approval'; if(queue==='Confirmed')return 'Prepare pickup'; return 'View record' }
 
-export function BookingsPage() {
-  const [bookings, setBookings] = useState<Booking[]>([])
-  const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<typeof statuses[number]>('All')
-  const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<Booking | null>(null)
-  const [action, setAction] = useState<'Confirmed' | 'Cancelled' | null>(null)
-  const [note, setNote] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [assets, setAssets] = useState<Asset[]>([]); const [customers, setCustomers] = useState<Customer[]>([])
-  const [editing, setEditing] = useState(false); const [editForm, setEditForm] = useState<EditForm | null>(null)
-
-  const loadBookings = useCallback(async () => {
-    setLoading(true)
-    try { const [bookingResult, assetResult, customerResult] = await Promise.all([api.get<Booking[]>('/bookings'), api.get<Asset[]>('/assets'), api.get<Customer[]>('/customers')]); setBookings(bookingResult.data); setAssets(assetResult.data); setCustomers(customerResult.data) }
-    catch { setError('Unable to load bookings. Confirm that the backend is running.') }
-    finally { setLoading(false) }
-  }, [])
-  useEffect(() => {
-    // Load the staff queue when the page opens.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadBookings()
-  }, [loadBookings])
-
-  const visible = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    return bookings.filter((booking) => (filter === 'All' || booking.status === filter) &&
-      (!term || [booking.bookingNumber, booking.customerName, booking.customerEmail, booking.customerPhone, booking.branchName,
-        ...booking.items.flatMap((item) => [item.assetName, item.assetNumber])]
-        .some((value) => value?.toLowerCase().includes(term))))
-  }, [bookings, filter, search])
-
-  function beginAction(status: 'Confirmed' | 'Cancelled') { setAction(status); setNote(''); setError('') }
-  function beginEdit() { if (!selected?.items[0]) return; const item = selected.items[0]; setEditForm({ customerId: selected.customerId, assetId: item.assetId, startAt: item.startAt.slice(0, 10), endAt: item.endAt.slice(0, 10), dailyRate: String(item.dailyRate), notes: selected.notes ?? '', discountAmount: String(selected.discountAmount), taxRate: String(selected.taxRate), depositRequired: String(selected.depositRequired), additionalCharges: String(selected.additionalCharges), additionalChargesDescription: selected.additionalChargesDescription ?? '' }); setEditing(true); setError('') }
-  async function saveEdit() { if (!selected || !editForm) return; setSaving(true); setError(''); try { await api.put(`/bookings/${selected.id}`, { branchId: selected.branchId, customerId: editForm.customerId, assetId: editForm.assetId, startAt: `${editForm.startAt}T09:00:00+12:00`, endAt: `${editForm.endAt}T09:00:00+12:00`, dailyRate: Number(editForm.dailyRate), notes: editForm.notes || null, discountAmount: Number(editForm.discountAmount || 0), taxRate: Number(editForm.taxRate || 0), depositRequired: Number(editForm.depositRequired || 0), additionalCharges: Number(editForm.additionalCharges || 0), additionalChargesDescription: editForm.additionalChargesDescription || null }); setEditing(false); setSelected(null); await loadBookings() } catch (requestError: unknown) { const data = axios.isAxiosError(requestError) ? requestError.response?.data : undefined; const errors = data?.errors as Record<string, string[]> | undefined; setError(errors ? Object.values(errors).flat().join(' ') : 'Unable to update this booking.') } finally { setSaving(false) } }
-  async function updateStatus() {
-    if (!selected || !action) return
-    setSaving(true); setError('')
-    try {
-      await api.patch(`/bookings/${selected.id}/status`, { status: action, note: note || null })
-      setAction(null); setSelected(null); await loadBookings()
-    } catch (requestError: unknown) {
-      const data = axios.isAxiosError(requestError) ? requestError.response?.data : undefined
-      const errors = data?.errors as Record<string, string[]> | undefined
-      setError(errors ? Object.values(errors).flat().join(' ') : 'Unable to update this booking.')
-    } finally { setSaving(false) }
-  }
-
-  return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}>
-    <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2} mb={3}>
-      <Box><Typography variant="h4" fontWeight={750}>Bookings</Typography><Typography color="text.secondary" mt={0.5}>Review public requests and manage confirmed reservations.</Typography></Box>
-      <Chip icon={<EventAvailableOutlined />} label={`${bookings.filter((item) => item.status === 'Draft').length} awaiting review`} color="warning" variant="outlined" />
-    </Stack>
-    {error && !selected && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-    <Card variant="outlined"><CardContent sx={{ p: 0 }}><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-      <TextField size="small" placeholder="Search bookings" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ width: { xs: '100%', sm: 360 } }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} />
-      <TextField select size="small" label="Status" value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)} sx={{ minWidth: 190 }}>{statuses.map((status) => <MenuItem key={status} value={status}>{displayStatus(status)}</MenuItem>)}</TextField>
-    </Stack>
-      {loading ? <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : <TableContainer><Table><TableHead><TableRow sx={{ bgcolor: '#f6f6f3' }}>
-        <TableCell>Reference</TableCell><TableCell>Customer</TableCell><TableCell>Rental item</TableCell><TableCell>Dates</TableCell><TableCell>Branch</TableCell><TableCell>Status</TableCell><TableCell align="right">View</TableCell>
-      </TableRow></TableHead><TableBody>
-        {visible.length === 0 && <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8, color: 'text.secondary' }}>No matching bookings found.</TableCell></TableRow>}
-        {visible.map((booking) => { const item = booking.items[0]; return <TableRow key={booking.id} hover>
-          <TableCell><Typography fontWeight={700}>{booking.bookingNumber}</Typography><Typography variant="caption" color="text.secondary">Received {displayDate(booking.createdAt)}</Typography></TableCell>
-          <TableCell><Typography variant="body2" fontWeight={600}>{booking.customerName}</Typography><Typography variant="caption" color="text.secondary">{booking.customerEmail || booking.customerPhone || '—'}</Typography></TableCell>
-          <TableCell>{item ? <><Typography variant="body2">{item.assetName}</Typography><Typography variant="caption" color="text.secondary">{item.assetNumber}</Typography></> : '—'}</TableCell>
-          <TableCell>{item ? `${displayDate(item.startAt)} – ${displayDate(item.endAt)}` : '—'}</TableCell><TableCell>{booking.branchName}</TableCell>
-          <TableCell><Chip size="small" label={displayStatus(booking.status)} color={statusColors[booking.status]} variant="outlined" /></TableCell>
-          <TableCell align="right"><Tooltip title="View booking"><IconButton onClick={() => { setSelected(booking); setError('') }}><VisibilityOutlined /></IconButton></Tooltip></TableCell>
-        </TableRow> })}
-      </TableBody></Table></TableContainer>}
-    </CardContent></Card>
-
-    <Dialog open={Boolean(selected)} onClose={() => !saving && setSelected(null)} fullWidth maxWidth="md"><DialogTitle><Stack direction="row" alignItems="center" justifyContent="space-between">Booking {selected?.bookingNumber}{selected && !editing && !['ConvertedToRental', 'Completed'].includes(selected.status) && <Button startIcon={<EditOutlined />} onClick={beginEdit}>Edit booking</Button>}</Stack></DialogTitle><DialogContent>
-      {selected && <Stack spacing={2.25} mt={1}>{error && <Alert severity="error">{error}</Alert>}
-        {editing && editForm ? <><Alert severity="info">Assets and customers are limited to records your account is authorized to access.</Alert><Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth select label="Customer" value={editForm.customerId} onChange={(e) => setEditForm({ ...editForm, customerId: e.target.value })}>{customers.filter((item) => item.isActive).map((item) => <MenuItem key={item.id} value={item.id}>{item.customerNumber} — {item.name}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth select label="Rental asset" value={editForm.assetId} onChange={(e) => { const asset = assets.find((item) => item.id === e.target.value); setEditForm({ ...editForm, assetId: e.target.value, dailyRate: asset ? String(asset.dailyRate) : editForm.dailyRate }) }}>{assets.filter((item) => item.isActive && item.branchId === selected.branchId).map((item) => <MenuItem key={item.id} value={item.id}>{item.assetNumber} — {item.name}</MenuItem>)}</TextField></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="date" label="Start" InputLabelProps={{ shrink: true }} value={editForm.startAt} onChange={(e) => setEditForm({ ...editForm, startAt: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="date" label="End" InputLabelProps={{ shrink: true }} value={editForm.endAt} onChange={(e) => setEditForm({ ...editForm, endAt: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="number" label="Daily rate" value={editForm.dailyRate} onChange={(e) => setEditForm({ ...editForm, dailyRate: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="number" label="Deposit" value={editForm.depositRequired} onChange={(e) => setEditForm({ ...editForm, depositRequired: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="number" label="Discount" value={editForm.discountAmount} onChange={(e) => setEditForm({ ...editForm, discountAmount: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="number" label="Tax rate %" value={editForm.taxRate} onChange={(e) => setEditForm({ ...editForm, taxRate: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth type="number" label="Other charges" value={editForm.additionalCharges} onChange={(e) => setEditForm({ ...editForm, additionalCharges: e.target.value })} /></Grid><Grid size={{ xs: 6, sm: 3 }}><TextField fullWidth label="Charge reason" value={editForm.additionalChargesDescription} onChange={(e) => setEditForm({ ...editForm, additionalChargesDescription: e.target.value })} /></Grid></Grid><TextField multiline minRows={2} label="Internal notes" value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} /></> : <>
-        <Stack direction="row" justifyContent="space-between"><Box><Typography variant="caption" color="text.secondary">Status</Typography><Box mt={.5}><Chip size="small" label={displayStatus(selected.status)} color={statusColors[selected.status]} /></Box></Box><Box textAlign="right"><Typography variant="caption" color="text.secondary">Branch</Typography><Typography fontWeight={650}>{selected.branchName}</Typography></Box></Stack>
-        <Divider /><Box><Typography variant="overline" color="text.secondary">Customer</Typography><Typography fontWeight={700}>{selected.customerName}</Typography><Typography variant="body2">{selected.customerEmail || 'No email'} · {selected.customerPhone || 'No phone'}</Typography>{selected.customerIsBlocked && <Alert severity="error" sx={{ mt: 1 }}>This customer is blocked from renting.</Alert>}</Box>
-        <Divider />{selected.items.map((item) => <Box key={item.id}><Typography variant="overline" color="text.secondary">Rental item</Typography><Typography fontWeight={700}>{item.assetName} ({item.assetNumber})</Typography><Typography variant="body2">{displayDate(item.startAt)} to {displayDate(item.endAt)}</Typography><Typography variant="body2" color="text.secondary">${item.dailyRate.toFixed(2)} per day</Typography></Box>)}
-        <Divider /><Grid container spacing={2}><Grid size={3}><Typography variant="caption" color="text.secondary">Deposit</Typography><Typography fontWeight={650}>${selected.depositRequired.toFixed(2)}</Typography></Grid><Grid size={3}><Typography variant="caption" color="text.secondary">Discount</Typography><Typography fontWeight={650}>${selected.discountAmount.toFixed(2)}</Typography></Grid><Grid size={3}><Typography variant="caption" color="text.secondary">Tax</Typography><Typography fontWeight={650}>{selected.taxRate}%</Typography></Grid><Grid size={3}><Typography variant="caption" color="text.secondary">Other charges</Typography><Typography fontWeight={650}>${selected.additionalCharges.toFixed(2)}</Typography></Grid></Grid>{selected.notes && <><Divider /><Box><Typography variant="overline" color="text.secondary">Notes</Typography><Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>{selected.notes}</Typography></Box></>}
-        {action && <TextField label={action === 'Cancelled' ? 'Cancellation reason (optional)' : 'Staff note (optional)'} multiline minRows={2} value={note} onChange={(e) => setNote(e.target.value)} />}
-      </>}</Stack>}
-    </DialogContent><DialogActions sx={{ p: 3, pt: 1 }}>
-      {editing && <><Button onClick={() => setEditing(false)} disabled={saving}>Cancel editing</Button><Box sx={{ flex: 1 }} /><Button variant="contained" onClick={() => void saveEdit()} disabled={saving}>Save booking</Button></>}
-      {!editing && !action && selected?.status === 'Draft' && <><Button color="error" startIcon={<CancelOutlined />} onClick={() => beginAction('Cancelled')}>Decline</Button><Box sx={{ flex: 1 }} /><Button variant="contained" startIcon={<CheckCircleOutlined />} disabled={selected.customerIsBlocked} onClick={() => beginAction('Confirmed')}>Confirm booking</Button></>}
-      {action && <><Button onClick={() => setAction(null)} disabled={saving}>Back</Button><Box sx={{ flex: 1 }} /><Button variant="contained" color={action === 'Cancelled' ? 'error' : 'primary'} disabled={saving} onClick={() => void updateStatus()}>{saving ? 'Saving…' : action === 'Cancelled' ? 'Decline request' : 'Confirm booking'}</Button></>}
-      {!editing && !action && selected?.status !== 'Draft' && <Button onClick={() => setSelected(null)}>Close</Button>}
-    </DialogActions></Dialog>
+export function BookingsPage(){
+  const { user }=useAuth(); const manager=user?.roles.some(x=>[roles.superAdministrator,roles.administrator,roles.branchManager].includes(x as never))??false
+  const [queue,setQueue]=useState<QueueKey>('NewRequests'); const [data,setData]=useState<QueueResponse>({items:[],counts:{newRequests:0,quotationRequired:0,awaitingApproval:0,confirmed:0,closed:0},page:1,pageSize:25,total:0})
+  const [search,setSearch]=useState(''); const [page,setPage]=useState(1); const [loading,setLoading]=useState(true); const [error,setError]=useState('')
+  const [selected,setSelected]=useState<QueueRow|null>(null); const [workspace,setWorkspace]=useState<Workspace|null>(null); const [workspaceLoading,setWorkspaceLoading]=useState(false)
+  const [menu,setMenu]=useState<{anchor:HTMLElement;row:QueueRow}|null>(null)
+  const load=useCallback(async()=>{setLoading(true);try{const response=await api.get<QueueResponse>('/bookings/work-queue',{params:{queue,search:search||undefined,page,pageSize:25}});setData(response.data);setError('')}catch{setError('Booking requests could not be loaded. Check that the API is running.')}finally{setLoading(false)}},[queue,search,page])
+  useEffect(()=>{const timer=window.setTimeout(()=>void load(),search?300:0);return()=>window.clearTimeout(timer)},[load,search])
+  async function open(row:QueueRow){setSelected(row);setWorkspace(null);setWorkspaceLoading(true);setError('');try{setWorkspace((await api.get<Workspace>(`/bookings/${row.id}/workspace`)).data)}catch(reason){setError(errorText(reason,'The booking workspace could not be loaded.'))}finally{setWorkspaceLoading(false)}}
+  const pageCount=Math.max(1,Math.ceil(data.total/data.pageSize))
+  return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1600,mx:'auto'}}>
+    <Stack direction={{xs:'column',md:'row'}} justifyContent="space-between" gap={2} mb={3}><Box><Typography variant="h4" fontWeight={800}>Booking requests</Typography><Typography color="text.secondary" mt={.5}>Move each customer request from enquiry to confirmed hire.</Typography></Box><TextField size="small" placeholder="Search reference, customer or asset" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} sx={{width:{xs:'100%',md:380}}} InputProps={{startAdornment:<InputAdornment position="start"><SearchOutlined/></InputAdornment>}}/></Stack>
+    {error&&!selected&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
+    <Card variant="outlined" sx={{overflow:'hidden'}}><Tabs value={queue} onChange={(_,value)=>{setQueue(value);setPage(1)}} variant="scrollable" scrollButtons="auto" sx={{px:1,borderBottom:1,borderColor:'divider'}}>{queues.map(item=><Tab key={item.key} value={item.key} label={<Stack direction="row" alignItems="center" gap={1}><span>{item.label}</span><Chip size="small" label={data.counts[item.count]} sx={{height:22,fontWeight:750}}/></Stack>}/>)}</Tabs>
+      {loading?<Box sx={{minHeight:360,display:'grid',placeItems:'center'}}><CircularProgress/></Box>:<>
+        <TableContainer sx={{display:{xs:'none',md:'block'}}}><Table><TableHead><TableRow><TableCell>Request</TableCell><TableCell>Customer</TableCell><TableCell>Service and asset</TableCell><TableCell>Hire dates</TableCell><TableCell>Branch</TableCell><TableCell align="right">Estimate</TableCell><TableCell>Stage / warning</TableCell><TableCell align="right">Next action</TableCell></TableRow></TableHead><TableBody>{data.items.map(row=><TableRow key={row.id} hover><TableCell><Typography fontWeight={800}>{row.bookingNumber}</Typography><Typography variant="caption" color="text.secondary">Received {date(row.createdAt)}</Typography></TableCell><TableCell><Typography fontWeight={650}>{row.customerName}</Typography><Typography variant="caption" color="text.secondary">{row.customerType} · {row.customerPhone||row.customerEmail||'No contact'}</Typography></TableCell><TableCell><Typography variant="body2" fontWeight={650}>{row.divisionName} · {row.serviceName}</Typography><Typography variant="caption" color="text.secondary">{row.assetName?`${row.assetName} (${row.assetNumber})`:row.category||'Asset not allocated'}</Typography></TableCell><TableCell><Typography variant="body2">{date(row.startAt)} – {date(row.endAt)}</Typography></TableCell><TableCell>{row.branchName}</TableCell><TableCell align="right"><Typography fontWeight={750}>{money(row.estimatedValue)}</Typography></TableCell><TableCell>{row.warning?<Chip icon={<WarningAmberOutlined/>} size="small" color="warning" variant="outlined" label={row.warning}/>:<Chip size="small" color={queue==='Confirmed'?'success':'default'} variant="outlined" label={queues.find(x=>x.key===queue)?.label}/>}</TableCell><TableCell align="right"><Stack direction="row" justifyContent="flex-end"><Button size="small" variant="contained" endIcon={<ArrowForwardOutlined/>} onClick={()=>void open(row)}>{primaryLabel(queue,row)}</Button><IconButton onClick={e=>setMenu({anchor:e.currentTarget,row})}><MoreHorizOutlined/></IconButton></Stack></TableCell></TableRow>)}{data.items.length===0&&<TableRow><TableCell colSpan={8}><EmptyQueue queue={queue}/></TableCell></TableRow>}</TableBody></Table></TableContainer>
+        <Stack spacing={1.5} sx={{display:{xs:'flex',md:'none'},p:2}}>{data.items.map(row=><Card key={row.id} variant="outlined"><CardContent><Stack direction="row" justifyContent="space-between" gap={1}><Box><Typography fontWeight={800}>{row.bookingNumber}</Typography><Typography variant="body2" fontWeight={650}>{row.customerName}</Typography></Box><Typography fontWeight={800}>{money(row.estimatedValue)}</Typography></Stack><Divider sx={{my:1.5}}/><Typography variant="body2">{row.divisionName} · {row.serviceName}</Typography><Typography variant="body2" color="text.secondary">{row.assetName||row.category||'Asset not allocated'} · {date(row.startAt)} – {date(row.endAt)}</Typography>{row.warning&&<Alert severity="warning" sx={{mt:1.5,py:0}}>{row.warning}</Alert>}<Button fullWidth variant="contained" sx={{mt:2}} onClick={()=>void open(row)}>{primaryLabel(queue,row)}</Button></CardContent></Card>)}{data.items.length===0&&<EmptyQueue queue={queue}/>}</Stack>
+        {data.total>data.pageSize&&<Stack alignItems="center" sx={{p:2,borderTop:1,borderColor:'divider'}}><Pagination count={pageCount} page={page} onChange={(_,value)=>setPage(value)}/></Stack>}
+      </>}
+    </Card>
+    <Menu open={Boolean(menu)} anchorEl={menu?.anchor} onClose={()=>setMenu(null)}><MenuItem onClick={()=>{if(menu)void open(menu.row);setMenu(null)}}>Open full details</MenuItem><MenuItem disabled>Print request summary</MenuItem></Menu>
+    <BookingWorkspace open={Boolean(selected)} row={selected} data={workspace} loading={workspaceLoading} manager={manager} error={error} onClose={()=>{setSelected(null);setWorkspace(null);setError('')}} onChanged={async()=>{if(selected)await open(selected);await load()}} setError={setError}/>
   </Box>
 }
+
+function EmptyQueue({queue}:{queue:QueueKey}){return <Box sx={{py:8,textAlign:'center'}}><Typography fontWeight={750}>Nothing waiting here</Typography><Typography variant="body2" color="text.secondary">{queue==='NewRequests'?'New online and counter requests will appear here.':'Records move here automatically as staff complete each stage.'}</Typography></Box>}
+
+function BookingWorkspace({open,row,data,loading,manager,error,onClose,onChanged,setError}:{open:boolean;row:QueueRow|null;data:Workspace|null;loading:boolean;manager:boolean;error:string;onClose:()=>void;onChanged:()=>Promise<void>;setError:(v:string)=>void}){
+  const [section,setSection]=useState(0); const [saving,setSaving]=useState(false); const [discount,setDiscount]=useState('0'); const [tax,setTax]=useState('15'); const [rate,setRate]=useState('0'); const [operator,setOperator]=useState('0'); const [transport,setTransport]=useState('0'); const [deposit,setDeposit]=useState('0'); const [revision,setRevision]=useState('Initial quotation')
+  useEffect(()=>{if(data){setRate(String(data.item?.dailyRate??0));setDiscount(String(data.pricing.discountAmount));setTax(String(data.pricing.taxRate));setDeposit(String(data.pricing.depositRequired));setSection(0)}},[data])
+  const days=data?.pricing.duration??1; const quoteTotal=useMemo(()=>{const subtotal=days*Number(rate||0)+Number(operator||0)+Number(transport||0)-Number(discount||0);return Math.max(0,subtotal)*(1+Number(tax||0)/100)},[days,rate,operator,transport,discount,tax])
+  async function confirm(){if(!data)return;setSaving(true);try{await api.patch(`/bookings/${data.id}/status`,{status:'Confirmed',note:'All booking requirements reviewed in booking workspace.'});await onChanged()}catch(reason){setError(errorText(reason,'This request could not be confirmed.'))}finally{setSaving(false)}}
+  async function cancel(){if(!data||!window.confirm('Cancel this booking request? This action is recorded in the audit history.'))return;setSaving(true);try{await api.patch(`/bookings/${data.id}/status`,{status:'Cancelled',note:'Cancelled from booking workspace.'});onClose();await onChanged()}catch(reason){setError(errorText(reason,'This request could not be cancelled.'))}finally{setSaving(false)}}
+  async function saveQuote(){if(!data?.item)return;setSaving(true);try{const lines=[{description:`${data.item.name} hire`,quantity:days,rate:Number(rate),costRate:0,unit:'Day',category:'BaseHire'},{description:'Operator / driver',quantity:1,rate:Number(operator),costRate:0,unit:'Unit',category:'Operator'},{description:'Transport / delivery',quantity:1,rate:Number(transport),costRate:0,unit:'Unit',category:'Transport'}].filter(x=>x.rate>0);await api.post(`/bookings/${data.id}/quotation`,{validUntil:new Date(Date.now()+7*86400000).toISOString(),discount:Number(discount||0),taxRate:Number(tax||0),revisionReason:revision,lines});await onChanged();setSection(2)}catch(reason){setError(errorText(reason,'The quotation could not be prepared.'))}finally{setSaving(false)}}
+  async function sendQuote(){if(!data?.quotation)return;setSaving(true);try{await api.post(`/corporate-operations/quotes/${data.quotation.id}/send`);await onChanged()}catch(reason){setError(errorText(reason,'The quotation could not be emailed. Check approval and customer email requirements.'))}finally{setSaving(false)}}
+  const requirements=data?[['Booking confirmed',data.readiness.confirmed],['Asset allocated',data.readiness.assetAllocated],['Customer eligible',data.readiness.customerEligible],['Deposit satisfied',data.readiness.paymentSatisfied],['Pre-hire inspection',data.readiness.preHireInspectionComplete],['Agreement signed',data.readiness.agreementSigned]] as const:[]
+  return <Drawer anchor="right" open={open} onClose={()=>!saving&&onClose()} PaperProps={{sx:{width:{xs:'100%',md:780},maxWidth:'100%'}}}><Stack sx={{height:'100%'}}><Box sx={{p:{xs:2,sm:3},borderBottom:1,borderColor:'divider'}}><Stack direction="row" justifyContent="space-between" alignItems="flex-start"><Box><Typography variant="overline" color="text.secondary">Booking workspace</Typography><Typography variant="h5" fontWeight={850}>{row?.bookingNumber}</Typography><Typography color="text.secondary">{row?.customerName} · {row?.branchName}</Typography></Box><IconButton onClick={onClose}><CloseOutlined/></IconButton></Stack></Box>
+    {loading?<Box sx={{flex:1,display:'grid',placeItems:'center'}}><CircularProgress/></Box>:data&&<><Tabs value={section} onChange={(_,v)=>setSection(v)} variant="scrollable" scrollButtons="auto" sx={{px:2,borderBottom:1,borderColor:'divider'}}><Tab label="Request"/><Tab label="Pricing"/><Tab label="Approval"/><Tab label="Documents"/><Tab label="Activity"/></Tabs><Box sx={{p:{xs:2,sm:3},overflowY:'auto',flex:1}}><Stack spacing={3}>{error&&<Alert severity="error">{error}</Alert>}
+      {section===0&&<><Grid container spacing={2}><Info label="Customer" value={`${data.customer.name} (${data.customer.customerNumber})`} detail={`${data.customer.type} · ${data.customer.phone||data.customer.email||'No contact recorded'}`}/><Info label="Requested service" value={`${data.item?.division||'Division not set'} · ${data.item?.service||'General hire'}`} detail={data.item?`${data.item.name} (${data.item.assetNumber})`:'Asset not allocated'}/><Info label="Hire period" value={`${date(data.item?.startAt??null)} – ${date(data.item?.endAt??null)}`} detail={`${data.pricing.duration} billable day${data.pricing.duration===1?'':'s'}`}/><Info label="Branch" value={data.branch.name} detail={data.branch.address||data.branch.phone||undefined}/></Grid>{data.customer.isBlocked&&<Alert severity="error">This customer is blocked. Resolve the account restriction before proceeding.</Alert>}<Box><Typography fontWeight={800} mb={1.25}>Progress and missing requirements</Typography><Grid container spacing={1}>{requirements.map(([label,done])=><Grid key={label} size={{xs:6,sm:4}}><Chip size="small" color={done?'success':'default'} variant={done?'filled':'outlined'} label={`${done?'✓':'○'} ${label}`} sx={{width:'100%',justifyContent:'flex-start'}}/></Grid>)}</Grid></Box>{data.notes&&<Box><Typography fontWeight={800}>Internal notes</Typography><Typography variant="body2" color="text.secondary" sx={{whiteSpace:'pre-line'}}>{data.notes}</Typography></Box>}</>}
+      {section===1&&<><Alert severity="info">Customers see selling prices only. Internal cost and margin remain staff-only.</Alert><Grid container spacing={2}><Grid size={{xs:12,sm:6}}><TextField fullWidth type="number" label="Hire rate per day (FJD)" value={rate} onChange={e=>setRate(e.target.value)}/></Grid><Grid size={{xs:12,sm:6}}><TextField fullWidth value={`${days} day${days===1?'':'s'}`} label="Automatically calculated duration" disabled/></Grid><Grid size={{xs:12,sm:6}}><TextField fullWidth type="number" label="Operator / driver charge" value={operator} onChange={e=>setOperator(e.target.value)}/></Grid><Grid size={{xs:12,sm:6}}><TextField fullWidth type="number" label="Transport / delivery charge" value={transport} onChange={e=>setTransport(e.target.value)}/></Grid><Grid size={{xs:12,sm:4}}><TextField fullWidth type="number" label="Deposit" value={deposit} onChange={e=>setDeposit(e.target.value)}/></Grid><Grid size={{xs:12,sm:4}}><TextField fullWidth type="number" label="Discount" value={discount} onChange={e=>setDiscount(e.target.value)}/></Grid><Grid size={{xs:12,sm:4}}><TextField fullWidth type="number" label="VAT %" value={tax} onChange={e=>setTax(e.target.value)}/></Grid></Grid><TextField label="Revision reason" value={revision} onChange={e=>setRevision(e.target.value)}/><Card variant="outlined"><CardContent><Stack direction="row" justifyContent="space-between"><Box><Typography color="text.secondary">Customer quotation total</Typography><Typography variant="caption">Hire, services, discount and VAT</Typography></Box><Typography variant="h5" fontWeight={850}>{money(quoteTotal)}</Typography></Stack><Divider sx={{my:2}}/><Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Internal cost (staff only)</Typography><Typography variant="body2" fontWeight={750}>{money(data.pricing.internalCost)}</Typography></Stack></CardContent></Card><Button variant="contained" onClick={()=>void saveQuote()} disabled={saving||!data.item}>{saving?'Saving quotation…':data.quotation?'Save new revision':'Prepare quotation'}</Button></>}
+      {section===2&&<>{data.quotation?<Card variant="outlined"><CardContent><Stack direction="row" justifyContent="space-between"><Box><Typography fontWeight={850}>{data.quotation.quoteNumber}</Typography><Typography variant="body2" color="text.secondary">Version {data.quotation.version} · expires {date(data.quotation.validUntil)}</Typography></Box><Chip label={data.quotation.status} color="info" variant="outlined"/></Stack><Divider sx={{my:2}}/><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography variant="h5" fontWeight={850}>{money(data.quotation.total)}</Typography><Button variant="contained" disabled={saving||data.quotation.status!=='Draft'} onClick={()=>void sendQuote()}>{data.quotation.lastEmailedAt?'Resend quotation':'Email quotation'}</Button></Stack>{data.quotation.lastEmailedAt&&<Typography variant="caption" color="text.secondary">Last emailed {new Date(data.quotation.lastEmailedAt).toLocaleString('en-FJ')}</Typography>}</CardContent></Card>:<Alert severity="warning">Prepare the quotation before requesting approval or confirming this booking.</Alert>}{data.approvals.length===0?<Typography color="text.secondary">No approval is required yet.</Typography>:data.approvals.map(item=><Card key={item.requestNumber} variant="outlined"><CardContent><Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>{item.requestNumber}</Typography><Chip size="small" label={item.status} color={item.status==='Approved'?'success':item.status==='Rejected'?'error':'warning'}/></Stack><Typography variant="body2" mt={1}>{item.reason}</Typography><Typography variant="caption" color="text.secondary">Stage {item.currentStage} of {item.totalStages}</Typography></CardContent></Card>)}</>}
+      {section===3&&<>{data.documents.length===0?<Alert severity="info">No files are attached. Identification, quotation, inspection, agreement and invoice documents will appear here as the hire progresses.</Alert>:data.documents.map(item=><Card key={item.id} variant="outlined"><CardContent><Typography fontWeight={750}>{item.fileName}</Typography><Typography variant="caption" color="text.secondary">{item.type} · {date(item.createdAt)}</Typography></CardContent></Card>)}</>}
+      {section===4&&<>{data.activity.length===0?<Typography color="text.secondary">No staff activity has been recorded yet.</Typography>:data.activity.map(item=><Box key={item.id} sx={{pl:2,borderLeft:'3px solid',borderColor:'secondary.main'}}><Typography fontWeight={750}>{item.action}</Typography><Typography variant="body2">{item.summary}</Typography><Typography variant="caption" color="text.secondary">{item.userName} · {new Date(item.occurredAt).toLocaleString('en-FJ')}</Typography></Box>)}</>}
+    </Stack></Box><Stack direction="row" gap={1} sx={{p:2,borderTop:1,borderColor:'divider',bgcolor:'background.paper'}}>{data.status==='Draft'&&<Button color="error" onClick={()=>void cancel()} disabled={saving}>Cancel request</Button>}<Box sx={{flex:1}}/>{data.status==='Draft'&&<Button variant="contained" onClick={()=>void confirm()} disabled={saving||data.customer.isBlocked||!manager}>{manager?'Confirm booking':'Manager approval required'}</Button>}{data.status==='Confirmed'&&<Button variant="contained" disabled>Continue in Hire operations</Button>}</Stack></>}
+  </Stack></Drawer>
+}
+function Info({label,value,detail}:{label:string;value:string;detail?:string}){return <Grid size={{xs:12,sm:6}}><Typography variant="overline" color="text.secondary">{label}</Typography><Typography fontWeight={750}>{value}</Typography>{detail&&<Typography variant="body2" color="text.secondary">{detail}</Typography>}</Grid>}
