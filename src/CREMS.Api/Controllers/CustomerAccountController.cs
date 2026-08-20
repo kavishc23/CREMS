@@ -13,6 +13,7 @@ using CREMS.Api.Services;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace CREMS.Api.Controllers;
 
@@ -22,7 +23,8 @@ public sealed class CustomerAccountController(
     ApplicationDbContext db,
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
-    IEmailQueue emailQueue) : ControllerBase
+    IEmailQueue emailQueue,
+    IWebHostEnvironment environment) : ControllerBase
 {
     [HttpPost("register")]
     public async Task<ActionResult> Register(RegisterCustomerRequest request, CancellationToken token)
@@ -42,6 +44,7 @@ public sealed class CustomerAccountController(
             Phone = request.Phone.Trim(),
             Address = Clean(request.Address),
             IdentificationNumber = Clean(request.IdentificationNumber),
+            HirePreference = request.HirePreference,
             IsActive = true,
         };
         var user = new ApplicationUser
@@ -92,7 +95,7 @@ public sealed class CustomerAccountController(
         var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == user.CustomerId);
         if (customer is null || !customer.IsActive || customer.IsBlocked) return Forbid();
         return Ok(new { user.Id, user.Email, user.FullName, user.CustomerId, customer.CustomerNumber, customer.Type,
-            CustomerName = customer.Name, customer.Phone, customer.Address, user.EmailConfirmed });
+            CustomerName = customer.Name, customer.Phone, customer.Address, customer.HirePreference, user.EmailConfirmed });
     }
 
     [HttpGet("bookings")]
@@ -108,6 +111,340 @@ public sealed class CustomerAccountController(
                 Items = x.Items.OrderBy(i => i.StartAt).Select(i => new { i.Asset!.Name, i.StartAt, i.EndAt, i.DailyRate,
                     DivisionName = i.Asset.Division != null ? i.Asset.Division.Name : null }).ToList()
             }).ToListAsync(token));
+    }
+
+    [HttpGet("bookings/{bookingId:guid}")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> BookingDetails(Guid bookingId, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null) return Unauthorized();
+        var booking = await db.Bookings.AsNoTracking()
+            .Include(x => x.Branch).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division)
+            .Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering)
+            .Include(x => x.Charges).Include(x => x.Payments).Include(x => x.Inspections)
+            .Include(x => x.Incidents).Include(x => x.Invoice).ThenInclude(x => x!.Lines)
+            .Include(x => x.RentalAgreement).ThenInclude(x => x!.Addendums)
+            .FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
+        if (booking is null) return NotFound();
+
+        var dispatches = await db.DispatchJobs.AsNoTracking().Where(x => x.BookingId == booking.Id)
+            .OrderBy(x => x.ScheduledAt).Select(x => new { x.DispatchNumber, x.Type, x.Status, x.ScheduledAt,
+                x.Address, x.AssignedDriver, x.DeliveryCharge, x.CompletedAt }).ToListAsync(token);
+        var documents = await db.DocumentRecords.AsNoTracking()
+            .Where(x => x.EntityType == nameof(Booking) && x.EntityId == booking.Id ||
+                        x.EntityType == nameof(Customer) && x.EntityId == user.CustomerId)
+            .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.DocumentNumber, x.Type, x.FileName,
+                x.ExpiresOn, x.CreatedAt }).ToListAsync(token);
+        var cases = await db.CustomerCases.AsNoTracking().Where(x => x.CustomerId == user.CustomerId &&
+                x.Subject.Contains(booking.BookingNumber))
+            .OrderByDescending(x => x.CreatedAt).Select(x => new { x.CaseNumber, x.Type, x.Status,
+                x.Subject, x.CreatedAt }).ToListAsync(token);
+        var operatingHours = await db.BranchOperatingPeriods.AsNoTracking().Where(x => x.BranchId == booking.BranchId)
+            .OrderBy(x => x.DayOfWeek).Select(x => new { x.DayOfWeek, x.OpensAt, x.ClosesAt, x.IsClosed,
+                x.PickupCutoff, x.ReturnCutoff }).ToListAsync(token);
+
+        var identificationVerified = booking.Inspections.Any(x => x.IdentificationVerified) ||
+            documents.Any(x => x.Type.Contains("ident", StringComparison.OrdinalIgnoreCase));
+        var licenceRequired = booking.Items.Any(x => x.Asset!.Type == Domain.Assets.AssetType.Vehicle);
+        var licenceVerified = !licenceRequired || booking.Inspections.Any(x => x.DriverLicenceVerified) ||
+            documents.Any(x => x.Type.Contains("licence", StringComparison.OrdinalIgnoreCase) || x.Type.Contains("license", StringComparison.OrdinalIgnoreCase));
+        var depositPaid = booking.DepositRequired <= 0 || booking.Payments
+            .Where(x => x.Status == PaymentStatus.Recorded && x.Type == PaymentType.Deposit).Sum(x => x.Amount) >= booking.DepositRequired;
+        var agreementReady = booking.RentalAgreement is not null && booking.RentalAgreement.Status != AgreementStatus.Draft;
+        var preHireComplete = booking.Inspections.Any(x => x.Type == InspectionType.Handover);
+        var personnelRequired = booking.Items.Any(x => x.Asset!.PersonnelRequirement != Domain.Common.PersonnelRequirement.None);
+        var personnelReady = !personnelRequired || await db.BookingPersonnelAssignments.AsNoTracking()
+            .AnyAsync(x => x.BookingId == booking.Id && x.Status != Domain.Operations.AssignmentStatus.Cancelled, token);
+        var deliveryRequested = dispatches.Any(x => x.Type == DispatchType.Delivery);
+        var deliveryReady = !deliveryRequested || dispatches.Any(x => x.Type == DispatchType.Delivery &&
+            x.Status is DispatchStatus.Assigned or DispatchStatus.EnRoute or DispatchStatus.Arrived or DispatchStatus.Completed);
+        var requiredDocuments = booking.Items.SelectMany(x => ParseStringArray(x.Asset?.ServiceOffering?.RequiredDocumentsJson))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var requiredDocumentsReady = requiredDocuments.Count == 0 || requiredDocuments.All(required => documents.Any(document =>
+            document.Type.Contains(required, StringComparison.OrdinalIgnoreCase) || document.FileName.Contains(required, StringComparison.OrdinalIgnoreCase)));
+
+        var baseSubtotal = booking.Items.Sum(item =>
+            Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)) * item.DailyRate);
+        var visibleCharges = booking.Charges.Select(x => new { x.Description, x.Category, x.Unit,
+            x.Quantity, x.UnitRate, Amount = x.Quantity * x.UnitRate, x.IsTaxable }).ToList();
+        var chargeTotal = visibleCharges.Sum(x => x.Amount);
+        var taxable = Math.Max(0, baseSubtotal - booking.DiscountAmount + chargeTotal);
+        var tax = decimal.Round(taxable * booking.TaxRate / 100m, 2);
+
+        return Ok(new
+        {
+            booking.Id, Reference = booking.BookingNumber, booking.Status, booking.CreatedAt, booking.UpdatedAt,
+            Branch = new { booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone,
+                booking.Branch.Email, booking.Branch.PickupInstructions, OperatingHours = operatingHours },
+            Items = booking.Items.OrderBy(x => x.StartAt).Select(x => new
+            {
+                x.AssetId, x.Asset!.Name, x.Asset.Type, x.Asset.Category, x.StartAt, x.EndAt, x.DailyRate,
+                DivisionName = x.Asset.Division != null ? x.Asset.Division.Name : null,
+                x.Asset.PersonnelRequirement,
+            }),
+            Pricing = new { BaseSubtotal = baseSubtotal, booking.DiscountAmount, Charges = visibleCharges,
+                ChargeTotal = chargeTotal, booking.TaxRate, TaxAmount = tax, Total = taxable + tax,
+                booking.DepositRequired },
+            Agreement = booking.RentalAgreement is null ? null : new
+            {
+                booking.RentalAgreement.AgreementNumber, booking.RentalAgreement.Status,
+                booking.RentalAgreement.TermsVersion, Terms = ParseJson(booking.RentalAgreement.TermsJson),
+                booking.RentalAgreement.CustomerSignatureName, booking.RentalAgreement.CustomerSignedAt,
+                booking.RentalAgreement.ApprovedByName, booking.RentalAgreement.ApprovedAt,
+                Addendums = booking.RentalAgreement.Addendums.OrderBy(x => x.CreatedAt).Select(x => new
+                    { x.AddendumNumber, x.Reason, x.CustomerSignedAt })
+            },
+            Invoice = booking.Invoice is null ? null : new
+            {
+                booking.Invoice.InvoiceNumber, booking.Invoice.Status, booking.Invoice.IssuedAt,
+                booking.Invoice.Subtotal, booking.Invoice.TaxAmount, booking.Invoice.Total,
+                booking.Invoice.AmountPaid, booking.Invoice.BalanceDue,
+                Lines = booking.Invoice.Lines.OrderBy(x => x.CreatedAt).Select(x => new
+                    { x.Description, x.Quantity, x.UnitPrice, x.TaxRate, x.IsTaxable })
+            },
+            Payments = booking.Payments.OrderByDescending(x => x.CreatedAt).Select(x => new
+                { x.ReceiptNumber, x.Type, x.Method, x.Amount, x.Status, x.CreatedAt }),
+            Inspections = booking.Inspections.OrderBy(x => x.CompletedAt).Select(x => new
+                { x.Type, x.MeterReading, x.FuelLevelPercent, x.ConditionNotes, x.DamageNotes, x.CompletedAt }),
+            Incidents = booking.Incidents.OrderByDescending(x => x.OccurredAt).Select(x => new
+                { x.IncidentNumber, x.Type, x.Status, x.OccurredAt, x.Description, x.Location, x.PoliceReference }),
+            Readiness = new
+            {
+                Identification = new { Complete = identificationVerified, Label = "Identification verified" },
+                DriverLicence = new { Complete = licenceVerified, Required = licenceRequired, Label = "Driver licence verified" },
+                Deposit = new { Complete = depositPaid, RequiredAmount = booking.DepositRequired, Label = "Deposit or payment completed" },
+                Agreement = new { Complete = agreementReady, Label = "Agreement ready for pickup" },
+                PreHireInspection = new { Complete = preHireComplete, Label = "Pre-hire inspection completed" },
+                Personnel = new { Complete = personnelReady, Required = personnelRequired, Label = "Operator or driver confirmed" },
+                Delivery = new { Complete = deliveryReady, Required = deliveryRequested, Label = "Delivery confirmed" },
+                RequiredDocuments = new { Complete = requiredDocumentsReady, Required = requiredDocuments.Count > 0,
+                    Label = requiredDocuments.Count > 0 ? $"Required documents: {string.Join(", ", requiredDocuments)}" : "No additional safety documents required" },
+            },
+            dispatches, documents, cases,
+        });
+    }
+
+    [HttpGet("quotes")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> Quotes(CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null) return Unauthorized();
+        var quotes = await db.SalesQuotes.AsNoTracking().Where(x => x.CustomerId == user.CustomerId)
+            .OrderByDescending(x => x.CreatedAt).ToListAsync(token);
+        var branchIds = quotes.Select(x => x.BranchId).Distinct().ToList();
+        var divisionIds = quotes.Where(x => x.DivisionId.HasValue).Select(x => x.DivisionId!.Value).Distinct().ToList();
+        var branches = await db.Branches.AsNoTracking().Where(x => branchIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, token);
+        var divisions = await db.Divisions.AsNoTracking().Where(x => divisionIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, token);
+        return Ok(quotes.Select(x => new
+        {
+            x.Id, x.QuoteNumber, x.Status, x.ValidUntil, x.JobSite, x.PurchaseOrderNumber,
+            x.Subtotal, x.Discount, x.Tax, x.Total, x.Version, x.CreatedAt, x.UpdatedAt,
+            BranchName = branches.GetValueOrDefault(x.BranchId),
+            DivisionName = x.DivisionId.HasValue ? divisions.GetValueOrDefault(x.DivisionId.Value) : null,
+            Lines = ParseJson(x.LineItemsJson), x.ConvertedBookingId,
+        }));
+    }
+
+    [HttpPost("quotes/{quoteId:guid}/decision")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> DecideQuote(Guid quoteId, CustomerQuoteDecisionRequest request, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null) return Unauthorized();
+        var quote = await db.SalesQuotes.FirstOrDefaultAsync(x => x.Id == quoteId && x.CustomerId == user.CustomerId, token);
+        if (quote is null) return NotFound();
+        if (quote.ValidUntil < DateTimeOffset.UtcNow)
+        {
+            quote.Status = QuoteStatus.Expired;
+            await db.SaveChangesAsync(token);
+            return Conflict(new { message = "This quotation has expired. Ask the branch for a revised quotation." });
+        }
+        var next = request.Accepted ? QuoteStatus.Accepted : QuoteStatus.Rejected;
+        if (!QuotePolicy.IsValidTransition(quote.Status, next))
+            return Conflict(new { message = $"A {quote.Status} quotation cannot be {next.ToString().ToLowerInvariant()}." });
+        if (!request.Accepted && string.IsNullOrWhiteSpace(request.Note))
+            return BadRequest(new { message = "Please tell us why you are declining the quotation." });
+        quote.Status = next;
+        quote.LostReason = request.Accepted ? null : Clean(request.Note);
+        quote.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(token);
+        return Ok(new { quote.Id, quote.QuoteNumber, quote.Status, quote.UpdatedAt });
+    }
+
+    [HttpGet("corporate-account")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> CorporateAccount(CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null) return Unauthorized();
+        var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == user.CustomerId, token);
+        if (customer is null) return NotFound();
+        if (customer.Type != CustomerType.Business) return NoContent();
+        var account = await db.CorporateAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.CustomerId == customer.Id, token);
+        var financials = await db.RentalInvoices.AsNoTracking().Where(x => x.Booking!.CustomerId == customer.Id)
+            .GroupBy(_ => 1).Select(group => new { Invoiced = group.Sum(x => x.Total), Paid = group.Sum(x => x.AmountPaid),
+                Outstanding = group.Sum(x => x.BalanceDue) }).FirstOrDefaultAsync(token);
+        return Ok(new
+        {
+            customer.Name, customer.CustomerNumber,
+            LegalName = account?.LegalName ?? customer.Name,
+            account?.TaxIdentificationNumber, account?.CreditLimit, account?.PaymentTermsDays,
+            account?.PurchaseOrderRequired, account?.CreditHold,
+            BillingContact = ParseJson(account?.BillingContactJson),
+            AuthorizedContacts = ParseJson(account?.AuthorizedContactsJson),
+            JobSites = ParseJson(account?.JobSitesJson),
+            Invoiced = financials?.Invoiced ?? 0, Paid = financials?.Paid ?? 0,
+            Outstanding = financials?.Outstanding ?? 0,
+            AvailableCredit = Math.Max(0, (account?.CreditLimit ?? 0) - (financials?.Outstanding ?? 0)),
+        });
+    }
+
+    [HttpGet("documents")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> Documents(CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null) return Unauthorized();
+        var bookings = await db.Bookings.AsNoTracking().Where(x => x.CustomerId == user.CustomerId)
+            .Select(x => new { x.Id, Reference = x.BookingNumber }).ToListAsync(token);
+        var bookingIds = bookings.Select(x => x.Id).ToList();
+        var references = bookings.ToDictionary(x => x.Id, x => x.Reference);
+        var registered = await db.DocumentRecords.AsNoTracking().Where(x =>
+                x.EntityType == nameof(Customer) && x.EntityId == user.CustomerId ||
+                x.EntityType == nameof(Booking) && bookingIds.Contains(x.EntityId))
+            .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.EntityType, x.EntityId,
+                x.DocumentNumber, x.Type, x.FileName, x.ExpiresOn, x.CreatedAt }).ToListAsync(token);
+        var agreements = await db.RentalAgreements.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId))
+            .OrderByDescending(x => x.CustomerSignedAt).Select(x => new { x.Id, x.BookingId,
+                Number = x.AgreementNumber, x.Status, CreatedAt = x.CustomerSignedAt }).ToListAsync(token);
+        var invoices = await db.RentalInvoices.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId))
+            .OrderByDescending(x => x.IssuedAt).Select(x => new { x.Id, x.BookingId,
+                Number = x.InvoiceNumber, x.Status, x.Total, x.BalanceDue, CreatedAt = x.IssuedAt }).ToListAsync(token);
+        return Ok(new
+        {
+            Registered = registered.Select(x => new { x.Id, x.DocumentNumber, x.Type, x.FileName,
+                x.ExpiresOn, x.CreatedAt, BookingReference = x.EntityType == nameof(Booking) ? references.GetValueOrDefault(x.EntityId) : null }),
+            Agreements = agreements.Select(x => new { x.Id, x.Number, x.Status, x.CreatedAt,
+                BookingReference = references.GetValueOrDefault(x.BookingId), x.BookingId }),
+            Invoices = invoices.Select(x => new { x.Id, x.Number, x.Status, x.Total, x.BalanceDue, x.CreatedAt,
+                BookingReference = references.GetValueOrDefault(x.BookingId), x.BookingId }),
+        });
+    }
+
+    [HttpPost("documents/upload")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    [RequestSizeLimit(5_500_000)]
+    public async Task<ActionResult> UploadDocument([FromForm] CustomerDocumentUploadRequest request, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null) return Unauthorized();
+        var allowedTypes = new[] { "Identification", "DriverLicence", "PurchaseOrder", "SafetyCertificate" };
+        if (!allowedTypes.Contains(request.Type, StringComparer.OrdinalIgnoreCase))
+            return BadRequest(new { message = "Choose a supported customer document type." });
+        if (request.File.Length is <= 0 or > 5_242_880)
+            return BadRequest(new { message = "Choose a PDF, JPEG or PNG file no larger than 5 MB." });
+        var extension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+        if (extension is not (".pdf" or ".jpg" or ".jpeg" or ".png"))
+            return BadRequest(new { message = "Only PDF, JPEG and PNG files are accepted." });
+        await using var content = new MemoryStream();
+        await request.File.CopyToAsync(content, token);
+        var bytes = content.ToArray();
+        if (!HasValidSignature(extension, bytes))
+            return BadRequest(new { message = "The file content does not match its extension." });
+
+        Guid entityId = user.CustomerId.Value; var entityType = nameof(Customer); Guid? branchId = null;
+        if (request.BookingId.HasValue)
+        {
+            var booking = await db.Bookings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.BookingId && x.CustomerId == user.CustomerId, token);
+            if (booking is null) return NotFound();
+            entityId = booking.Id; entityType = nameof(Booking); branchId = booking.BranchId;
+        }
+        var root = Path.Combine(environment.ContentRootPath, "App_Data", "customer-documents", user.CustomerId.Value.ToString("N"));
+        Directory.CreateDirectory(root);
+        var storageName = $"{Guid.NewGuid():N}{extension}";
+        await System.IO.File.WriteAllBytesAsync(Path.Combine(root, storageName), bytes, token);
+        var record = new DocumentRecord { DocumentNumber = Number("DOC"), EntityType = entityType, EntityId = entityId,
+            BranchId = branchId, Type = request.Type, FileName = Path.GetFileName(request.File.FileName),
+            StoragePath = Path.Combine(user.CustomerId.Value.ToString("N"), storageName),
+            ExpiresOn = request.ExpiresOn, ContentHash = Convert.ToHexString(SHA256.HashData(bytes)) };
+        db.DocumentRecords.Add(record); await db.SaveChangesAsync(token);
+        return Ok(new { record.Id, record.DocumentNumber, record.Type, record.FileName, record.ExpiresOn });
+    }
+
+    [HttpGet("documents/{documentId:guid}/download")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> DownloadDocument(Guid documentId, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User); if (user?.CustomerId is null) return Unauthorized();
+        var bookingIds = db.Bookings.AsNoTracking().Where(x => x.CustomerId == user.CustomerId).Select(x => x.Id);
+        var record = await db.DocumentRecords.AsNoTracking().FirstOrDefaultAsync(x => x.Id == documentId &&
+            (x.EntityType == nameof(Customer) && x.EntityId == user.CustomerId || x.EntityType == nameof(Booking) && bookingIds.Contains(x.EntityId)), token);
+        if (record is null) return NotFound();
+        var storageRoot = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "App_Data", "customer-documents"));
+        var path = Path.GetFullPath(Path.Combine(storageRoot, record.StoragePath));
+        if (!path.StartsWith(storageRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !System.IO.File.Exists(path)) return NotFound();
+        var contentType = Path.GetExtension(path).ToLowerInvariant() switch { ".pdf" => "application/pdf", ".png" => "image/png", _ => "image/jpeg" };
+        return PhysicalFile(path, contentType, record.FileName);
+    }
+
+    [HttpPut("profile")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> UpdateProfile(CustomerProfileRequest request, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null) return Unauthorized();
+        var customer = await db.Customers.FirstOrDefaultAsync(x => x.Id == user.CustomerId, token);
+        if (customer is null) return NotFound();
+        user.FullName = request.FullName.Trim();
+        customer.Phone = request.Phone.Trim();
+        customer.Address = Clean(request.Address);
+        customer.HirePreference = request.HirePreference;
+        await userManager.UpdateAsync(user);
+        await db.SaveChangesAsync(token);
+        return Ok(new { user.FullName, customer.Phone, customer.Address, customer.HirePreference });
+    }
+
+    [HttpPut("bookings/{bookingId:guid}/dates")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> ChangeDates(Guid bookingId, CustomerBookingDatesRequest request, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null) return Unauthorized();
+        var booking = await db.Bookings.Include(x => x.Items)
+            .FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
+        if (booking is null) return NotFound();
+        if (booking.Status != BookingStatus.Draft)
+            return Conflict(new { message = "Dates can only be changed while the request is awaiting review." });
+        if (request.EndAt <= request.StartAt || request.StartAt < DateTimeOffset.UtcNow.Date)
+            return BadRequest(new { message = "Choose a valid future pickup and return date." });
+        var assetIds = booking.Items.Select(x => x.AssetId).ToList();
+        var conflict = await db.BookingItems.AsNoTracking().AnyAsync(x => x.BookingId != booking.Id &&
+            assetIds.Contains(x.AssetId) && x.StartAt < request.EndAt && x.EndAt > request.StartAt &&
+            (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
+        if (conflict) return Conflict(new { message = "The rental is unavailable for those dates. Contact the branch for an alternative." });
+        foreach (var item in booking.Items) { item.StartAt = request.StartAt; item.EndAt = request.EndAt; }
+        booking.Notes = Append(booking.Notes, $"Customer changed requested dates online to {request.StartAt:u} – {request.EndAt:u}.");
+        await db.SaveChangesAsync(token);
+        return Ok(new { booking.Id, StartAt = request.StartAt, EndAt = request.EndAt });
+    }
+
+    [HttpPost("bookings/{bookingId:guid}/resend-confirmation")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> ResendConfirmation(Guid bookingId, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null || string.IsNullOrWhiteSpace(user.Email)) return Unauthorized();
+        var booking = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset).Include(x => x.Branch)
+            .FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
+        if (booking is null) return NotFound();
+        var item = booking.Items.OrderBy(x => x.StartAt).FirstOrDefault();
+        var html = EmailTemplate.Branded($"Booking {booking.BookingNumber}", $"<p>Hello {System.Net.WebUtility.HtmlEncode(user.FullName)},</p><p>Your rental request is currently <strong>{booking.Status}</strong>.</p><p><strong>{System.Net.WebUtility.HtmlEncode(item?.Asset?.Name ?? "Rental request")}</strong><br>{item?.StartAt:dd MMM yyyy} to {item?.EndAt:dd MMM yyyy}<br>{System.Net.WebUtility.HtmlEncode(booking.Branch?.Name)}</p><p>Sign in to your customer account for the latest progress and pickup requirements.</p>");
+        emailQueue.Queue(db, user.Email, $"CREMS booking {booking.BookingNumber}", html,
+            $"Booking {booking.BookingNumber}: {booking.Status}. Sign in to CREMS for details.", "BookingConfirmation");
+        await db.SaveChangesAsync(token);
+        return Accepted(new { message = "Confirmation email queued." });
     }
 
     [HttpPost("bookings/{bookingId:guid}/cancellation-request")]
@@ -213,13 +550,47 @@ public sealed class CustomerAccountController(
     private static string Append(string? existing, string next) => string.IsNullOrWhiteSpace(existing) ? next : $"{existing}\n{next}";
     private static string Number(string prefix) => $"{prefix}-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
 
+    private static object? ParseJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<JsonElement>(json); }
+        catch (JsonException) { return null; }
+    }
+
+    private static IReadOnlyList<string> ParseStringArray(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<IReadOnlyList<string>>(json) ?? []; }
+        catch (JsonException) { return []; }
+    }
+
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static bool HasValidSignature(string extension, byte[] bytes) => extension switch
+    {
+        ".pdf" => bytes.Length >= 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46,
+        ".jpg" or ".jpeg" => bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF,
+        ".png" => bytes.Length >= 8 && bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }),
+        _ => false,
+    };
+}
+
+public sealed class CustomerDocumentUploadRequest
+{
+    [Required] public required IFormFile File { get; init; }
+    [Required, MaxLength(50)] public required string Type { get; init; }
+    public Guid? BookingId { get; init; }
+    public DateOnly? ExpiresOn { get; init; }
 }
 
 public sealed record VerifyEmailRequest([Required, RegularExpression("^[0-9]{6}$")] string Code);
 public sealed record CustomerBookingChangeRequest([MaxLength(1000)] string? Reason);
 public sealed record CustomerExtensionRequest(DateTimeOffset RequestedEndAt, [MaxLength(1000)] string? Reason);
 public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required, MaxLength(2000)] string Description, [MaxLength(500)] string? Location, [MaxLength(100)] string? PoliceReference);
+public sealed record CustomerQuoteDecisionRequest(bool Accepted, [MaxLength(1000)] string? Note);
+public sealed record CustomerProfileRequest([Required, MaxLength(150)] string FullName,
+    [Required, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,
+    CustomerHirePreference HirePreference);
+public sealed record CustomerBookingDatesRequest(DateTimeOffset StartAt, DateTimeOffset EndAt);
 public sealed record ActivateCustomerAccountRequest([Required, EmailAddress] string Email,
     [Required, RegularExpression("^[0-9]{6}$")] string Code, [Required, MinLength(10)] string Password);
 
@@ -231,6 +602,7 @@ public sealed record RegisterCustomerRequest(
     [Required, MaxLength(50)] string Phone,
     [MaxLength(500)] string? Address,
     [MaxLength(100)] string? IdentificationNumber,
+    CustomerHirePreference HirePreference,
     [Required, MinLength(10)] string Password) : IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)

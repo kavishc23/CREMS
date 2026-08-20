@@ -12,7 +12,7 @@ public sealed class AssetCategoriesController(ApplicationDbContext db, CurrentSt
 {
     [HttpGet]
     public async Task<ActionResult> Get([FromQuery] Guid? divisionId, CancellationToken token)
-    { var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid(); var query = db.AssetCategories.AsNoTracking().Include(x => x.AttributeDefinitions).AsQueryable(); if (!scope.IsAdministrator) query = query.Where(x => scope.DivisionIds.Contains(x.DivisionId)); else if (divisionId.HasValue) query = query.Where(x => x.DivisionId == divisionId); return Ok(await query.OrderBy(x => x.Name).ToListAsync(token)); }
+    { var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid(); var query = db.AssetCategories.AsNoTracking().Include(x => x.AttributeDefinitions).Where(x => x.IsActive && x.Division!.IsActive).AsQueryable(); if (!scope.IsAdministrator) query = query.Where(x => scope.DivisionIds.Contains(x.DivisionId)); else if (divisionId.HasValue) query = query.Where(x => x.DivisionId == divisionId); return Ok(await query.OrderBy(x => x.Name).ToListAsync(token)); }
 
     [HttpPost, Authorize(Policy = SystemPermissions.AssetCategoriesConfigure)]
     public async Task<ActionResult> Create(CategoryRequest request, CancellationToken token)

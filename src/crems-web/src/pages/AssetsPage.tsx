@@ -15,6 +15,7 @@ import { api } from '../api/client'
 import { roles } from '../auth/access'
 import { AssetQrLabelDialog } from '../components/AssetQrLabelDialog'
 import { AssetProfileDialog } from '../components/AssetProfileDialog'
+import { isWeek2Demo } from '../config/demoMode'
 
 const assetTypes = ['Vehicle', 'Equipment'] as const
 const assetStatuses = ['Available', 'Reserved', 'Rented', 'Inspection', 'Maintenance', 'OutOfService', 'Retired'] as const
@@ -146,7 +147,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
             <TableCell><Chip size="small" label={asset.status.replace(/([a-z])([A-Z])/g, '$1 $2')} color={statusColors[asset.status] ?? 'default'} variant="outlined" /></TableCell>
             <TableCell>{asset.registrationNumber || asset.serialNumber || '—'}</TableCell>
             <TableCell align="right">${asset.dailyRate.toFixed(2)}</TableCell>
-            {canManage && <TableCell align="right"><Button size="small" onClick={() => setProfileAssetId(asset.id)}>Open profile</Button><Tooltip title="Revenue, expenses and history"><IconButton onClick={() => void openPerformance(asset)}><InsightsOutlined /></IconButton></Tooltip><Tooltip title="Print QR label"><IconButton onClick={() => setQrAsset(asset)}><QrCode2Outlined /></IconButton></Tooltip><Tooltip title="Edit asset"><IconButton onClick={() => openEdit(asset)}><EditOutlined /></IconButton></Tooltip></TableCell>}
+            {canManage && <TableCell align="right">{!isWeek2Demo && <Button size="small" onClick={() => setProfileAssetId(asset.id)}>Open profile</Button>}<Tooltip title="Revenue, expenses and history"><IconButton onClick={() => void openPerformance(asset)}><InsightsOutlined /></IconButton></Tooltip><Tooltip title="Print QR label"><IconButton onClick={() => setQrAsset(asset)}><QrCode2Outlined /></IconButton></Tooltip><Tooltip title="Edit asset"><IconButton onClick={() => openEdit(asset)}><EditOutlined /></IconButton></Tooltip></TableCell>}
           </TableRow>)}
         </TableBody></Table></TableContainer>}
       {totalAssets > 50 && <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{p:2,borderTop:1,borderColor:'divider'}}><Typography variant="body2" color="text.secondary">{totalAssets.toLocaleString()} assets</Typography><Pagination page={page} count={Math.ceil(totalAssets / 50)} onChange={(_, value) => setPage(value)} color="primary" /></Stack>}

@@ -3,6 +3,7 @@ import { Box, CircularProgress } from '@mui/material'
 import { useAuth } from './auth/AuthContext'
 import { canAccessPage, type AppPage } from './auth/access'
 import { AppShell } from './layout/AppShell'
+import { isPageEnabledForDemo } from './config/demoMode'
 
 function lazyNamed<T extends ComponentType<Record<string, never>>>(
   loader: () => Promise<Record<string, unknown>>,
@@ -25,7 +26,8 @@ const ChangePasswordPage = lazyNamed(() => import('./pages/ChangePasswordPage'),
 const AssetsPage = lazy(() => import('./pages/AssetsPage').then(module => ({ default: module.AssetsPage })))
 const ManagementPage = lazyNamed(() => import('./pages/ManagementPage'), 'ManagementPage')
 const AssetQrPage = lazyNamed(() => import('./pages/AssetQrPage'), 'AssetQrPage')
-const OrganizationWorkspacePage = lazyNamed(() => import('./pages/OrganizationWorkspacePage'), 'OrganizationWorkspacePage')
+const OrganizationWorkspacePage = lazy(() => import('./pages/OrganizationWorkspacePage').then(module => ({ default: module.OrganizationWorkspacePage })))
+const SystemConfigurationPage = lazyNamed(() => import('./pages/SystemConfigurationPage'), 'SystemConfigurationPage')
 const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(module => ({ default: module.CustomerPortalPage })))
 
 function LoadingScreen() {
@@ -58,7 +60,7 @@ export default function App() {
 
   if (user.mustChangePassword) return <Suspense fallback={<LoadingScreen />}><ChangePasswordPage /></Suspense>
 
-  const activePage = canAccessPage(user.roles, page) ? page : 'dashboard'
+  const activePage = canAccessPage(user.roles, page) && isPageEnabledForDemo(page) ? page : 'dashboard'
   const content = activePage === 'dashboard'
     ? <DashboardPage userName={user.fullName || user.email} userRoles={user.roles} onNavigate={setPage} />
     : activePage === 'assets' ? <AssetsPage userRoles={user.roles} />
@@ -70,7 +72,8 @@ export default function App() {
     : activePage === 'operations' ? <ManagementPage />
     : activePage === 'reports' ? <ReportsPage />
     : activePage === 'users' ? <AdministrationPage userRoles={user.roles} />
-    : activePage === 'divisions' ? <OrganizationWorkspacePage />
+    : activePage === 'divisions' ? <OrganizationWorkspacePage userRoles={user.roles} />
+    : activePage === 'configuration' ? <SystemConfigurationPage />
     : <BranchesPage userRoles={user.roles} />
 
   return <AppShell activePage={activePage} onNavigate={setPage} userName={user.fullName || user.email} userRoles={user.roles} divisionName={user.divisionName} branchName={user.branchName} onLogout={logout}>

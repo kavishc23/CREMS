@@ -88,9 +88,13 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
         return NoContent();
     }
 
-    private IQueryable<DivisionResponse> Query() => db.Divisions.AsNoTracking().OrderBy(x => x.Name).Select(x =>
+    private IQueryable<DivisionResponse> Query() => db.Divisions.AsNoTracking()
+        .Where(x => x.Code != "PROPERTY" && x.Code != "PROPERTIES")
+        .OrderBy(x => x.Name).Select(x =>
         new DivisionResponse(x.Id, x.Code, x.Name, x.Description, x.ContactEmail, x.ContactPhone, x.Capabilities,
-            x.IsPublic, x.IsActive, x.ServiceOfferings.OrderBy(s => s.Name).Select(s => new ServiceResponse(s.Id, s.Code,
+            x.IsPublic, x.IsActive, x.ServiceOfferings
+                .Where(s => x.Code != "SHIPPING" || !s.Code.Contains("CONTAINER"))
+                .OrderBy(s => s.Name).Select(s => new ServiceResponse(s.Id, s.Code,
                 s.Name, s.Description, s.Type, s.PersonnelRequirement, s.IsBookableOnline, s.RequiresQuote, s.IsActive, s.DefaultHireUnit, s.RequiresDelivery, s.RequiredDocumentsJson, s.DefaultDepositAmount, s.InspectionRequirementsJson, s.MeterType, s.MaintenanceRulesJson)).ToList(), x.BrandingJson, x.DefaultCurrency, x.DefaultTaxRate, x.DefaultRentalTerms, x.DefaultApprovalWorkflowId, x.CustomerBookingConfigurationJson));
     private static DivisionResponse ToResponse(Division x) => new(x.Id, x.Code, x.Name, x.Description, x.ContactEmail,
         x.ContactPhone, x.Capabilities, x.IsPublic, x.IsActive, [], x.BrandingJson, x.DefaultCurrency, x.DefaultTaxRate, x.DefaultRentalTerms, x.DefaultApprovalWorkflowId, x.CustomerBookingConfigurationJson);

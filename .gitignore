@@ -10,5 +10,6 @@
 src/crems-web/vite.config.js
 src/crems-web/vite.config.d.ts
 **/.env
+src/CREMS.Api/App_Data/customer-documents/
 *.user
 *.suo

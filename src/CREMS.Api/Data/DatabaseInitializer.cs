@@ -7,6 +7,7 @@ using CREMS.Api.Domain.Rentals;
 using CREMS.Api.Domain.Operations;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace CREMS.Api.Data;
 
@@ -98,6 +99,7 @@ public static class DatabaseInitializer
                 new NotificationTemplate { Key = "invoice.final", Name = "Final invoice", Channel = "Email", Subject = "Final invoice {{invoiceNumber}}", Body = "Your rental is complete. Total {{total}}; balance due {{balanceDue}}." });
         }
         await db.SaveChangesAsync(cancellationToken);
+        await PurgeRemovedDevelopmentDataAsync(db, cancellationToken);
 
         var divisionSeeds = new[]
         {
@@ -105,6 +107,13 @@ public static class DatabaseInitializer
                 new[] { new ServiceSeed("VEHICLE_RENTAL", "Vehicle rental", ServiceOfferingType.VehicleRental, PersonnelRequirement.None, true, false) }),
             new DivisionSeed("CARPTRAC", "Carptrac", "Caterpillar construction equipment, forklifts, power generation and technical support.", DivisionCapabilities.Maintenance | DivisionCapabilities.PersonnelSupportedHire,
                 new[] { new ServiceSeed("EQUIPMENT_HIRE", "Equipment hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.Optional, false, true) }),
+            new DivisionSeed("SHIPPING", "Carpenters Shipping", "Portable toilets, scaffolding and big-bin hire with delivery and collection support.", DivisionCapabilities.Rental | DivisionCapabilities.Logistics | DivisionCapabilities.Maintenance,
+                new[]
+                {
+                    new ServiceSeed("PORTABLE_TOILET_HIRE", "Portable toilet hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.None, false, true, ChargeUnit.Unit, true),
+                    new ServiceSeed("SCAFFOLDING_HIRE", "Scaffolding hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.Optional, false, true, ChargeUnit.SquareMetre, true),
+                    new ServiceSeed("BIG_BIN_HIRE", "Big-bin hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.None, false, true, ChargeUnit.Unit, true),
+                }),
         };
         foreach (var seed in divisionSeeds)
         {
@@ -116,28 +125,37 @@ public static class DatabaseInitializer
                     Capabilities = seed.Capabilities, IsPublic = true, IsActive = true };
                 db.Divisions.Add(division);
             }
-            else { division.Name = seed.Name; division.Description = seed.Description; division.Capabilities = seed.Capabilities; }
+            else
+            {
+                division.Name = seed.Name; division.Description = seed.Description;
+                division.Capabilities = seed.Capabilities; division.IsActive = true; division.IsPublic = true;
+            }
             foreach (var service in seed.Services.Where(service => division.ServiceOfferings.All(x => x.Code != service.Code)))
             {
                 var offering = new ServiceOffering { Division = division, DivisionId = division.Id, Code = service.Code, Name = service.Name, Type = service.Type,
                     PersonnelRequirement = service.PersonnelRequirement, IsBookableOnline = service.IsBookableOnline,
-                    RequiresQuote = service.RequiresQuote, IsActive = true };
+                    RequiresQuote = service.RequiresQuote, DefaultHireUnit = service.DefaultHireUnit,
+                    RequiresDelivery = service.RequiresDelivery, IsActive = true };
                 db.ServiceOfferings.Add(offering);
                 division.ServiceOfferings.Add(offering);
             }
+            foreach (var service in division.ServiceOfferings.Where(x => seed.Services.Any(s => s.Code == x.Code)))
+            {
+                var serviceSeed = seed.Services.Single(x => x.Code == service.Code);
+                service.Name = serviceSeed.Name; service.Type = serviceSeed.Type;
+                service.PersonnelRequirement = serviceSeed.PersonnelRequirement;
+                service.IsBookableOnline = serviceSeed.IsBookableOnline; service.RequiresQuote = serviceSeed.RequiresQuote;
+                service.DefaultHireUnit = serviceSeed.DefaultHireUnit; service.RequiresDelivery = serviceSeed.RequiresDelivery;
+                service.IsActive = true;
+            }
         }
-        // Keep previously seeded future divisions for extensibility, but hide them from
-        // operational and customer workflows until the client brings them into scope.
-        var outOfScopeCodes = new[] { "HARDWARE", "SHIPPING", "PROPERTY", "MH" };
-        var outOfScopeDivisions = await db.Divisions
-            .Include(x => x.ServiceOfferings)
-            .Where(x => outOfScopeCodes.Contains(x.Code))
-            .ToListAsync(cancellationToken);
-        foreach (var division in outOfScopeDivisions)
+        var shippingDivision = await db.Divisions.Include(x => x.ServiceOfferings)
+            .SingleAsync(x => x.Code == "SHIPPING", cancellationToken);
+        var shippingServiceCodes = divisionSeeds.Single(x => x.Code == "SHIPPING").Services.Select(x => x.Code).ToHashSet();
+        foreach (var obsoleteService in shippingDivision.ServiceOfferings.Where(x => !shippingServiceCodes.Contains(x.Code)))
         {
-            division.IsActive = false;
-            division.IsPublic = false;
-            foreach (var service in division.ServiceOfferings) service.IsActive = false;
+            obsoleteService.IsActive = false;
+            obsoleteService.IsBookableOnline = false;
         }
         await db.SaveChangesAsync(cancellationToken);
 
@@ -172,17 +190,39 @@ public static class DatabaseInitializer
         var services = await db.ServiceOfferings.Where(x => x.IsActive).ToDictionaryAsync(x => x.Code, cancellationToken);
         foreach (var branch in branches.Values)
         {
-            foreach (var divisionCode in new[] { "MOTORS", "CARPTRAC" })
+            var operatingDivisionCodes = branch.Code is "SUV" or "LAU"
+                ? new[] { "MOTORS", "CARPTRAC", "SHIPPING" }
+                : new[] { "MOTORS", "CARPTRAC" };
+            foreach (var divisionCode in operatingDivisionCodes)
             {
                 var division = divisions[divisionCode];
                 if (!await db.BranchDivisions.AnyAsync(x => x.BranchId == branch.Id && x.DivisionId == division.Id, cancellationToken))
                     db.BranchDivisions.Add(new BranchDivision { BranchId = branch.Id, DivisionId = division.Id, IsActive = true });
             }
         }
-        var inactiveBranchDivisions = await db.BranchDivisions
-            .Where(x => outOfScopeDivisions.Select(d => d.Id).Contains(x.DivisionId))
+        var shippingBranchIds = new[] { branches["SUV"].Id, branches["LAU"].Id };
+        var staleShippingBranches = await db.BranchDivisions
+            .Where(x => x.DivisionId == shippingDivision.Id && !shippingBranchIds.Contains(x.BranchId))
             .ToListAsync(cancellationToken);
-        foreach (var assignment in inactiveBranchDivisions) assignment.IsActive = false;
+        foreach (var assignment in staleShippingBranches) assignment.IsActive = false;
+        var obsoleteShippingServiceIds = shippingDivision.ServiceOfferings.Where(x => !x.IsActive).Select(x => x.Id).ToArray();
+        var obsoleteShippingBranchServices = await db.BranchDivisionServices
+            .Where(x => obsoleteShippingServiceIds.Contains(x.ServiceOfferingId))
+            .ToListAsync(cancellationToken);
+        foreach (var assignment in obsoleteShippingBranchServices) { assignment.IsActive = false; assignment.IsBookable = false; }
+        foreach (var branchId in shippingBranchIds)
+        {
+            foreach (var service in shippingDivision.ServiceOfferings.Where(x => x.IsActive))
+            {
+                var assignment = await db.BranchDivisionServices.FirstOrDefaultAsync(
+                    x => x.BranchId == branchId && x.DivisionId == shippingDivision.Id && x.ServiceOfferingId == service.Id,
+                    cancellationToken);
+                if (assignment is null)
+                    db.BranchDivisionServices.Add(new BranchDivisionService { BranchId = branchId,
+                        DivisionId = shippingDivision.Id, ServiceOfferingId = service.Id, IsActive = true, IsBookable = true });
+                else { assignment.IsActive = true; assignment.IsBookable = true; }
+            }
+        }
         await db.SaveChangesAsync(cancellationToken);
 
         var chargeSeeds = new[]
@@ -192,12 +232,136 @@ public static class DatabaseInitializer
             new { Division = "CARPTRAC", Service = "EQUIPMENT_HIRE", Code = "BASE_EQUIPMENT_DAY", Name = "Equipment hire", Category = ChargeCategory.BaseHire, Unit = ChargeUnit.Day, Sell = 0m, Cost = 0m, Required = true },
             new { Division = "CARPTRAC", Service = "EQUIPMENT_HIRE", Code = "OPERATOR_HOUR", Name = "Certified equipment operator", Category = ChargeCategory.Operator, Unit = ChargeUnit.Hour, Sell = 42m, Cost = 27m, Required = false },
             new { Division = "CARPTRAC", Service = "EQUIPMENT_HIRE", Code = "EQUIPMENT_DELIVERY", Name = "Equipment delivery / collection", Category = ChargeCategory.Transport, Unit = ChargeUnit.Trip, Sell = 250m, Cost = 165m, Required = false },
+            new { Division = "SHIPPING", Service = "PORTABLE_TOILET_HIRE", Code = "PORTABLE_TOILET_UNIT", Name = "Portable toilet hire", Category = ChargeCategory.BaseHire, Unit = ChargeUnit.Unit, Sell = 0m, Cost = 0m, Required = true },
+            new { Division = "SHIPPING", Service = "SCAFFOLDING_HIRE", Code = "SCAFFOLD_SQM", Name = "Scaffolding hire", Category = ChargeCategory.BaseHire, Unit = ChargeUnit.SquareMetre, Sell = 0m, Cost = 0m, Required = true },
+            new { Division = "SHIPPING", Service = "BIG_BIN_HIRE", Code = "BIG_BIN_UNIT", Name = "Big-bin hire", Category = ChargeCategory.BaseHire, Unit = ChargeUnit.Unit, Sell = 0m, Cost = 0m, Required = true },
+            new { Division = "SHIPPING", Service = "BIG_BIN_HIRE", Code = "SHIPPING_DELIVERY", Name = "Delivery and collection", Category = ChargeCategory.Transport, Unit = ChargeUnit.Trip, Sell = 0m, Cost = 0m, Required = true },
         };
         foreach (var seed in chargeSeeds)
         {
             var division = divisions[seed.Division]; var service = services[seed.Service];
             if (await db.ChargeDefinitions.AnyAsync(x => x.DivisionId == division.Id && x.Code == seed.Code, cancellationToken)) continue;
             db.ChargeDefinitions.Add(new ChargeDefinition { DivisionId = division.Id, ServiceOfferingId = service.Id, Code = seed.Code, Name = seed.Name, Category = seed.Category, Unit = seed.Unit, DefaultSellingRate = seed.Sell, DefaultCostRate = seed.Cost, IsRequired = seed.Required, IsTaxable = true, IsCustomerVisible = true, IsActive = true });
+        }
+        await db.SaveChangesAsync(cancellationToken);
+
+        // These categories and checklists mirror the operational documents supplied by
+        // Carpenters. They remain data-driven so the business can revise a form without
+        // changing the rental workflow or deploying new application code.
+        var categorySeeds = new[]
+        {
+            new AssetCategorySeed("RENTAL_VEHICLE", "Rental vehicle", "MOTORS", "VEHICLE_RENTAL", "Odometer",
+                PersonnelRequirement.None,
+                [
+                    new("SEATS", "Seats", AttributeDataType.Integer, null, true, true),
+                    new("TRANSMISSION", "Transmission", AttributeDataType.Choice, null, true, true, OptionsJson: "[\"Automatic\",\"Manual\"]"),
+                    new("FUEL_TYPE", "Fuel type", AttributeDataType.Choice, null, true, true, OptionsJson: "[\"Petrol\",\"Diesel\",\"Hybrid\",\"Electric\"]"),
+                    new("COLOUR", "Colour", AttributeDataType.Text, null, false, true),
+                    new("FIRST_REGISTERED", "Date first registered", AttributeDataType.Date, null, false, false),
+                ]),
+            new AssetCategorySeed("FORKLIFT", "Forklift", "CARPTRAC", "EQUIPMENT_HIRE", "EngineHours",
+                PersonnelRequirement.Optional,
+                [
+                    new("LIFT_CAPACITY", "Lift capacity", AttributeDataType.Number, "tonne", true, true),
+                    new("MAX_LIFT_HEIGHT", "Maximum lift height", AttributeDataType.Number, "m", false, true),
+                    new("POWER_TYPE", "Power type", AttributeDataType.Choice, null, true, true, OptionsJson: "[\"Diesel\",\"LPG\",\"Electric\"]"),
+                ]),
+            new AssetCategorySeed("GENSET", "Generator set", "CARPTRAC", "EQUIPMENT_HIRE", "EngineHours",
+                PersonnelRequirement.Optional,
+                [
+                    new("OUTPUT_KVA", "Rated output", AttributeDataType.Number, "kVA", true, true),
+                    new("VOLTAGE", "Voltage", AttributeDataType.Number, "V", false, true),
+                    new("PHASE", "Phase", AttributeDataType.Choice, null, false, true, OptionsJson: "[\"Single phase\",\"Three phase\"]"),
+                    new("FUEL_CAPACITY", "Fuel capacity", AttributeDataType.Number, "L", false, false),
+                ]),
+            new AssetCategorySeed("HEAVY_MACHINE", "Heavy machine", "CARPTRAC", "EQUIPMENT_HIRE", "EngineHours",
+                PersonnelRequirement.Required,
+                [
+                    new("OPERATING_WEIGHT", "Operating weight", AttributeDataType.Number, "tonne", false, true),
+                    new("ATTACHMENTS", "Attachments", AttributeDataType.Text, null, false, true),
+                    new("TRACKED", "Tracked machine", AttributeDataType.Boolean, null, false, true),
+                ]),
+            new AssetCategorySeed("GENERAL_EQUIPMENT", "General hire equipment", "CARPTRAC", "EQUIPMENT_HIRE", "OperatingHours",
+                PersonnelRequirement.Optional,
+                [
+                    new("POWER_SUPPLY", "Power supply", AttributeDataType.Text, null, false, true),
+                    new("CAPACITY", "Capacity", AttributeDataType.Text, null, false, true),
+                ]),
+            new AssetCategorySeed("PORTABLE_TOILET", "Portable toilet", "SHIPPING", "PORTABLE_TOILET_HIRE", "RentalDays",
+                PersonnelRequirement.None,
+                [
+                    new("UNIT_TYPE", "Unit type", AttributeDataType.Choice, null, true, true, OptionsJson: "[\"Standard\",\"Accessible\",\"Handwash station\"]"),
+                    new("SERVICE_FREQUENCY", "Service frequency", AttributeDataType.Choice, null, true, false, OptionsJson: "[\"On request\",\"Weekly\",\"Twice weekly\"]"),
+                    new("WASTE_CAPACITY", "Waste tank capacity", AttributeDataType.Number, "L", false, false),
+                ]),
+            new AssetCategorySeed("SCAFFOLD", "Scaffolding", "SHIPPING", "SCAFFOLDING_HIRE", "Units",
+                PersonnelRequirement.Optional,
+                [
+                    new("SYSTEM_TYPE", "Scaffold system", AttributeDataType.Choice, null, true, true, OptionsJson: "[\"Frame\",\"Ringlock\",\"Mobile tower\"]"),
+                    new("COVERAGE", "Coverage", AttributeDataType.Number, "m²", true, true),
+                    new("MAX_HEIGHT", "Maximum configured height", AttributeDataType.Number, "m", false, true),
+                    new("INSTALLATION_REQUIRED", "Installation required", AttributeDataType.Boolean, null, false, false),
+                ]),
+            new AssetCategorySeed("BIG_BIN", "Big bin", "SHIPPING", "BIG_BIN_HIRE", "RentalDays",
+                PersonnelRequirement.None,
+                [
+                    new("CAPACITY", "Bin capacity", AttributeDataType.Number, "m³", true, true),
+                    new("WASTE_TYPE", "Permitted waste", AttributeDataType.Text, null, true, true),
+                    new("MAX_LOAD", "Maximum load", AttributeDataType.Number, "tonne", false, false),
+                ]),
+        };
+
+        foreach (var seed in categorySeeds)
+        {
+            var division = divisions[seed.DivisionCode];
+            var service = services[seed.ServiceCode];
+            var category = await db.AssetCategories.Include(x => x.AttributeDefinitions)
+                .FirstOrDefaultAsync(x => x.DivisionId == division.Id && x.Code == seed.Code, cancellationToken);
+            if (category is null)
+            {
+                category = new AssetCategory { DivisionId = division.Id, ServiceOfferingId = service.Id,
+                    Code = seed.Code, Name = seed.Name, Description = $"Configured from the Carpenters operational stock lists and inspection forms.",
+                    DefaultMeterType = seed.MeterType, PersonnelRequirement = seed.PersonnelRequirement, IsActive = true };
+                db.AssetCategories.Add(category);
+            }
+            else
+            {
+                category.Name = seed.Name; category.ServiceOfferingId = service.Id;
+                category.DefaultMeterType = seed.MeterType; category.PersonnelRequirement = seed.PersonnelRequirement;
+                category.IsActive = true;
+            }
+            foreach (var attribute in seed.Attributes.Where(attribute => category.AttributeDefinitions.All(x => x.Code != attribute.Code)))
+                category.AttributeDefinitions.Add(new AssetAttributeDefinition { Code = attribute.Code, Name = attribute.Name,
+                    DataType = attribute.DataType, Unit = attribute.Unit, IsRequired = attribute.IsRequired,
+                    IsSearchable = attribute.IsSearchable, IsCustomerVisible = attribute.IsCustomerVisible,
+                    DisplayOrder = category.AttributeDefinitions.Count + 1, OptionsJson = attribute.OptionsJson });
+        }
+        await db.SaveChangesAsync(cancellationToken);
+
+        var categories = await db.AssetCategories
+            .Where(x => categorySeeds.Select(seed => seed.Code).Contains(x.Code))
+            .ToDictionaryAsync(x => x.Code, cancellationToken);
+        var allowedShippingCategoryCodes = new[] { "PORTABLE_TOILET", "SCAFFOLD", "BIG_BIN" };
+        var obsoleteShippingCategories = await db.AssetCategories
+            .Where(x => x.DivisionId == shippingDivision.Id && !allowedShippingCategoryCodes.Contains(x.Code))
+            .ToListAsync(cancellationToken);
+        foreach (var category in obsoleteShippingCategories) category.IsActive = false;
+        var templateSeeds = CreateCarpentersInspectionTemplates();
+        foreach (var seed in templateSeeds)
+        {
+            var category = categories[seed.CategoryCode];
+            var template = await db.InspectionTemplates.FirstOrDefaultAsync(
+                x => x.AssetCategoryId == category.Id && x.Name == seed.Name && x.Stage == seed.Stage,
+                cancellationToken);
+            if (template is null)
+            {
+                template = new InspectionTemplate { AssetCategoryId = category.Id, Name = seed.Name, Stage = seed.Stage };
+                db.InspectionTemplates.Add(template);
+            }
+            template.ChecklistJson = BuildChecklistJson(seed.Sections);
+            template.RequiresCustomerSignature = seed.RequiresCustomerSignature;
+            template.RequiresStaffSignature = true;
+            template.IsActive = true;
         }
         await db.SaveChangesAsync(cancellationToken);
 
@@ -243,6 +407,12 @@ public static class DatabaseInitializer
             new AssetSeed("EQP-LAB-2003", "CAT DP30N 3T Diesel Forklift", AssetType.Equipment, "LAB", null, "CATDP30-24173", 410m, 2),
             new AssetSeed("EQP-SUV-2004", "CAT 330 Hydraulic Excavator", AssetType.Equipment, "SUV", null, "CAT330-25021", 1450m, 1),
             new AssetSeed("EQP-NAD-2004", "CAT DE150E0 135 kVA Generator", AssetType.Equipment, "NAD", null, "CATDE150-25036", 595m, 3),
+            new AssetSeed("SHP-SUV-3001", "Standard Portable Toilet PT-101", AssetType.Equipment, "SUV", null, "PT-101", 35m, 1),
+            new AssetSeed("SHP-SUV-3002", "Accessible Portable Toilet PT-102", AssetType.Equipment, "SUV", null, "PT-102", 48m, 1),
+            new AssetSeed("SHP-SUV-3101", "Frame Scaffolding Set SF-201", AssetType.Equipment, "SUV", null, "SF-201", 160m, 2),
+            new AssetSeed("SHP-LAU-3101", "Mobile Scaffold Tower SF-202", AssetType.Equipment, "LAU", null, "SF-202", 120m, 2),
+            new AssetSeed("SHP-SUV-3201", "10 m³ General-Waste Big Bin BB-301", AssetType.Equipment, "SUV", null, "BB-301", 95m, 2),
+            new AssetSeed("SHP-LAU-3201", "15 m³ General-Waste Big Bin BB-302", AssetType.Equipment, "LAU", null, "BB-302", 125m, 2),
         };
 
         var existingAssets = await db.Assets
@@ -258,12 +428,34 @@ public static class DatabaseInitializer
             }
             asset.Name = seed.Name;
             asset.Type = seed.Type;
-            asset.DivisionId = seed.Type == AssetType.Vehicle ? divisions["MOTORS"].Id : divisions["CARPTRAC"].Id;
-            asset.ServiceOfferingId = seed.Type == AssetType.Vehicle ? services["VEHICLE_RENTAL"].Id : services["EQUIPMENT_HIRE"].Id;
-            asset.Category = seed.Type == AssetType.Vehicle ? "Vehicle" : "Heavy equipment";
+            var isShippingAsset = seed.AssetNumber.StartsWith("SHP-", StringComparison.Ordinal);
+            asset.DivisionId = seed.Type == AssetType.Vehicle ? divisions["MOTORS"].Id
+                : isShippingAsset ? divisions["SHIPPING"].Id : divisions["CARPTRAC"].Id;
+            var categoryCode = seed.Type == AssetType.Vehicle ? "RENTAL_VEHICLE"
+                : seed.Name.Contains("Portable Toilet", StringComparison.OrdinalIgnoreCase) ? "PORTABLE_TOILET"
+                : seed.Name.Contains("Scaffold", StringComparison.OrdinalIgnoreCase) ? "SCAFFOLD"
+                : seed.Name.Contains("Big Bin", StringComparison.OrdinalIgnoreCase) ? "BIG_BIN"
+                : seed.Name.Contains("Forklift", StringComparison.OrdinalIgnoreCase) ? "FORKLIFT"
+                : seed.Name.Contains("Generator", StringComparison.OrdinalIgnoreCase) ? "GENSET"
+                : seed.Name.Contains("Excavator", StringComparison.OrdinalIgnoreCase) ||
+                  seed.Name.Contains("Backhoe", StringComparison.OrdinalIgnoreCase) ||
+                  seed.Name.Contains("Compactor", StringComparison.OrdinalIgnoreCase) ||
+                  seed.Name.Contains("Telehandler", StringComparison.OrdinalIgnoreCase) ? "HEAVY_MACHINE"
+                : "GENERAL_EQUIPMENT";
+            asset.AssetCategoryId = categories[categoryCode].Id;
+            asset.ServiceOfferingId = categoryCode switch
+            {
+                "RENTAL_VEHICLE" => services["VEHICLE_RENTAL"].Id,
+                "PORTABLE_TOILET" => services["PORTABLE_TOILET_HIRE"].Id,
+                "SCAFFOLD" => services["SCAFFOLDING_HIRE"].Id,
+                "BIG_BIN" => services["BIG_BIN_HIRE"].Id,
+                _ => services["EQUIPMENT_HIRE"].Id,
+            };
+            asset.Category = categories[categoryCode].Name;
             asset.PersonnelRequirement = seed.Type == AssetType.Equipment &&
                 (seed.Name.Contains("Excavator") || seed.Name.Contains("Backhoe") || seed.Name.Contains("Crane") || seed.Name.Contains("Telehandler"))
                 ? PersonnelRequirement.Required : PersonnelRequirement.None;
+            if (categoryCode == "SCAFFOLD") asset.PersonnelRequirement = PersonnelRequirement.Optional;
             asset.Status = asset.Status == AssetStatus.Rented ? AssetStatus.Rented : AssetStatus.Available;
             asset.BranchId = branch.Id;
             asset.RegistrationNumber = seed.RegistrationNumber;
@@ -276,7 +468,9 @@ public static class DatabaseInitializer
             var stableSeed = seed.AssetNumber.Aggregate(17, (value, character) => value * 31 + character);
             stableSeed = Math.Abs(stableSeed == int.MinValue ? 0 : stableSeed);
             asset.ModelYear ??= 2021 + stableSeed % 5;
-            asset.MeterUnit = seed.Type == AssetType.Vehicle ? "km" : "hours";
+            asset.MeterUnit = seed.Type == AssetType.Vehicle ? "km"
+                : categoryCode is "PORTABLE_TOILET" or "BIG_BIN" ? "days"
+                : categoryCode == "SCAFFOLD" ? "units" : "hours";
             asset.CurrentMeterReading ??= seed.Type == AssetType.Vehicle
                 ? 18_000 + stableSeed % 72_000
                 : 450 + stableSeed % 4_800;
@@ -292,9 +486,14 @@ public static class DatabaseInitializer
             asset.IsActive = true;
         }
 
-        var outOfScopeDivisionIds = outOfScopeDivisions.Select(x => x.Id).ToArray();
-        var outOfScopeAssets = await db.Assets.Where(x => x.DivisionId.HasValue && outOfScopeDivisionIds.Contains(x.DivisionId.Value)).ToListAsync(cancellationToken);
-        foreach (var asset in outOfScopeAssets) { asset.IsActive = false; asset.Status = AssetStatus.Retired; }
+        var allowedShippingCategoryIds = new[] { categories["PORTABLE_TOILET"].Id, categories["SCAFFOLD"].Id, categories["BIG_BIN"].Id };
+        var obsoleteShippingAssets = await db.Assets
+            .Where(x => x.DivisionId == shippingDivision.Id &&
+                (!x.AssetCategoryId.HasValue || !allowedShippingCategoryIds.Contains(x.AssetCategoryId.Value)))
+            .ToListAsync(cancellationToken);
+        foreach (var asset in obsoleteShippingAssets) { asset.IsActive = false; asset.Status = AssetStatus.Retired; }
+        await db.SaveChangesAsync(cancellationToken);
+        await PurgeRetiredAssetsAsync(db, cancellationToken);
 
         var legacyCustomerNumbers = new Dictionary<string, string>
         {
@@ -311,13 +510,10 @@ public static class DatabaseInitializer
         var customerSeeds = new[]
         {
             new CustomerSeed("CUS-000001", CustomerType.Individual, "Arieta Vula", "customer.arieta@crems.local", "+679 992 4101", "Laucala Bay, Suva", "TEST-DL-458210"),
-            new CustomerSeed("CUS-000002", CustomerType.Individual, "Jone Ratu", "customer.jone@crems.local", "+679 991 2740", "Namaka, Nadi", "TEST-DL-472905"),
-            new CustomerSeed("CUS-000003", CustomerType.Individual, "Mere Tawake", "customer.mere@crems.local", "+679 990 6382", "Naseakula, Labasa", "TEST-DL-491726"),
             new CustomerSeed("BUS-000001", CustomerType.Business, "Pacific Civil Works Ltd", "customer.pacificcivil@crems.local", "+679 995 3021", "Vuda, Lautoka", "TEST-TIN-71-45821"),
             new CustomerSeed("BUS-000002", CustomerType.Business, "Island Events & Logistics Ltd", "customer.islandevents@crems.local", "+679 998 1446", "Walu Bay, Suva", "TEST-TIN-71-49206"),
             new CustomerSeed("CUS-000004", CustomerType.Individual, "Rakesh Kumar", "customer.rakesh@crems.local", "+679 934 8261", "Martintar, Nadi", "TEST-DL-463188"),
             new CustomerSeed("CUS-000005", CustomerType.Individual, "Ana Marama", "customer.ana@crems.local", "+679 977 0534", "Samabula, Suva", "TEST-DL-480357"),
-            new CustomerSeed("CUS-000006", CustomerType.Individual, "Samuela Nacewa", "customer.samuela@crems.local", "+679 936 7158", "Waiyavi, Lautoka", "TEST-DL-475602"),
             new CustomerSeed("BUS-000003", CustomerType.Business, "Northern Builders Ltd", "customer.northernbuilders@crems.local", "+679 988 6512", "Nasekula Road, Labasa", "TEST-TIN-71-50684"),
             new CustomerSeed("BUS-000004", CustomerType.Business, "Coral Coast Tours Ltd", "customer.coralcoast@crems.local", "+679 972 4480", "Queens Road, Nadi", "TEST-TIN-71-51739"),
             new CustomerSeed("BUS-000005", CustomerType.Business, "Viti Freight Services Ltd", "customer.vitifreight@crems.local", "+679 933 2917", "Walu Bay, Suva", "TEST-TIN-71-52816"),
@@ -344,6 +540,22 @@ public static class DatabaseInitializer
             customer.IsBlocked = false;
         }
 
+        await db.SaveChangesAsync(cancellationToken);
+
+        // Remove superseded development-only customer rows when they have never been used.
+        // Referenced records are retained but disabled so rental history is never orphaned.
+        var supersededCustomerNumbers = new[] { "CUS-000002", "CUS-000003", "CUS-000006" };
+        var supersededCustomers = await db.Customers
+            .Where(x => supersededCustomerNumbers.Contains(x.CustomerNumber))
+            .ToListAsync(cancellationToken);
+        foreach (var customer in supersededCustomers)
+        {
+            var isReferenced = await db.Bookings.AnyAsync(x => x.CustomerId == customer.Id, cancellationToken) ||
+                await db.Users.AnyAsync(x => x.CustomerId == customer.Id, cancellationToken) ||
+                await db.CorporateAccounts.AnyAsync(x => x.CustomerId == customer.Id, cancellationToken);
+            if (isReferenced) { customer.IsActive = false; customer.IsBlocked = true; }
+            else db.Customers.Remove(customer);
+        }
         await db.SaveChangesAsync(cancellationToken);
 
         var seededCustomers = await db.Customers
@@ -587,9 +799,222 @@ public static class DatabaseInitializer
         EnsureSucceeded(await userManager.UpdateAsync(user), $"save development email {newEmail}");
     }
 
+    private static IReadOnlyList<InspectionTemplateSeed> CreateCarpentersInspectionTemplates()
+    {
+        var vehicleSections = new[]
+        {
+            new ChecklistSectionSeed("Vehicle exterior", ["Body panels", "Front bumper", "Rear bumper", "Windshield", "Windows", "Headlights", "Tail lights", "Tyres", "Spare tyre", "Rims"]),
+            new ChecklistSectionSeed("Interior and operation", ["Interior cleanliness", "Seats", "Air conditioning", "Radio / USB", "Registration copy", "Fuel level", "Odometer reading"]),
+            new ChecklistSectionSeed("Accessories issued", ["Keys", "Spare key", "Wheel brace", "Jack and tools", "First aid kit", "Fire extinguisher", "GPS"]),
+            new ChecklistSectionSeed("Handover evidence", ["Existing scratches and dents recorded", "Vehicle damage diagram completed", "Required photographs attached", "Customer identification verified", "Driving licence verified"]),
+        };
+        var equipmentSections = new[]
+        {
+            new ChecklistSectionSeed("Condition and operation", ["Physical condition", "Controls", "Power supply", "Accessories", "Safety labels", "Operational test", "Cables and hoses", "General cleanliness", "Damage check"]),
+            new ChecklistSectionSeed("Hire and site controls", ["Site location confirmed", "Project / cost centre recorded", "Delivery or collection details confirmed", "Operator requirement confirmed", "Operator licence or ID verified", "Fuel reading recorded", "Hour meter recorded", "Required photographs attached"]),
+        };
+        var gensetSections = new[]
+        {
+            new ChecklistSectionSeed("Engine and electrical", ["Engine condition", "Control panel", "Battery", "Fuel tank", "Cooling system", "Exhaust system", "Alternator", "Meters and gauges", "Circuit breakers", "Cables and connections"]),
+            new ChecklistSectionSeed("Safety and accessories", ["Canopy and frame", "Safety decals", "Earth stake provided", "Service log book", "Fire extinguisher", "Leaks detected", "General cleanliness"]),
+            new ChecklistSectionSeed("Handover evidence", ["Engine hours recorded", "Fuel level recorded", "Site location confirmed", "Operational test completed", "Required photographs attached", "Faults and existing damage recorded"]),
+        };
+        var heavyMachineSections = new[]
+        {
+            new ChecklistSectionSeed("Machine condition", ["Engine", "Hydraulics", "Tracks or tyres", "Cab", "Safety alarms", "Attachments", "Leaks", "Fire extinguisher"]),
+            new ChecklistSectionSeed("Hire and site controls", ["Damage diagram completed", "Fuel reading recorded", "Hour meter recorded", "Site and supervisor confirmed", "Operator requirement confirmed", "Operator licence or ID verified", "Safety briefing completed", "Required photographs attached"]),
+        };
+        var siteHireSections = new[]
+        {
+            new ChecklistSectionSeed("Asset condition", ["Asset identification verified", "Structure and body condition", "Components and accessories complete", "Cleanliness acceptable", "Safety labels visible", "Existing damage recorded"]),
+            new ChecklistSectionSeed("Delivery and collection", ["Customer site confirmed", "Safe placement area confirmed", "Delivery photographs attached", "Customer representative identified", "Delivery or collection time recorded", "Customer acceptance completed"]),
+        };
+
+        return
+        [
+            new("RENTAL_VEHICLE", "Vehicle pre-hire inspection", InspectionStage.PreHire, true, vehicleSections),
+            new("RENTAL_VEHICLE", "Vehicle post-hire inspection", InspectionStage.PostHire, true, vehicleSections),
+            new("FORKLIFT", "Equipment delivery inspection", InspectionStage.PreHire, true, equipmentSections),
+            new("FORKLIFT", "Equipment return inspection", InspectionStage.PostHire, true, equipmentSections),
+            new("GENERAL_EQUIPMENT", "Equipment delivery inspection", InspectionStage.PreHire, true, equipmentSections),
+            new("GENERAL_EQUIPMENT", "Equipment return inspection", InspectionStage.PostHire, true, equipmentSections),
+            new("GENSET", "Genset delivery inspection", InspectionStage.PreHire, true, gensetSections),
+            new("GENSET", "Genset return inspection", InspectionStage.PostHire, true, gensetSections),
+            new("HEAVY_MACHINE", "Heavy machine delivery inspection", InspectionStage.PreHire, true, heavyMachineSections),
+            new("HEAVY_MACHINE", "Heavy machine return inspection", InspectionStage.PostHire, true, heavyMachineSections),
+            new("PORTABLE_TOILET", "Portable toilet delivery inspection", InspectionStage.PreHire, true, siteHireSections),
+            new("PORTABLE_TOILET", "Portable toilet collection inspection", InspectionStage.PostHire, true, siteHireSections),
+            new("SCAFFOLD", "Scaffolding delivery inspection", InspectionStage.PreHire, true, siteHireSections),
+            new("SCAFFOLD", "Scaffolding return inspection", InspectionStage.PostHire, true, siteHireSections),
+            new("BIG_BIN", "Big-bin delivery inspection", InspectionStage.PreHire, true, siteHireSections),
+            new("BIG_BIN", "Big-bin collection inspection", InspectionStage.PostHire, true, siteHireSections),
+        ];
+    }
+
+    private static string BuildChecklistJson(IReadOnlyList<ChecklistSectionSeed> sections) =>
+        JsonSerializer.Serialize(sections.Select(section => new
+        {
+            section = section.Name,
+            items = section.Items.Select((label, index) => new
+            {
+                code = $"{ToCode(section.Name)}_{index + 1:00}",
+                label,
+                responseType = "Condition",
+                options = new[] { "OK", "Issue", "Not applicable" },
+                requiresCommentOnIssue = true,
+                allowsPhoto = true,
+            }),
+        }));
+
+    private static string ToCode(string value) => string.Concat(value.ToUpperInvariant()
+        .Select(character => char.IsLetterOrDigit(character) ? character : '_'))
+        .Trim('_');
+
+    private static async Task PurgeRemovedDevelopmentDataAsync(ApplicationDbContext db, CancellationToken token)
+    {
+        var removedCodes = new[] { "HARDWARE", "PROPERTY", "PROPERTIES", "MH" };
+        var divisionIds = await db.Divisions.Where(x => removedCodes.Contains(x.Code)).Select(x => x.Id).ToArrayAsync(token);
+        if (divisionIds.Length > 0)
+        {
+            var divisionAssetIds = await db.Assets
+                .Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value))
+                .Select(x => x.Id).ToArrayAsync(token);
+            await PurgeAssetsAsync(db, divisionAssetIds, token);
+
+            await db.Users.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value))
+                .ExecuteUpdateAsync(update => update.SetProperty(x => x.DivisionId, (Guid?)null), token);
+            await db.UserAccessScopes.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
+            await db.ApprovalDelegations.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
+
+            var personnelIds = await db.Personnel.Where(x => divisionIds.Contains(x.DivisionId)).Select(x => x.Id).ToArrayAsync(token);
+            var assignmentIds = await db.BookingPersonnelAssignments.Where(x => personnelIds.Contains(x.PersonnelId)).Select(x => x.Id).ToArrayAsync(token);
+            await db.PersonnelTimesheets.Where(x => assignmentIds.Contains(x.AssignmentId)).ExecuteDeleteAsync(token);
+            await db.BookingPersonnelAssignments.Where(x => personnelIds.Contains(x.PersonnelId)).ExecuteDeleteAsync(token);
+            await db.PersonnelQualifications.Where(x => personnelIds.Contains(x.PersonnelId)).ExecuteDeleteAsync(token);
+            await db.Personnel.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
+
+            var quoteIds = await db.SalesQuotes.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).Select(x => x.Id).ToArrayAsync(token);
+            await db.QuoteRevisions.Where(x => quoteIds.Contains(x.SalesQuoteId)).ExecuteDeleteAsync(token);
+            await db.SalesQuotes.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
+
+            var workflowIds = await db.ApprovalWorkflows.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).Select(x => x.Id).ToArrayAsync(token);
+            await db.ApprovalRequests.Where(x => x.WorkflowId.HasValue && workflowIds.Contains(x.WorkflowId.Value))
+                .ExecuteUpdateAsync(update => update.SetProperty(x => x.WorkflowId, (Guid?)null), token);
+            await db.ApprovalWorkflowStages.Where(x => workflowIds.Contains(x.WorkflowId)).ExecuteDeleteAsync(token);
+            await db.ApprovalWorkflows.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
+
+            var alertRuleIds = await db.BusinessAlertRules.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).Select(x => x.Id).ToArrayAsync(token);
+            await db.BusinessAlerts.Where(x =>
+                x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value) ||
+                x.RuleId.HasValue && alertRuleIds.Contains(x.RuleId.Value)).ExecuteDeleteAsync(token);
+            await db.BusinessAlertRules.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
+            await db.DeliveryZones.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
+            await db.PricingRules.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
+
+            var categoryIds = await db.AssetCategories.Where(x => divisionIds.Contains(x.DivisionId)).Select(x => x.Id).ToArrayAsync(token);
+            var definitionIds = await db.AssetAttributeDefinitions.Where(x => categoryIds.Contains(x.AssetCategoryId)).Select(x => x.Id).ToArrayAsync(token);
+            var templateIds = await db.InspectionTemplates.Where(x => categoryIds.Contains(x.AssetCategoryId)).Select(x => x.Id).ToArrayAsync(token);
+            await db.AssetInspections.Where(x => x.TemplateId.HasValue && templateIds.Contains(x.TemplateId.Value)).ExecuteDeleteAsync(token);
+            await db.AssetAttributeValues.Where(x => definitionIds.Contains(x.AttributeDefinitionId)).ExecuteDeleteAsync(token);
+            await db.InspectionTemplates.Where(x => categoryIds.Contains(x.AssetCategoryId)).ExecuteDeleteAsync(token);
+            await db.AssetAttributeDefinitions.Where(x => categoryIds.Contains(x.AssetCategoryId)).ExecuteDeleteAsync(token);
+            await db.AssetCategories.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
+
+            var chargeIds = await db.ChargeDefinitions.Where(x => divisionIds.Contains(x.DivisionId)).Select(x => x.Id).ToArrayAsync(token);
+            await db.BookingCharges.Where(x => x.ChargeDefinitionId.HasValue && chargeIds.Contains(x.ChargeDefinitionId.Value)).ExecuteDeleteAsync(token);
+            await db.BranchDivisionServices.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
+            await db.BranchDivisions.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
+            await db.ChargeDefinitions.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
+            await db.ServiceOfferings.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
+            await db.AuditEvents.Where(x => divisionIds.Contains(x.EntityId)).ExecuteDeleteAsync(token);
+            await db.DocumentRecords.Where(x => divisionIds.Contains(x.EntityId)).ExecuteDeleteAsync(token);
+            await db.Divisions.Where(x => removedCodes.Contains(x.Code)).ExecuteDeleteAsync(token);
+        }
+
+        var shippingId = await db.Divisions.Where(x => x.Code == "SHIPPING").Select(x => (Guid?)x.Id).SingleOrDefaultAsync(token);
+        if (shippingId.HasValue)
+        {
+            var allowedServiceCodes = new[] { "PORTABLE_TOILET_HIRE", "SCAFFOLDING_HIRE", "BIG_BIN_HIRE" };
+            var obsoleteServiceIds = await db.ServiceOfferings
+                .Where(x => x.DivisionId == shippingId.Value && !allowedServiceCodes.Contains(x.Code))
+                .Select(x => x.Id).ToArrayAsync(token);
+            if (obsoleteServiceIds.Length > 0)
+            {
+                var obsoleteAssetIds = await db.Assets.Where(x => x.ServiceOfferingId.HasValue && obsoleteServiceIds.Contains(x.ServiceOfferingId.Value))
+                    .Select(x => x.Id).ToArrayAsync(token);
+                await PurgeAssetsAsync(db, obsoleteAssetIds, token);
+
+                var obsoleteCategoryIds = await db.AssetCategories
+                    .Where(x => x.ServiceOfferingId.HasValue && obsoleteServiceIds.Contains(x.ServiceOfferingId.Value))
+                    .Select(x => x.Id).ToArrayAsync(token);
+                var obsoleteDefinitionIds = await db.AssetAttributeDefinitions.Where(x => obsoleteCategoryIds.Contains(x.AssetCategoryId))
+                    .Select(x => x.Id).ToArrayAsync(token);
+                var obsoleteTemplateIds = await db.InspectionTemplates.Where(x => obsoleteCategoryIds.Contains(x.AssetCategoryId))
+                    .Select(x => x.Id).ToArrayAsync(token);
+                await db.AssetInspections.Where(x => x.TemplateId.HasValue && obsoleteTemplateIds.Contains(x.TemplateId.Value)).ExecuteDeleteAsync(token);
+                await db.AssetAttributeValues.Where(x => obsoleteDefinitionIds.Contains(x.AttributeDefinitionId)).ExecuteDeleteAsync(token);
+                await db.InspectionTemplates.Where(x => obsoleteCategoryIds.Contains(x.AssetCategoryId)).ExecuteDeleteAsync(token);
+                await db.AssetAttributeDefinitions.Where(x => obsoleteCategoryIds.Contains(x.AssetCategoryId)).ExecuteDeleteAsync(token);
+                await db.PricingRules.Where(x =>
+                    x.ServiceOfferingId.HasValue && obsoleteServiceIds.Contains(x.ServiceOfferingId.Value) ||
+                    x.AssetCategoryId.HasValue && obsoleteCategoryIds.Contains(x.AssetCategoryId.Value)).ExecuteDeleteAsync(token);
+                await db.AssetCategories.Where(x => obsoleteCategoryIds.Contains(x.Id)).ExecuteDeleteAsync(token);
+
+                var obsoleteChargeIds = await db.ChargeDefinitions
+                    .Where(x => x.ServiceOfferingId.HasValue && obsoleteServiceIds.Contains(x.ServiceOfferingId.Value))
+                    .Select(x => x.Id).ToArrayAsync(token);
+                await db.BookingCharges.Where(x => x.ChargeDefinitionId.HasValue && obsoleteChargeIds.Contains(x.ChargeDefinitionId.Value)).ExecuteDeleteAsync(token);
+                await db.PricingRules.Where(x => x.ChargeDefinitionId.HasValue && obsoleteChargeIds.Contains(x.ChargeDefinitionId.Value)).ExecuteDeleteAsync(token);
+                await db.ChargeDefinitions.Where(x => x.ServiceOfferingId.HasValue && obsoleteServiceIds.Contains(x.ServiceOfferingId.Value)).ExecuteDeleteAsync(token);
+                await db.BranchDivisionServices.Where(x => obsoleteServiceIds.Contains(x.ServiceOfferingId)).ExecuteDeleteAsync(token);
+                await db.ServiceOfferings.Where(x => obsoleteServiceIds.Contains(x.Id)).ExecuteDeleteAsync(token);
+            }
+        }
+
+        await PurgeRetiredAssetsAsync(db, token);
+    }
+
+    private static async Task PurgeRetiredAssetsAsync(ApplicationDbContext db, CancellationToken token)
+    {
+        var assetIds = await db.Assets.Where(x => x.Status == AssetStatus.Retired).Select(x => x.Id).ToArrayAsync(token);
+        await PurgeAssetsAsync(db, assetIds, token);
+    }
+
+    private static async Task PurgeAssetsAsync(ApplicationDbContext db, Guid[] assetIds, CancellationToken token)
+    {
+        if (assetIds.Length == 0) return;
+        var maintenanceJobIds = await db.MaintenanceJobs.Where(x => assetIds.Contains(x.AssetId)).Select(x => x.Id).ToArrayAsync(token);
+        await db.MaintenancePartUsages.Where(x => maintenanceJobIds.Contains(x.MaintenanceJobId)).ExecuteDeleteAsync(token);
+        await db.AssetAttributeValues.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
+        await db.AssetCostEntries.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
+        await db.AssetInspections.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
+        await db.AssetLifecycleEvents.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
+        await db.AssetMeterReadings.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
+        await db.AssetTransfers.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
+        await db.TelematicsSnapshots.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
+        await db.PricingRules.Where(x => x.AssetId.HasValue && assetIds.Contains(x.AssetId.Value)).ExecuteDeleteAsync(token);
+        await db.BookingCharges.Where(x => x.AssetId.HasValue && assetIds.Contains(x.AssetId.Value)).ExecuteDeleteAsync(token);
+        await db.BookingItems.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
+        await db.MaintenanceJobs.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
+        await db.BusinessAlerts.Where(x => x.EntityId.HasValue && assetIds.Contains(x.EntityId.Value)).ExecuteDeleteAsync(token);
+        await db.ManagementTasks.Where(x => x.SourceEntityId.HasValue && assetIds.Contains(x.SourceEntityId.Value)).ExecuteDeleteAsync(token);
+        await db.ApprovalRequests.Where(x => assetIds.Contains(x.EntityId)).ExecuteDeleteAsync(token);
+        await db.AuditEvents.Where(x => assetIds.Contains(x.EntityId)).ExecuteDeleteAsync(token);
+        await db.DocumentRecords.Where(x => assetIds.Contains(x.EntityId)).ExecuteDeleteAsync(token);
+        await db.Assets.Where(x => assetIds.Contains(x.Id)).ExecuteDeleteAsync(token);
+    }
+
     private sealed record BranchSeed(string Code, string Name, string Address, string Phone);
+    private sealed record AssetCategorySeed(string Code, string Name, string DivisionCode, string ServiceCode,
+        string MeterType, PersonnelRequirement PersonnelRequirement, IReadOnlyList<AssetAttributeSeed> Attributes);
+    private sealed record AssetAttributeSeed(string Code, string Name, AttributeDataType DataType, string? Unit,
+        bool IsRequired, bool IsSearchable, bool IsCustomerVisible = true, string OptionsJson = "[]");
+    private sealed record InspectionTemplateSeed(string CategoryCode, string Name, InspectionStage Stage,
+        bool RequiresCustomerSignature, IReadOnlyList<ChecklistSectionSeed> Sections);
+    private sealed record ChecklistSectionSeed(string Name, IReadOnlyList<string> Items);
     private sealed record DivisionSeed(string Code, string Name, string Description, DivisionCapabilities Capabilities, IReadOnlyList<ServiceSeed> Services);
-    private sealed record ServiceSeed(string Code, string Name, ServiceOfferingType Type, PersonnelRequirement PersonnelRequirement, bool IsBookableOnline, bool RequiresQuote);
+    private sealed record ServiceSeed(string Code, string Name, ServiceOfferingType Type, PersonnelRequirement PersonnelRequirement,
+        bool IsBookableOnline, bool RequiresQuote, ChargeUnit DefaultHireUnit = ChargeUnit.Day, bool RequiresDelivery = false);
     private sealed record AssetSeed(
         string AssetNumber, string Name, AssetType Type, string BranchCode,
         string? RegistrationNumber, string? SerialNumber, decimal DailyRate, int ServiceMonths);

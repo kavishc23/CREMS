@@ -15,6 +15,7 @@ import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined'
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined'
 import HomeOutlined from '@mui/icons-material/HomeOutlined'
 import HelpOutlineOutlined from '@mui/icons-material/HelpOutlineOutlined'
+import SettingsOutlined from '@mui/icons-material/SettingsOutlined'
 import {
   AppBar,
   Box,
@@ -40,6 +41,7 @@ import {
   Stack,
 } from '@mui/material'
 import { canAccessPage, formatRole, getPrimaryRole, type AppPage } from '../auth/access'
+import { isPageEnabledForDemo } from '../config/demoMode'
 const drawerWidth = 248
 const collapsedDrawerWidth = 76
 const navigation = [
@@ -52,8 +54,8 @@ const navigation = [
   { label: 'Manager overview', id: 'operations', icon: <CorporateFareOutlined />, section: 'Insights' },
   { label: 'Reports', id: 'reports', icon: <AssessmentOutlined />, section: 'Insights' },
   { label: 'Staff & access', id: 'users', icon: <ManageAccountsOutlined />, section: 'Administration' },
-  { label: 'Divisions & services', id: 'divisions', icon: <AccountTreeOutlined />, section: 'Administration' },
-  { label: 'Branches', id: 'branches', icon: <CorporateFareOutlined />, section: 'Administration' },
+  { label: 'Organization', id: 'divisions', icon: <AccountTreeOutlined />, section: 'Administration' },
+  { label: 'System configuration', id: 'configuration', icon: <SettingsOutlined />, section: 'Administration' },
 ] satisfies { label: string; id: AppPage; icon: ReactNode; section?: string }[]
 const sections = ['Work', 'Fleet', 'Insights', 'Administration']
 const pageHelp: Record<string, { purpose: string; steps: string[] }> = {
@@ -67,8 +69,8 @@ const pageHelp: Record<string, { purpose: string; steps: string[] }> = {
   operations: { purpose: 'Review manager-level exceptions, approvals and operational work.', steps: ['Start with urgent items.', 'Assign or complete the required action.', 'Use reports for trends rather than daily processing.'] },
   reports: { purpose: 'Review utilization, revenue, rental history and maintenance performance.', steps: ['Choose the report needed.', 'Confirm the date and operating scope.', 'Export or use the result for management decisions.'] },
   users: { purpose: 'Control staff accounts, roles and access boundaries.', steps: ['Choose the correct role.', 'Assign the staff member’s division and branch.', 'Use security actions only when required.'] },
-  divisions: { purpose: 'Configure which services each Carpenters division provides.', steps: ['Enable only confirmed capabilities.', 'Mark quote-only services correctly.', 'Enable online booking only after its workflow is approved.'] },
-  branches: { purpose: 'Maintain locations and the divisions operating at each location.', steps: ['Keep contact details current.', 'Select every division operating there.', 'Deactivate locations that are no longer used.'] },
+  divisions: { purpose: 'Maintain divisions, branches, services and asset categories in one organization workspace.', steps: ['Choose the relevant organization tab.', 'Update only confirmed operating details.', 'Save and verify the affected branch or service.'] },
+  configuration: { purpose: 'Manage group rental defaults, rates, notifications and technical controls.', steps: ['Choose the configuration area.', 'Review the current value and business impact.', 'Save only an approved change.'] },
 }
 
 type AppShellProps = {
@@ -103,7 +105,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
       <List sx={{ px: 1.5, pt: 1, pb: 2 }}>
         {(!collapsed || !desktop) && <Box sx={{ mx: .75, mb: 1.25, p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)' }}><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: .8 }}>Working in</Typography><Typography variant="body2" fontWeight={750} noWrap>{divisionName || 'Carpenters Fiji Group'}</Typography><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.62)' }}>{branchName || 'All branches'}</Typography></Box>}
         {sections.map((section) => {
-          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id))
+          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id) && isPageEnabledForDemo(item.id))
           if (!items.length) return null
           return <Box key={section}>{!collapsed || !desktop ? <ListSubheader disableSticky sx={{ bgcolor: 'transparent', color: 'rgba(255,255,255,.42)', fontSize: 11, fontWeight: 800, lineHeight: '32px', letterSpacing: 1.1, textTransform: 'uppercase', px: 2, mt: 1 }}>{section}</ListSubheader> : <Box sx={{ height: 12 }} />}{items.map((item) => {
           const button = (

@@ -13,6 +13,7 @@ import TrendingUpOutlined from '@mui/icons-material/TrendingUpOutlined'
 import { Alert, Avatar, Box, Button, Card, CardContent, Chip, Grid, LinearProgress, Skeleton, Stack, Typography } from '@mui/material'
 import { canAccessPage, formatRole, getPrimaryRole, roles, type AppPage } from '../auth/access'
 import { api } from '../api/client'
+import { isPageEnabledForDemo } from '../config/demoMode'
 
 type DashboardPageProps = { userName: string; userRoles: string[]; onNavigate: (page: AppPage) => void }
 type DashboardSummary = {
@@ -80,9 +81,12 @@ export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPage
 
   const primaryRole = getPrimaryRole(userRoles)
   const view = roleViews[primaryRole] ?? roleViews[roles.rentalOfficer]
-  const availableActions = useMemo(() => view.actions.filter(action => canAccessPage(userRoles, action.page)).slice(0, 3), [userRoles, view.actions])
+  const availableActions = useMemo(() => view.actions.filter(action => canAccessPage(userRoles, action.page) && isPageEnabledForDemo(action.page)).slice(0, 3), [userRoles, view.actions])
   const firstName = userName.trim().split(/\s+/)[0] || 'there'
-  const priority = getPriority(primaryRole, summary)
+  const calculatedPriority = getPriority(primaryRole, summary)
+  const priority = isPageEnabledForDemo(calculatedPriority.page)
+    ? calculatedPriority
+    : { title: 'Your asset register is ready to review', description: 'Explore the assets available within your assigned division and branch.', page: 'assets' as AppPage, button: 'Open asset register' }
 
   return <Box sx={{ p: { xs: 2.5, sm: 4, lg: 5 }, maxWidth: 1380, mx: 'auto' }}>
     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ md: 'flex-end' }} gap={2} mb={3}>

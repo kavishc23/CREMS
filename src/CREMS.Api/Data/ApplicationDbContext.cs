@@ -170,6 +170,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         {
             entity.HasIndex(x => x.CustomerNumber).IsUnique();
             entity.Property(x => x.CustomerNumber).HasMaxLength(50);
+            entity.Property(x => x.HirePreference).HasConversion<string>().HasMaxLength(30);
             entity.Property(x => x.Email).HasMaxLength(254);
         });
 

@@ -32,7 +32,7 @@ public sealed class AccountRecoveryController(ApplicationDbContext db, UserManag
                 var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
                 var salt = RandomNumberGenerator.GetBytes(16);
                 db.PasswordResetOtps.Add(new PasswordResetOtp { UserId = user.Id, Salt = Convert.ToBase64String(salt), CodeHash = Hash(code, salt), ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10), RequestedIp = HttpContext.Connection.RemoteIpAddress?.ToString() });
-                var html = EmailTemplate.Branded("Reset your CREMS password", $"<p>A password reset was requested for your staff account.</p><p style=\"font-size:32px;letter-spacing:8px;font-weight:bold;background:#f5f5f2;padding:18px;text-align:center\">{code}</p><p>This code expires in 10 minutes and can be used once. If you did not request this, ignore this email and contact your administrator if you are concerned.</p>");
+                var html = EmailTemplate.Branded("Reset your CREMS password", $"<p>A password reset was requested for your CREMS account.</p><p style=\"font-size:32px;letter-spacing:8px;font-weight:bold;background:#f5f5f2;padding:18px;text-align:center\">{code}</p><p>This code expires in 10 minutes and can be used once. If you did not request this, ignore this email and contact Carpenters support if you are concerned.</p>");
                 emailQueue.Queue(db, user.Email, "Your CREMS password reset code", html, $"Your CREMS password reset code is {code}. It expires in 10 minutes.", "PasswordReset");
                 await db.SaveChangesAsync(token);
             }
@@ -53,7 +53,7 @@ public sealed class AccountRecoveryController(ApplicationDbContext db, UserManag
         var resetToken = await userManager.GeneratePasswordResetTokenAsync(user); var result = await userManager.ResetPasswordAsync(user, resetToken, request.NewPassword);
         if (!result.Succeeded) { foreach (var error in result.Errors) ModelState.AddModelError(nameof(request.NewPassword), error.Description); return ValidationProblem(ModelState); }
         challenge.UsedAt = DateTimeOffset.UtcNow; user.MustChangePassword = false; user.PasswordChangedAt = DateTimeOffset.UtcNow; await userManager.UpdateSecurityStampAsync(user); await db.SaveChangesAsync(token);
-        if (!string.IsNullOrWhiteSpace(user.Email)) { var html = EmailTemplate.Branded("Your CREMS password was changed", "<p>Your staff account password has been reset successfully.</p><p>If you did not make this change, contact your CREMS administrator immediately.</p>"); emailQueue.Queue(db, user.Email, "CREMS password changed", html, "Your CREMS password was changed. Contact your administrator immediately if this was not you.", "Security"); await db.SaveChangesAsync(token); }
+        if (!string.IsNullOrWhiteSpace(user.Email)) { var html = EmailTemplate.Branded("Your CREMS password was changed", "<p>Your CREMS account password has been reset successfully.</p><p>If you did not make this change, contact Carpenters support immediately.</p>"); emailQueue.Queue(db, user.Email, "CREMS password changed", html, "Your CREMS password was changed. Contact Carpenters support immediately if this was not you.", "Security"); await db.SaveChangesAsync(token); }
         return NoContent();
     }
 
