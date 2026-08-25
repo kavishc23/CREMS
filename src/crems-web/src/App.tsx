@@ -108,11 +108,13 @@ export default function App() {
     setCustomerView(false)
   }} /></Suspense>
 
-  if ((!user || user.roles.includes('Customer')) && !staffView) return <Suspense fallback={<LoadingScreen />}><PublicRentalPage customerAuthenticated={customerSignedIn || user?.roles.includes('Customer')} onCustomerAccount={() => {
+  if ((!user || user.roles.includes('Customer')) && !staffView) return <Suspense fallback={<LoadingScreen />}><PublicRentalPage customerAuthenticated={customerSignedIn || user?.roles.includes('Customer')} customerName={user?.fullName || sessionStorage.getItem('crems.customerName') || undefined} onCustomerAccount={section => {
+    if (section) sessionStorage.setItem('crems.customerSection', section)
     window.history.pushState({}, '', '/account')
     setCustomerView(true)
   }} onCustomerSignOut={async () => {
     await logout()
+    sessionStorage.removeItem('crems.customerName')
     setCustomerSignedIn(false)
   }} /></Suspense>
 
