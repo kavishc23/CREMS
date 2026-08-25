@@ -340,9 +340,8 @@ public sealed class CustomerAccountController(
     {
         var user = await userManager.GetUserAsync(User);
         if (user?.CustomerId is null) return Unauthorized();
-        var allowedTypes = new[] { "Identification", "DriverLicence", "PurchaseOrder", "SafetyCertificate" };
-        if (!allowedTypes.Contains(request.Type, StringComparer.OrdinalIgnoreCase))
-            return BadRequest(new { message = "Choose a supported customer document type." });
+        if (!string.Equals(request.Type, "DriverLicence", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "Only a driver licence can be uploaded from the customer portal." });
         if (request.File.Length is <= 0 or > 5_242_880)
             return BadRequest(new { message = "Choose a PDF, JPEG or PNG file no larger than 5 MB." });
         var extension = Path.GetExtension(request.File.FileName).ToLowerInvariant();

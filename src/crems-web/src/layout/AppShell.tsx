@@ -16,6 +16,8 @@ import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined'
 import HomeOutlined from '@mui/icons-material/HomeOutlined'
 import HelpOutlineOutlined from '@mui/icons-material/HelpOutlineOutlined'
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined'
+import AccountBalanceWalletOutlined from '@mui/icons-material/AccountBalanceWalletOutlined'
+import PeopleAltOutlined from '@mui/icons-material/PeopleAltOutlined'
 import {
   AppBar,
   Box,
@@ -45,19 +47,21 @@ import { isPageEnabledForDemo } from '../config/demoMode'
 const drawerWidth = 248
 const collapsedDrawerWidth = 76
 const navigation = [
-  { label: 'Today', id: 'dashboard', icon: <DashboardOutlined />, section: 'Work' },
-  { label: 'Booking requests', id: 'bookings', icon: <EventAvailableOutlined />, section: 'Work' },
-  { label: 'Hire operations', id: 'rentals', icon: <ReceiptLongOutlined />, section: 'Work' },
-  { label: 'Assets', id: 'assets', icon: <Inventory2Outlined />, section: 'Fleet' },
-  { label: 'Maintenance', id: 'maintenance', icon: <BuildOutlined />, section: 'Fleet' },
-  { label: 'Scan QR', id: 'scan', icon: <QrCodeScannerOutlined />, section: 'Fleet' },
-  { label: 'Manager overview', id: 'operations', icon: <CorporateFareOutlined />, section: 'Insights' },
-  { label: 'Reports', id: 'reports', icon: <AssessmentOutlined />, section: 'Insights' },
+  { label: 'Dashboard', id: 'dashboard', icon: <DashboardOutlined />, section: 'Rental operations' },
+  { label: 'Bookings & quotations', id: 'bookings', icon: <EventAvailableOutlined />, section: 'Rental operations' },
+  { label: 'Pickups & returns', id: 'rentals', icon: <ReceiptLongOutlined />, section: 'Rental operations' },
+  { label: 'Asset register', id: 'assets', icon: <Inventory2Outlined />, section: 'Asset operations' },
+  { label: 'Maintenance work', id: 'maintenance', icon: <BuildOutlined />, section: 'Asset operations' },
+  { label: 'Scan asset QR', id: 'scan', icon: <QrCodeScannerOutlined />, section: 'Asset operations' },
+  { label: 'Approvals & operations', id: 'operations', icon: <CorporateFareOutlined />, section: 'Management' },
+  { label: 'Finance', id: 'finance', icon: <AccountBalanceWalletOutlined />, section: 'Management' },
+  { label: 'Reports & performance', id: 'reports', icon: <AssessmentOutlined />, section: 'Management' },
   { label: 'Staff & access', id: 'users', icon: <ManageAccountsOutlined />, section: 'Administration' },
+  { label: 'Customer accounts', id: 'customerAccounts', icon: <PeopleAltOutlined />, section: 'Administration' },
   { label: 'Organization', id: 'divisions', icon: <AccountTreeOutlined />, section: 'Administration' },
   { label: 'System configuration', id: 'configuration', icon: <SettingsOutlined />, section: 'Administration' },
 ] satisfies { label: string; id: AppPage; icon: ReactNode; section?: string }[]
-const sections = ['Work', 'Fleet', 'Insights', 'Administration']
+const sections = ['Rental operations', 'Asset operations', 'Management', 'Administration']
 const pageHelp: Record<string, { purpose: string; steps: string[] }> = {
   dashboard: { purpose: 'See what needs attention today and start the most common tasks.', steps: ['Check overdue returns and pending requests.', 'Choose a quick action.', 'Use the left menu to move to another area.'] },
   bookings: { purpose: 'Review customer requests and turn approved requests into confirmed bookings.', steps: ['Open a pending request.', 'Confirm the customer, dates, branch and asset.', 'Approve it when everything is correct.'] },
@@ -67,8 +71,10 @@ const pageHelp: Record<string, { purpose: string; steps: string[] }> = {
   assets: { purpose: 'Manage every rentable asset from one register.', steps: ['Search by asset number, name, registration or serial number.', 'Open the asset profile to review its status, location and history.', 'Use Maintenance from the Fleet menu when servicing or repairs are required.'] },
   maintenance: { purpose: 'Plan servicing and resolve faults before assets return to service.', steps: ['Review overdue and upcoming work.', 'Open or update the maintenance job.', 'Return the asset to available only after work is complete.'] },
   operations: { purpose: 'Review manager-level exceptions, approvals and operational work.', steps: ['Start with urgent items.', 'Assign or complete the required action.', 'Use reports for trends rather than daily processing.'] },
+  finance: { purpose: 'Review invoices, payments and outstanding customer balances.', steps: ['Start with unpaid and partially paid invoices.', 'Confirm the related booking and customer.', 'Use controlled finance actions to correct or allocate transactions.'] },
   reports: { purpose: 'Review utilization, revenue, rental history and maintenance performance.', steps: ['Choose the report needed.', 'Confirm the date and operating scope.', 'Export or use the result for management decisions.'] },
   users: { purpose: 'Control staff accounts, roles and access boundaries.', steps: ['Choose the correct role.', 'Assign the staff member’s division and branch.', 'Use security actions only when required.'] },
+  customerAccounts: { purpose: 'Manage customer portal accounts separately from staff access.', steps: ['Search for the customer before creating access.', 'Review portal status and account activity.', 'Use reset, lock or session controls only when required.'] },
   divisions: { purpose: 'Maintain divisions, branches, services and asset categories in one organization workspace.', steps: ['Choose the relevant organization tab.', 'Update only confirmed operating details.', 'Save and verify the affected branch or service.'] },
   configuration: { purpose: 'Manage group rental defaults, rates, notifications and technical controls.', steps: ['Choose the configuration area.', 'Review the current value and business impact.', 'Save only an approved change.'] },
 }

@@ -39,13 +39,13 @@ builder.Services.ConfigureApplicationCookie(options =>
         : CookieSecurePolicy.Always;
     options.Cookie.SameSite = SameSiteMode.Strict;
     options.ExpireTimeSpan = TimeSpan.FromMinutes(20);
-    options.SlidingExpiration = true;
+    options.SlidingExpiration = false;
     options.Events.OnValidatePrincipal = async context =>
     {
         await SecurityStampValidator.ValidatePrincipalAsync(context);
         if (context.Principal?.Identity?.IsAuthenticated == true &&
             context.Properties.IssuedUtc is { } issued &&
-            DateTimeOffset.UtcNow - issued > TimeSpan.FromHours(8))
+            DateTimeOffset.UtcNow - issued > TimeSpan.FromMinutes(20))
         {
             context.RejectPrincipal();
         }
@@ -75,14 +75,13 @@ builder.Services.AddAuthorizationBuilder()
             SystemRoles.Administrator,
             SystemRoles.BranchManager,
             SystemRoles.RentalOfficer,
-            SystemRoles.MaintenanceOfficer,
-            SystemRoles.Driver))
+            SystemRoles.MaintenanceOfficer))
     .AddPolicy(SystemPolicies.ManageMaintenance, policy =>
         policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager, SystemRoles.MaintenanceOfficer))
     .AddPolicy(SystemPolicies.ManageFinance, policy =>
         policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager, SystemRoles.FinanceOfficer))
     .AddPolicy(SystemPolicies.UseAssetQr, policy =>
-        policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager, SystemRoles.RentalOfficer, SystemRoles.MaintenanceOfficer, SystemRoles.Driver))
+        policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager, SystemRoles.RentalOfficer, SystemRoles.MaintenanceOfficer))
     .AddPolicy(SystemPolicies.ViewReports, policy =>
         policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager, SystemRoles.FinanceOfficer))
     .AddPolicy(SystemPolicies.CustomerPortal, policy =>

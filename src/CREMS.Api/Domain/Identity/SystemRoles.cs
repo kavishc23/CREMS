@@ -8,7 +8,6 @@ public static class SystemRoles
     public const string RentalOfficer = "RentalOfficer";
     public const string MaintenanceOfficer = "MaintenanceOfficer";
     public const string FinanceOfficer = "FinanceOfficer";
-    public const string Driver = "Driver";
     public const string Customer = "Customer";
     public static readonly string[] All =
     [
@@ -18,7 +17,6 @@ public static class SystemRoles
         RentalOfficer,
         MaintenanceOfficer,
         FinanceOfficer,
-        Driver,
         Customer
     ];
     public static readonly string[] Staff =
@@ -28,11 +26,10 @@ public static class SystemRoles
         BranchManager,
         RentalOfficer,
         MaintenanceOfficer,
-        FinanceOfficer,
-        Driver
+        FinanceOfficer
     ];
 
     public static readonly string[] GroupWide = [SuperAdministrator, Administrator];
     public static readonly string[] BranchScoped =
-        [BranchManager, RentalOfficer, MaintenanceOfficer, FinanceOfficer, Driver];
+        [BranchManager, RentalOfficer, MaintenanceOfficer, FinanceOfficer];
 }

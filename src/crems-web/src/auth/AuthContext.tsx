@@ -23,6 +23,7 @@ type AuthContextValue = {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+const sessionTimeoutMs = 20 * 60 * 1000
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthenticatedUser | null>(null)
@@ -45,6 +46,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void loadSession()
   }, [loadSession])
 
+  useEffect(() => {
+    if (!user) return
+
+    const timer = window.setTimeout(() => {
+      void api.post('/auth/logout').catch(() => undefined).finally(() => setUser(null))
+    }, sessionTimeoutMs)
+    const sessionExpired = () => setUser(null)
+
+    window.addEventListener('crems:session-expired', sessionExpired)
+
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('crems:session-expired', sessionExpired)
+    }
+  }, [user])
+
   const login = useCallback(async (email: string, password: string) => {
     const response = await api.post<{ requiresMfa?: boolean; challengeId?: string; maskedDestination?: string }>('/auth/login?useCookies=true', { email, password })
     if (response.status === 202) return { requiresMfa: true, challengeId: response.data.challengeId, maskedDestination: response.data.maskedDestination }
@@ -53,8 +70,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const verifyMfa = useCallback(async (challengeId: string, code: string) => { await api.post('/auth/mfa/verify?useCookies=true', { challengeId, code }); await loadSession() }, [loadSession])
 
   const logout = useCallback(async () => {
-    await api.post('/auth/logout')
-    setUser(null)
+    try {
+      await api.post('/auth/logout')
+    } finally {
+      setUser(null)
+    }
   }, [])
 
   const value = useMemo(

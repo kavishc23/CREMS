@@ -19,7 +19,7 @@ public sealed class WindowSessionRegistry
                 continue;
             }
 
-            if (now - current.LastSeenAt > TimeSpan.FromMinutes(20) || now - current.CreatedAt > TimeSpan.FromHours(8))
+            if (now - current.CreatedAt > TimeSpan.FromMinutes(20))
             {
                 sessions.TryRemove(new KeyValuePair<string, WindowSession>(userId, current));
                 return WindowSessionResult.Expired;
@@ -49,7 +49,12 @@ public sealed class WindowSessionMiddleware(RequestDelegate next)
 {
     public async Task Invoke(HttpContext context, WindowSessionRegistry registry)
     {
-        if (context.User.Identity?.IsAuthenticated != true || context.Request.Path.StartsWithSegments("/api/auth/login"))
+        // Public catalogue resources must remain readable even when the request also
+        // carries a staff authentication cookie. Browser image requests cannot add
+        // the X-CREMS-Window-Id header used by protected API calls.
+        if (context.User.Identity?.IsAuthenticated != true ||
+            context.Request.Path.StartsWithSegments("/api/public") ||
+            context.Request.Path.StartsWithSegments("/api/auth/login"))
         {
             await next(context);
             return;

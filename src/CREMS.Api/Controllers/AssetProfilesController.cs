@@ -34,7 +34,31 @@ public sealed class AssetProfilesController(ApplicationDbContext db, CurrentStaf
         var alternativeQuery=db.Assets.AsNoTracking().Where(x=>x.Id!=assetId&&x.IsActive&&x.Status==AssetStatus.Available&&x.BranchId==asset.BranchId&&(asset.AssetCategoryId==null?x.Type==asset.Type:x.AssetCategoryId==asset.AssetCategoryId));
         if(future.Count>0){var rangeStart=future.Min(x=>x.StartAt);var rangeEnd=future.Max(x=>x.EndAt);alternativeQuery=alternativeQuery.Where(x=>!db.BookingItems.Any(i=>i.AssetId==x.Id&&i.StartAt<rangeEnd&&rangeStart<i.EndAt&&i.Booking!.Status!=BookingStatus.Cancelled&&i.Booking.Status!=BookingStatus.Expired));}
         var alternatives=await alternativeQuery.Select(x=>new{x.Id,x.AssetNumber,x.Name,x.Status}).Take(8).ToListAsync(token);
-        return Ok(new{asset,availability=new{isAvailable=asset.Status==AssetStatus.Available,unavailableReason,expectedAvailableAt=future.Select(x=>(DateTimeOffset?)x.EndAt).FirstOrDefault(),bookings=bookingItems.Select(x=>new{x.StartAt,x.EndAt,status=x.Booking!.Status,reference=x.Booking.BookingNumber}),maintenance=maintenance.Select(x=>new{x.ReportedAt,endAt=x.CompletedAt,status=x.Status,reference=x.JobNumber}),transfers},alternatives,inspections,meters,maintenance,documents,lifecycle,audits});
+        var assetProfile=new
+        {
+            asset.Id,asset.AssetNumber,asset.Name,asset.Type,asset.Status,asset.DivisionId,asset.ServiceOfferingId,
+            asset.BranchId,asset.RegistrationNumber,asset.SerialNumber,asset.Manufacturer,asset.Model,asset.ModelYear,
+            asset.VinOrChassisNumber,asset.EngineNumber,asset.MeterUnit,asset.CurrentMeterReading,asset.AcquisitionDate,
+            asset.AcquisitionCost,asset.CurrentBookValue,asset.OwnershipType,asset.InsurancePolicyNumber,
+            asset.InsuranceExpiry,asset.WarrantyExpiry,asset.CurrentLocation,asset.PhotoUrlsJson,asset.Category,
+            asset.AssetCategoryId,asset.SpecificationsJson,asset.PersonnelRequirement,asset.DailyRate,asset.NextServiceDate,
+            asset.IsActive,
+            branch=asset.Branch is null?null:new{asset.Branch.Id,asset.Branch.Code,asset.Branch.Name},
+            division=asset.Division is null?null:new{asset.Division.Id,asset.Division.Code,asset.Division.Name},
+            serviceOffering=asset.ServiceOffering is null?null:new{asset.ServiceOffering.Id,asset.ServiceOffering.Code,asset.ServiceOffering.Name},
+            assetCategory=asset.AssetCategory is null?null:new{asset.AssetCategory.Id,asset.AssetCategory.Code,asset.AssetCategory.Name,asset.AssetCategory.DefaultMeterType},
+            attributeValues=asset.AttributeValues.Select(value=>new
+            {
+                value.Id,value.AttributeDefinitionId,value.Value,
+                attributeDefinition=value.AttributeDefinition is null?null:new
+                {
+                    value.AttributeDefinition.Id,value.AttributeDefinition.Code,value.AttributeDefinition.Name,
+                    value.AttributeDefinition.DataType,value.AttributeDefinition.Unit,value.AttributeDefinition.IsRequired,
+                    value.AttributeDefinition.IsCustomerVisible,value.AttributeDefinition.DisplayOrder
+                }
+            })
+        };
+        return Ok(new{asset=assetProfile,availability=new{isAvailable=asset.Status==AssetStatus.Available,unavailableReason,expectedAvailableAt=future.Select(x=>(DateTimeOffset?)x.EndAt).FirstOrDefault(),bookings=bookingItems.Select(x=>new{x.StartAt,x.EndAt,status=x.Booking!.Status,reference=x.Booking.BookingNumber}),maintenance=maintenance.Select(x=>new{x.ReportedAt,endAt=x.CompletedAt,status=x.Status,reference=x.JobNumber}),transfers},alternatives,inspections,meters,maintenance,documents,lifecycle,audits});
     }
 
     [HttpPut("attributes"),Authorize(Policy=SystemPermissions.AssetsEdit)]

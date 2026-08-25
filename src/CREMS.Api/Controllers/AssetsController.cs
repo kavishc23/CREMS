@@ -6,17 +6,22 @@ using CREMS.Api.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace CREMS.Api.Controllers;
 
 [ApiController]
 [Route("api/assets")]
 [Authorize(Policy = SystemPolicies.ViewAssets)]
-public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
+public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope staffScope, IWebHostEnvironment environment) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<AssetResponse>>> GetAll(
         [FromQuery] string? search,
+        [FromQuery] Guid? divisionId,
+        [FromQuery] Guid? branchId,
+        [FromQuery] string? category,
+        [FromQuery] AssetStatus? status,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
         CancellationToken cancellationToken = default)
@@ -26,7 +31,11 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         var scope = await staffScope.GetAsync(User);
         if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
         var query = db.Assets.AsNoTracking();
-        if (!scope.IsAdministrator) query = query.Where(asset => asset.BranchId == scope.BranchId && asset.DivisionId == scope.DivisionId);
+        if (!scope.IsAdministrator) query = query.Where(asset => scope.BranchIds.Contains(asset.BranchId) && asset.DivisionId.HasValue && scope.DivisionIds.Contains(asset.DivisionId.Value));
+        if (divisionId.HasValue) query = query.Where(asset => asset.DivisionId == divisionId);
+        if (branchId.HasValue) query = query.Where(asset => asset.BranchId == branchId);
+        if (!string.IsNullOrWhiteSpace(category)) query = query.Where(asset => asset.Category == category.Trim());
+        if (status.HasValue) query = query.Where(asset => asset.Status == status);
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
@@ -56,6 +65,27 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
                 asset.DailyRate, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.CurrentLocation, asset.PhotoUrlsJson))
             .ToListAsync(cancellationToken);
         return Ok(assets);
+    }
+
+    [HttpGet("summary")]
+    public async Task<ActionResult> GetSummary(CancellationToken cancellationToken)
+    {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || (!scope.IsAdministrator && scope.BranchIds.Count == 0)) return Forbid();
+        var query = db.Assets.AsNoTracking().Where(asset => asset.IsActive);
+        if (!scope.IsAdministrator) query = query.Where(asset => scope.BranchIds.Contains(asset.BranchId) && asset.DivisionId.HasValue && scope.DivisionIds.Contains(asset.DivisionId.Value));
+        var counts = await query.GroupBy(asset => asset.Status).Select(group => new { Status = group.Key, Count = group.Count() }).ToDictionaryAsync(item => item.Status, item => item.Count, cancellationToken);
+        var categories = await query.Where(asset => asset.Category != null).Select(asset => asset.Category!).Distinct().OrderBy(value => value).ToListAsync(cancellationToken);
+        return Ok(new {
+            total = await query.CountAsync(cancellationToken),
+            available = counts.GetValueOrDefault(AssetStatus.Available),
+            onHire = counts.GetValueOrDefault(AssetStatus.Rented),
+            reserved = counts.GetValueOrDefault(AssetStatus.Reserved),
+            maintenance = counts.GetValueOrDefault(AssetStatus.Maintenance),
+            inspection = counts.GetValueOrDefault(AssetStatus.Inspection),
+            outOfService = counts.GetValueOrDefault(AssetStatus.OutOfService),
+            categories
+        });
     }
 
     [HttpPost]
@@ -188,6 +218,59 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         return NoContent();
     }
 
+    [HttpPost("{id:guid}/photos")]
+    [Authorize(Roles = "SuperAdministrator,Administrator,BranchManager,RentalOfficer")]
+    [RequestSizeLimit(5_500_000)]
+    public async Task<ActionResult> UploadPhoto(Guid id, [FromForm] IFormFile file, CancellationToken token)
+    {
+        var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == id, token);
+        if (asset is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
+        if (file.Length is <= 0 or > 5_242_880) return BadRequest(new { message = "Choose a JPEG, PNG or WebP image no larger than 5 MB." });
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (extension is not (".jpg" or ".jpeg" or ".png" or ".webp")) return BadRequest(new { message = "Only JPEG, PNG and WebP asset photos are accepted." });
+        await using var source = new MemoryStream();
+        await file.CopyToAsync(source, token);
+        var bytes = source.ToArray();
+        if (!HasValidImageSignature(extension, bytes)) return BadRequest(new { message = "The image content does not match its file extension." });
+
+        var urls = ParsePhotoUrls(asset.PhotoUrlsJson);
+        if (urls.Count >= 8) return BadRequest(new { message = "An asset can have up to eight photos. Remove an existing photo first." });
+        var storageName = $"{Guid.NewGuid():N}{extension}";
+        var root = Path.Combine(environment.ContentRootPath, "App_Data", "asset-images", asset.Id.ToString("N"));
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, storageName);
+        await System.IO.File.WriteAllBytesAsync(path, bytes, token);
+        var url = $"/api/public/assets/{asset.Id}/photos/{storageName}";
+        urls.Add(url);
+        asset.PhotoUrlsJson = JsonSerializer.Serialize(urls);
+        AuditWriter.Record(db, scope, "Asset photo uploaded", "Asset", asset.Id, $"A catalogue photo was added to {asset.AssetNumber}.", asset.BranchId);
+        await db.SaveChangesAsync(token);
+        return Ok(new { url, photoUrls = urls });
+    }
+
+    [HttpDelete("{id:guid}/photos/{fileName}")]
+    [Authorize(Roles = "SuperAdministrator,Administrator,BranchManager,RentalOfficer")]
+    public async Task<ActionResult> DeletePhoto(Guid id, string fileName, CancellationToken token)
+    {
+        var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == id, token);
+        if (asset is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
+        var safeName = Path.GetFileName(fileName);
+        if (!string.Equals(safeName, fileName, StringComparison.Ordinal)) return BadRequest();
+        var url = $"/api/public/assets/{asset.Id}/photos/{safeName}";
+        var urls = ParsePhotoUrls(asset.PhotoUrlsJson);
+        if (!urls.Remove(url)) return NotFound();
+        var path = Path.Combine(environment.ContentRootPath, "App_Data", "asset-images", asset.Id.ToString("N"), safeName);
+        if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+        asset.PhotoUrlsJson = JsonSerializer.Serialize(urls);
+        AuditWriter.Record(db, scope, "Asset photo removed", "Asset", asset.Id, $"A catalogue photo was removed from {asset.AssetNumber}.", asset.BranchId);
+        await db.SaveChangesAsync(token);
+        return Ok(new { photoUrls = urls });
+    }
+
     [HttpGet("{id:guid}/performance")]
     [Authorize(Policy = SystemPolicies.ViewReports)]
     public async Task<ActionResult> Performance(Guid id, CancellationToken cancellationToken)
@@ -232,6 +315,20 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static List<string> ParsePhotoUrls(string? json)
+    {
+        try { return JsonSerializer.Deserialize<List<string>>(json ?? "[]") ?? []; }
+        catch (JsonException) { return []; }
+    }
+
+    private static bool HasValidImageSignature(string extension, byte[] bytes) => extension switch
+    {
+        ".png" => bytes.Length >= 8 && bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }),
+        ".jpg" or ".jpeg" => bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF,
+        ".webp" => bytes.Length >= 12 && bytes.AsSpan(0, 4).SequenceEqual("RIFF"u8) && bytes.AsSpan(8, 4).SequenceEqual("WEBP"u8),
+        _ => false,
+    };
 
     private async Task<bool> ValidClassification(SaveAssetRequest request, CancellationToken token)
     {

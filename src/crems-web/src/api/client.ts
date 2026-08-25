@@ -17,7 +17,21 @@ export const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
+  if (config.data instanceof FormData) delete config.headers['Content-Type']
   config.headers['X-CREMS-Window-Id'] = getWindowSessionId()
   config.headers.Accept = 'application/json'
   return config
 })
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status
+    const requestUrl = String(error?.config?.url ?? '')
+    const isAuthenticationAttempt = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/mfa/verify')
+    if (status === 401 && !isAuthenticationAttempt) {
+      window.dispatchEvent(new CustomEvent('crems:session-expired'))
+    }
+    return Promise.reject(error)
+  },
+)

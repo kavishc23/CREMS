@@ -34,10 +34,11 @@ public static class DatabaseInitializer
             }
         }
         await SeedRolePermissionsAsync(db, cancellationToken);
+        await DisableLegacyDriverAccessAsync(db, roleManager, userManager, cancellationToken);
 
         if (app.Environment.IsDevelopment())
         {
-            await SeedDevelopmentDataAsync(db, userManager, cancellationToken);
+            await SeedDevelopmentDataAsync(db, userManager, app.Environment.ContentRootPath, cancellationToken);
         }
 
         var email = app.Configuration["BootstrapAdmin:Email"];
@@ -77,6 +78,7 @@ public static class DatabaseInitializer
     private static async Task SeedDevelopmentDataAsync(
         ApplicationDbContext db,
         UserManager<ApplicationUser> userManager,
+        string contentRootPath,
         CancellationToken cancellationToken)
     {
         if (!await db.SystemSettings.AnyAsync(cancellationToken))
@@ -493,6 +495,57 @@ public static class DatabaseInitializer
             .ToListAsync(cancellationToken);
         foreach (var asset in obsoleteShippingAssets) { asset.IsActive = false; asset.Status = AssetStatus.Retired; }
         await db.SaveChangesAsync(cancellationToken);
+
+        var vehicleAttributeSeeds = new Dictionary<string, (string Seats, string Transmission, string FuelType)>
+        {
+            ["VEH-SUV-1001"] = ("5", "Manual", "Diesel"),
+            ["VEH-NAD-1001"] = ("5", "Automatic", "Petrol"),
+            ["VEH-LAU-1001"] = ("5", "Automatic", "Diesel"),
+            ["VEH-SUV-1002"] = ("16", "Manual", "Diesel"),
+            ["VEH-LAB-1001"] = ("6", "Manual", "Diesel"),
+            ["VEH-SUV-1003"] = ("7", "Automatic", "Hybrid"),
+            ["VEH-NAD-1002"] = ("5", "Automatic", "Petrol"),
+            ["VEH-LAU-1002"] = ("5", "Automatic", "Petrol"),
+            ["VEH-LAB-1002"] = ("11", "Automatic", "Diesel"),
+            ["VEH-SUV-1004"] = ("37", "Manual", "Diesel"),
+            ["VEH-NAD-1003"] = ("5", "Automatic", "Hybrid"),
+            ["VEH-LAU-1003"] = ("5", "Automatic", "Petrol"),
+        };
+        var vehicleCategoryId = categories["RENTAL_VEHICLE"].Id;
+        var vehicleDefinitions = await db.AssetAttributeDefinitions
+            .Where(definition => definition.AssetCategoryId == vehicleCategoryId &&
+                new[] { "SEATS", "TRANSMISSION", "FUEL_TYPE" }.Contains(definition.Code))
+            .ToDictionaryAsync(definition => definition.Code, cancellationToken);
+        var seededVehicleAssets = await db.Assets
+            .Where(asset => vehicleAttributeSeeds.Keys.Contains(asset.AssetNumber))
+            .ToDictionaryAsync(asset => asset.AssetNumber, cancellationToken);
+        var seededVehicleIds = seededVehicleAssets.Values.Select(asset => asset.Id).ToArray();
+        var existingVehicleAttributes = await db.AssetAttributeValues
+            .Where(value => seededVehicleIds.Contains(value.AssetId))
+            .ToListAsync(cancellationToken);
+        foreach (var (assetNumber, specification) in vehicleAttributeSeeds)
+        {
+            if (!seededVehicleAssets.TryGetValue(assetNumber, out var asset)) continue;
+            foreach (var (code, value) in new[]
+            {
+                ("SEATS", specification.Seats),
+                ("TRANSMISSION", specification.Transmission),
+                ("FUEL_TYPE", specification.FuelType),
+            })
+            {
+                if (!vehicleDefinitions.TryGetValue(code, out var definition)) continue;
+                var attribute = existingVehicleAttributes.FirstOrDefault(item =>
+                    item.AssetId == asset.Id && item.AttributeDefinitionId == definition.Id);
+                if (attribute is null)
+                {
+                    attribute = new AssetAttributeValue { AssetId = asset.Id, AttributeDefinitionId = definition.Id };
+                    db.AssetAttributeValues.Add(attribute);
+                    existingVehicleAttributes.Add(attribute);
+                }
+                attribute.Value = value;
+            }
+        }
+        await db.SaveChangesAsync(cancellationToken);
         await PurgeRetiredAssetsAsync(db, cancellationToken);
 
         var legacyCustomerNumbers = new Dictionary<string, string>
@@ -595,8 +648,6 @@ public static class DatabaseInitializer
             new DevelopmentUserSeed("maintenance.lautoka@crems.local", "Viliame Mataitoga", SystemRoles.MaintenanceOfficer, "CARPTRAC", "LAU", null),
             new DevelopmentUserSeed("maintenance.labasa@crems.local", "Arun Prasad", SystemRoles.MaintenanceOfficer, "CARPTRAC", "LAB", null),
             new DevelopmentUserSeed("finance.suva@crems.local", "Ana Rokovada", SystemRoles.FinanceOfficer, "MOTORS", "SUV", null),
-            new DevelopmentUserSeed("driver.suva@crems.local", "Rajnesh Kumar", SystemRoles.Driver, "MOTORS", "SUV", null),
-            new DevelopmentUserSeed("driver.nadi@crems.local", "Josaia Tawake", SystemRoles.Driver, "MOTORS", "NAD", null),
             new DevelopmentUserSeed("customer.arieta@crems.local", "Arieta Vula", SystemRoles.Customer, null, null, "CUS-000001"),
             new DevelopmentUserSeed("customer.rakesh@crems.local", "Rakesh Kumar", SystemRoles.Customer, null, null, "CUS-000004"),
             new DevelopmentUserSeed("customer.pacificcivil@crems.local", "Pacific Civil Works", SystemRoles.Customer, null, null, "BUS-000001"),
@@ -727,7 +778,241 @@ public static class DatabaseInitializer
             db.BusinessAlertRules.AddRange(new BusinessAlertRule { Name = "Overdue rental", Category = AlertCategory.OverdueReturn, LeadTimeHours = 0, Priority = TaskPriority.Critical, EmailEnabled = true }, new BusinessAlertRule { Name = "Maintenance due within seven days", Category = AlertCategory.MaintenanceDue, LeadTimeHours = 168, Priority = TaskPriority.High }, new BusinessAlertRule { Name = "Licence expiry within 30 days", Category = AlertCategory.ExpiringLicence, LeadTimeHours = 720, Priority = TaskPriority.High }, new BusinessAlertRule { Name = "Unpaid invoice after terms", Category = AlertCategory.UnpaidInvoice, LeadTimeHours = 720, Priority = TaskPriority.High, EmailEnabled = true });
         if (!await db.AssetLifecycleEvents.AnyAsync(cancellationToken))
             foreach (var asset in seededAssets.Values) db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = asset.Id, Type = asset.AcquisitionDate.HasValue ? AssetLifecycleEventType.Commissioned : AssetLifecycleEventType.Available, ToStatus = asset.Status, OccurredAt = asset.AcquisitionDate.HasValue ? new DateTimeOffset(asset.AcquisitionDate.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(12)) : asset.CreatedAt, MeterReading = asset.CurrentMeterReading, Notes = "Initial lifecycle record created from the asset register.", RecordedByUserId = Guid.Empty, RecordedByName = "CREMS System" });
+        await SeedOperationalHistoryAsync(db, seededAssets, cancellationToken);
+        await SeedAssetPhotosAsync(db, seededAssets, contentRootPath, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task SeedOperationalHistoryAsync(
+        ApplicationDbContext db,
+        IReadOnlyDictionary<string, Asset> assets,
+        CancellationToken token)
+    {
+        var bookings = await db.Bookings.Include(x => x.Items).Include(x => x.Customer)
+            .Where(x => x.BookingNumber.StartsWith("BK-2026-"))
+            .ToDictionaryAsync(x => x.BookingNumber, token);
+
+        if (!await db.AssetInspections.AnyAsync(token))
+        {
+            var templates = await db.InspectionTemplates.AsNoTracking().ToListAsync(token);
+            foreach (var booking in bookings.Values.Where(x => x.Status is BookingStatus.Completed or BookingStatus.ConvertedToRental))
+            {
+                var item = booking.Items.Single();
+                var asset = assets.Values.Single(x => x.Id == item.AssetId);
+                var preTemplate = templates.FirstOrDefault(x => x.AssetCategoryId == asset.AssetCategoryId && x.Stage == InspectionStage.PreHire);
+                db.AssetInspections.Add(new AssetInspection
+                {
+                    AssetId = asset.Id, BookingId = booking.Id, TemplateId = preTemplate?.Id,
+                    Stage = InspectionStage.PreHire, Outcome = InspectionOutcome.Passed,
+                    ResponsesJson = "[{\"section\":\"Condition\",\"result\":\"Passed\"},{\"section\":\"Safety and accessories\",\"result\":\"Passed\"}]",
+                    MeterReading = asset.CurrentMeterReading.HasValue ? asset.CurrentMeterReading - (asset.Type == AssetType.Vehicle ? 420 : 18) : null,
+                    FuelPercent = asset.Type == AssetType.Vehicle ? 100 : 85,
+                    CustomerSignatureName = booking.Customer?.Name ?? "Customer representative",
+                    StaffSignatureName = "Rental Operations Team", CompletedByUserId = Guid.Empty,
+                    CompletedByName = "Rental Operations Team", CompletedAt = item.StartAt.AddHours(-1),
+                    Notes = "Identification, asset condition, issued accessories and operating controls verified before release."
+                });
+                if (booking.Status != BookingStatus.Completed) continue;
+                var postTemplate = templates.FirstOrDefault(x => x.AssetCategoryId == asset.AssetCategoryId && x.Stage == InspectionStage.PostHire);
+                db.AssetInspections.Add(new AssetInspection
+                {
+                    AssetId = asset.Id, BookingId = booking.Id, TemplateId = postTemplate?.Id,
+                    Stage = InspectionStage.PostHire, Outcome = booking.BookingNumber == "BK-2026-0002" ? InspectionOutcome.PassedWithNotes : InspectionOutcome.Passed,
+                    ResponsesJson = "[{\"section\":\"Return condition\",\"result\":\"Passed\"},{\"section\":\"Meter and fuel\",\"result\":\"Recorded\"}]",
+                    MeterReading = asset.CurrentMeterReading, FuelPercent = asset.Type == AssetType.Vehicle ? 72 : 55,
+                    CustomerSignatureName = booking.Customer?.Name ?? "Customer representative",
+                    StaffSignatureName = "Rental Operations Team", CompletedByUserId = Guid.Empty,
+                    CompletedByName = "Rental Operations Team", CompletedAt = item.EndAt.AddMinutes(35),
+                    Notes = booking.BookingNumber == "BK-2026-0002"
+                        ? "Returned operational. Light bucket wear noted and referred for the next planned service."
+                        : "Returned in serviceable condition with no new damage recorded."
+                });
+            }
+        }
+
+        if (!await db.AssetMeterReadings.AnyAsync(token))
+        {
+            foreach (var asset in assets.Values.Where(x => x.CurrentMeterReading.HasValue).Take(18))
+            {
+                var current = asset.CurrentMeterReading!.Value;
+                var type = asset.Type == AssetType.Vehicle ? MeterType.Odometer : MeterType.EngineHours;
+                var increment = asset.Type == AssetType.Vehicle ? 760m : 42m;
+                db.AssetMeterReadings.AddRange(
+                    new AssetMeterReading { AssetId = asset.Id, Type = type, Unit = asset.MeterUnit ?? (asset.Type == AssetType.Vehicle ? "km" : "hours"), Reading = Math.Max(0, current - increment), FuelPercent = 90, RecordedAt = DateTimeOffset.UtcNow.AddDays(-45), Source = MeterReadingSource.Manual, RecordedByUserId = Guid.Empty },
+                    new AssetMeterReading { AssetId = asset.Id, Type = type, Unit = asset.MeterUnit ?? (asset.Type == AssetType.Vehicle ? "km" : "hours"), Reading = Math.Max(0, current - increment / 2), FuelPercent = 70, RecordedAt = DateTimeOffset.UtcNow.AddDays(-20), Source = MeterReadingSource.Maintenance, RecordedByUserId = Guid.Empty },
+                    new AssetMeterReading { AssetId = asset.Id, Type = type, Unit = asset.MeterUnit ?? (asset.Type == AssetType.Vehicle ? "km" : "hours"), Reading = current, FuelPercent = 82, RecordedAt = DateTimeOffset.UtcNow.AddDays(-2), Source = MeterReadingSource.Manual, RecordedByUserId = Guid.Empty });
+            }
+        }
+
+        var maintenanceSeeds = new[]
+        {
+            new { Number = "MNT-2026-0101", Asset = "VEH-NAD-1002", Type = "Preventive service", Fault = "Scheduled oil, filter, brake and tyre inspection", Status = MaintenanceStatus.Completed, Parts = 185m, Labour = 140m, Transport = 0m, Downtime = 7 },
+            new { Number = "MNT-2026-0102", Asset = "EQP-LAU-2002", Type = "Hydraulic inspection", Fault = "Inspect hoses and bucket linkage following return note", Status = MaintenanceStatus.Completed, Parts = 265m, Labour = 310m, Transport = 85m, Downtime = 14 },
+            new { Number = "MNT-2026-0103", Asset = "EQP-SUV-2002", Type = "500-hour service", Fault = "Engine oil, filters, mast lubrication and brake adjustment", Status = MaintenanceStatus.Completed, Parts = 420m, Labour = 285m, Transport = 0m, Downtime = 9 },
+            new { Number = "MNT-2026-0104", Asset = "VEH-LAU-1002", Type = "Tyre replacement", Fault = "Replace two front tyres and complete wheel alignment", Status = MaintenanceStatus.InProgress, Parts = 690m, Labour = 95m, Transport = 0m, Downtime = 5 },
+            new { Number = "MNT-2026-0105", Asset = "EQP-NAD-2002", Type = "Electrical diagnosis", Fault = "Investigate intermittent control-panel warning under load", Status = MaintenanceStatus.WaitingForParts, Parts = 540m, Labour = 220m, Transport = 80m, Downtime = 18 },
+        };
+        var maintenanceNumbers = await db.MaintenanceJobs.Select(x => x.JobNumber).ToHashSetAsync(token);
+        foreach (var seed in maintenanceSeeds.Where(x => !maintenanceNumbers.Contains(x.Number)))
+        {
+            if (!assets.TryGetValue(seed.Asset, out var asset)) continue;
+            var completed = seed.Status == MaintenanceStatus.Completed;
+            db.MaintenanceJobs.Add(new MaintenanceJob
+            {
+                JobNumber = seed.Number, AssetId = asset.Id, BranchId = asset.BranchId,
+                Status = seed.Status, ServiceType = seed.Type, FaultDescription = seed.Fault,
+                Description = "Workshop record created from the asset service schedule and inspection findings.",
+                Priority = completed ? MaintenancePriority.Normal : MaintenancePriority.High,
+                AssignedTo = asset.Type == AssetType.Vehicle ? "Carpenters Motors Workshop" : "Carptrac Service Department",
+                Supplier = "Carpenters Parts", IsPreventive = seed.Type.Contains("service", StringComparison.OrdinalIgnoreCase),
+                EstimatedCost = seed.Parts + seed.Labour + seed.Transport + 75m,
+                PartsCost = seed.Parts, LabourCost = seed.Labour, TransportCost = seed.Transport,
+                ActualCost = completed ? seed.Parts + seed.Labour + seed.Transport : null,
+                PartsUsed = completed ? "Service filters, lubricants and workshop consumables" : null,
+                MeterReading = asset.CurrentMeterReading, DowntimeHours = seed.Downtime,
+                ReportedAt = DateTimeOffset.UtcNow.AddDays(completed ? -24 : -3),
+                CompletedAt = completed ? DateTimeOffset.UtcNow.AddDays(-23) : null,
+                NextServiceDate = DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(completed ? 6 : 1)),
+                NextServiceMeter = asset.CurrentMeterReading + (asset.Type == AssetType.Vehicle ? 10_000 : 500)
+            });
+            if (!completed) asset.Status = AssetStatus.Maintenance;
+        }
+
+        if (!await db.AssetCostEntries.AnyAsync(token))
+        {
+            var costSeeds = new[]
+            {
+                new { Asset = "VEH-SUV-1003", Category = AssetCostCategory.Registration, Description = "Annual registration and inspection", Amount = 348m, Supplier = "Land Transport Authority", Reference = "LTA-26-10528" },
+                new { Asset = "VEH-NAD-1001", Category = AssetCostCategory.Cleaning, Description = "Post-hire valet and interior sanitisation", Amount = 68m, Supplier = "Nadi Fleet Care", Reference = "NFC-1842" },
+                new { Asset = "EQP-LAU-2002", Category = AssetCostCategory.Transport, Description = "Low-bed transport from customer site to Lautoka workshop", Amount = 420m, Supplier = "Western Haulage", Reference = "WH-260811" },
+                new { Asset = "EQP-SUV-2002", Category = AssetCostCategory.Fuel, Description = "Diesel replenishment after equipment return", Amount = 176m, Supplier = "Carpenters Service Station", Reference = "FUEL-82614" },
+                new { Asset = "VEH-SUV-1001", Category = AssetCostCategory.Insurance, Description = "Monthly comprehensive fleet insurance allocation", Amount = 215m, Supplier = "Fleet insurance allocation", Reference = "INS-2026-08" },
+                new { Asset = "SHP-SUV-3001", Category = AssetCostCategory.Cleaning, Description = "Sanitisation consumables and labour", Amount = 42m, Supplier = "Shipping Hire Operations", Reference = "SH-CLEAN-118" },
+            };
+            foreach (var seed in costSeeds)
+            {
+                var asset = assets[seed.Asset];
+                db.AssetCostEntries.Add(new AssetCostEntry { AssetId = asset.Id, BranchId = asset.BranchId, Category = seed.Category,
+                    Description = seed.Description, Amount = seed.Amount, OccurredOn = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-12)),
+                    Supplier = seed.Supplier, ReferenceNumber = seed.Reference, RecordedByUserId = Guid.Empty, RecordedByName = "CREMS Finance Seed" });
+            }
+        }
+
+        foreach (var booking in bookings.Values.Where(x => x.Status == BookingStatus.Completed))
+        {
+            if (!await db.RentalInvoices.AnyAsync(x => x.BookingId == booking.Id, token))
+            {
+                var item = booking.Items.Single();
+                var days = Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays));
+                var subtotal = days * item.DailyRate;
+                var tax = Math.Round(subtotal * .15m, 2);
+                var paid = booking.BookingNumber == "BK-2026-0002" ? Math.Round((subtotal + tax) * .6m, 2) : subtotal + tax;
+                db.RentalInvoices.Add(new RentalInvoice
+                {
+                    InvoiceNumber = booking.BookingNumber.Replace("BK", "INV"), BookingId = booking.Id,
+                    LineItemsJson = JsonSerializer.Serialize(new[] { new { description = "Rental hire", quantity = days, unitPrice = item.DailyRate } }),
+                    Subtotal = subtotal, TaxAmount = tax, Total = subtotal + tax, AmountPaid = paid,
+                    BalanceDue = subtotal + tax - paid, Status = paid >= subtotal + tax ? InvoiceStatus.Paid : InvoiceStatus.PartiallyPaid,
+                    IssuedAt = item.EndAt.AddHours(2), TaxInclusive = false,
+                    Lines = [new InvoiceLine { Description = "Rental hire", Quantity = days, UnitPrice = item.DailyRate, TaxRate = 15m }]
+                });
+                db.RentalPayments.Add(new RentalPayment { BookingId = booking.Id, Type = PaymentType.RentalCharge,
+                    Method = booking.Customer?.Type == CustomerType.Business ? PaymentMethod.BankTransfer : PaymentMethod.Card,
+                    Amount = paid, ReceiptNumber = booking.BookingNumber.Replace("BK", "RCT"), Status = PaymentStatus.Recorded,
+                    Note = "Payment recorded against completed rental.", RecordedByUserId = Guid.Empty, RecordedByName = "CREMS Finance Seed" });
+            }
+        }
+
+        foreach (var booking in bookings.Values.Where(x => x.Status is BookingStatus.Completed or BookingStatus.ConvertedToRental))
+        {
+            if (!await db.RentalAgreements.AnyAsync(x => x.BookingId == booking.Id, token))
+            {
+                var item = booking.Items.Single();
+                var asset = assets.Values.Single(x => x.Id == item.AssetId);
+                db.RentalAgreements.Add(new RentalAgreement
+                {
+                    AgreementNumber = booking.BookingNumber.Replace("BK", "RA"), BookingId = booking.Id, BranchId = booking.BranchId,
+                    TermsVersion = "CREMS-2026.1", TermsJson = "{\"accepted\":true,\"fuelAndDamageTerms\":true}",
+                    CustomerSnapshotJson = JsonSerializer.Serialize(new { booking.Customer?.CustomerNumber, booking.Customer?.Name, booking.Customer?.Email }),
+                    AssetSnapshotJson = JsonSerializer.Serialize(new { asset.AssetNumber, asset.Name, asset.RegistrationNumber, asset.SerialNumber }),
+                    PricingSnapshotJson = JsonSerializer.Serialize(new { item.DailyRate, booking.TaxRate, booking.DepositRequired }),
+                    CustomerSignatureName = booking.Customer?.Name ?? "Customer representative", CustomerSignedAt = item.StartAt.AddMinutes(-25),
+                    ApprovedByUserId = Guid.Empty, ApprovedByName = "Rental Operations Team", ApprovedAt = item.StartAt.AddMinutes(-15),
+                    Status = booking.Status == BookingStatus.Completed ? AgreementStatus.Completed : AgreementStatus.Active
+                });
+            }
+            if (!await db.AssetLifecycleEvents.AnyAsync(x => x.BookingId == booking.Id, token))
+            {
+                var item = booking.Items.Single();
+                var asset = assets.Values.Single(x => x.Id == item.AssetId);
+                db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = asset.Id, BookingId = booking.Id, Type = AssetLifecycleEventType.CheckedOut,
+                    FromStatus = AssetStatus.Reserved, ToStatus = AssetStatus.Rented, OccurredAt = item.StartAt, MeterReading = asset.CurrentMeterReading,
+                    Notes = $"Released under {booking.BookingNumber} after the pre-hire inspection.", RecordedByUserId = Guid.Empty, RecordedByName = "Rental Operations Team" });
+                if (booking.Status == BookingStatus.Completed)
+                    db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = asset.Id, BookingId = booking.Id, Type = AssetLifecycleEventType.ReturnedToService,
+                        FromStatus = AssetStatus.Inspection, ToStatus = AssetStatus.Available, OccurredAt = item.EndAt.AddHours(1), MeterReading = asset.CurrentMeterReading,
+                        Notes = "Post-hire inspection completed and asset returned to service.", RecordedByUserId = Guid.Empty, RecordedByName = "Rental Operations Team" });
+            }
+        }
+        await db.SaveChangesAsync(token);
+    }
+
+    private static async Task SeedAssetPhotosAsync(
+        ApplicationDbContext db,
+        IReadOnlyDictionary<string, Asset> assets,
+        string contentRootPath,
+        CancellationToken token)
+    {
+        var catalogueRoot = Path.GetFullPath(Path.Combine(contentRootPath, "..", "crems-web", "public", "catalog"));
+        if (!Directory.Exists(catalogueRoot)) return;
+        foreach (var asset in assets.Values)
+        {
+            var value = $"{asset.Name} {asset.Category}".ToLowerInvariant();
+            var sourceNames = value.Contains("portable toilet") ? new[] { "portable-toilet-v2.jpg" }
+                : value.Contains("scaffold") ? new[] { "scaffolding-v2.jpg" }
+                : value.Contains("bin") ? new[] { "big-bin-v2.jpg" }
+                : value.Contains("forklift") || value.Contains("telehandler") ? new[] { "forklift.jpg" }
+                : value.Contains("excavator") || value.Contains("backhoe") || value.Contains("loader") ? new[] { "excavator.jpg" }
+                : value.Contains("generator") ? new[] { "generator.jpg" }
+                : value.Contains("truck") || value.Contains("cargo") ? new[] { "truck.jpg" }
+                : value.Contains("urvan") || value.Contains("staria") || value.Contains("coach") ? new[] { "minibus.jpg" }
+                : value.Contains("navara") || value.Contains("d-max") ? new[] { "pickup-v2.jpg", "pickup.jpg" }
+                : value.Contains("sedan") || value.Contains("i10") ? new[] { "sedan.jpg" }
+                : asset.Type == AssetType.Vehicle ? new[] { "suv.jpg" }
+                : new[] { "scissor-lift.jpg" };
+            var storageRoot = Path.Combine(contentRootPath, "App_Data", "asset-images", asset.Id.ToString("N"));
+            Directory.CreateDirectory(storageRoot);
+            var urls = new List<string>();
+            try
+            {
+                foreach (var existingUrl in JsonSerializer.Deserialize<List<string>>(asset.PhotoUrlsJson) ?? [])
+                    if (existingUrl.StartsWith($"/api/public/assets/{asset.Id}/photos/", StringComparison.Ordinal) && !urls.Contains(existingUrl, StringComparer.Ordinal))
+                        urls.Add(existingUrl);
+            }
+            catch (JsonException) { /* Invalid legacy photo metadata is replaced by files found in storage. */ }
+            foreach (var existingFile in Directory.EnumerateFiles(storageRoot))
+            {
+                var extension = Path.GetExtension(existingFile).ToLowerInvariant();
+                if (extension is not (".jpg" or ".jpeg" or ".png" or ".webp")) continue;
+                var existingUrl = $"/api/public/assets/{asset.Id}/photos/{Path.GetFileName(existingFile)}";
+                if (!urls.Contains(existingUrl, StringComparer.Ordinal)) urls.Add(existingUrl);
+            }
+            foreach (var sourceName in sourceNames)
+            {
+                if (urls.Count >= 8) break;
+                var source = Path.Combine(catalogueRoot, sourceName);
+                if (!File.Exists(source)) continue;
+                var extension = Path.GetExtension(sourceName).ToLowerInvariant();
+                var storageName = $"seed-{Path.GetFileNameWithoutExtension(sourceName)}{extension}";
+                var destination = Path.Combine(storageRoot, storageName);
+                if (!File.Exists(destination)) File.Copy(source, destination);
+                var url = $"/api/public/assets/{asset.Id}/photos/{storageName}";
+                if (!urls.Contains(url, StringComparer.Ordinal)) urls.Add(url);
+            }
+            if (urls.Count > 0 && !string.Equals(asset.PhotoUrlsJson, JsonSerializer.Serialize(urls), StringComparison.Ordinal))
+                asset.PhotoUrlsJson = JsonSerializer.Serialize(urls);
+        }
+        await db.SaveChangesAsync(token);
     }
 
     private static void EnsureSucceeded(IdentityResult result, string operation)
@@ -747,7 +1032,6 @@ public static class DatabaseInitializer
             [SystemRoles.RentalOfficer] = [SystemPermissions.CustomersManageAccess, SystemPermissions.AssetsView, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter],
             [SystemRoles.MaintenanceOfficer] = [SystemPermissions.MaintenanceComplete, SystemPermissions.AssetsView, SystemPermissions.AssetsEdit, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter],
             [SystemRoles.FinanceOfficer] = [SystemPermissions.ReportsFinancial, SystemPermissions.AssetsView, SystemPermissions.AssetsViewFinancials],
-            [SystemRoles.Driver] = [SystemPermissions.AssetsView, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter],
         };
         foreach (var grant in grants)
             foreach (var permission in grant.Value)
@@ -757,6 +1041,39 @@ public static class DatabaseInitializer
             .Where(x => x.RoleName == SystemRoles.BranchManager && x.Permission == SystemPermissions.BranchesConfigure)
             .ToListAsync(token);
         db.RolePermissions.RemoveRange(obsoleteBranchManagerGrant);
+        await db.SaveChangesAsync(token);
+    }
+
+    private static async Task DisableLegacyDriverAccessAsync(
+        ApplicationDbContext db,
+        RoleManager<IdentityRole<Guid>> roleManager,
+        UserManager<ApplicationUser> userManager,
+        CancellationToken token)
+    {
+        const string legacyDriverRole = "Driver";
+        var legacyPermissions = await db.RolePermissions
+            .Where(permission => permission.RoleName == legacyDriverRole)
+            .ToListAsync(token);
+        db.RolePermissions.RemoveRange(legacyPermissions);
+
+        var role = await roleManager.FindByNameAsync(legacyDriverRole);
+        if (role is not null)
+        {
+            var userIds = await db.UserRoles
+                .Where(userRole => userRole.RoleId == role.Id)
+                .Select(userRole => userRole.UserId)
+                .ToListAsync(token);
+            var users = await db.Users.Where(user => userIds.Contains(user.Id)).ToListAsync(token);
+            foreach (var user in users.Where(user => user.IsActive || user.AccountStatus != AccountLifecycleStatus.Deactivated))
+            {
+                user.IsActive = false;
+                user.AccountStatus = AccountLifecycleStatus.Deactivated;
+                user.DeactivatedAt = DateTimeOffset.UtcNow;
+                user.AdminNote = "Portal access removed because drivers are not CREMS users.";
+                EnsureSucceeded(await userManager.UpdateSecurityStampAsync(user), $"revoke legacy driver access for {user.Email}");
+            }
+        }
+
         await db.SaveChangesAsync(token);
     }
 

@@ -12,6 +12,7 @@ import {
   DialogActions, DialogContent, DialogTitle, FormControl, IconButton,
   InputAdornment, InputLabel, MenuItem, Select, Stack, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography,
+  Grid,
 } from '@mui/material'
 import { api } from '../api/client'
 
@@ -47,6 +48,8 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form, setForm] = useState<CustomerForm>(emptyForm)
   const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState<'All' | CustomerType>('All')
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Verified' | 'Pending' | 'Blocked'>('All')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [activity, setActivity] = useState<CustomerActivity | null>(null)
@@ -69,9 +72,25 @@ export function CustomersPage({ administrationView = false }: { administrationVi
 
   const visibleCustomers = useMemo(() => {
     const term = search.trim().toLowerCase()
-    return term ? customers.filter((customer) => [customer.customerNumber, customer.name, customer.email, customer.phone, customer.identificationNumber]
-      .some((value) => value?.toLowerCase().includes(term))) : customers
-  }, [customers, search])
+    return customers.filter((customer) => {
+      const matchesSearch = !term || [customer.customerNumber, customer.name, customer.email, customer.phone, customer.identificationNumber]
+        .some((value) => value?.toLowerCase().includes(term))
+      const matchesType = typeFilter === 'All' || customer.type === typeFilter
+      const matchesStatus = statusFilter === 'All'
+        || (statusFilter === 'Verified' && customer.emailConfirmed)
+        || (statusFilter === 'Pending' && customer.hasOnlineAccount && !customer.emailConfirmed)
+        || (statusFilter === 'Blocked' && customer.isBlocked)
+      return matchesSearch && matchesType && matchesStatus
+    })
+  }, [customers, search, statusFilter, typeFilter])
+
+  const customerSummary = useMemo(() => [
+    { label: 'Total customers', value: customers.length, color: 'text.primary' },
+    { label: 'Online verified', value: customers.filter((item) => item.emailConfirmed).length, color: 'success.main' },
+    { label: 'Corporate accounts', value: customers.filter((item) => item.type === 'Business').length, color: 'info.main' },
+    { label: 'Pending activation', value: customers.filter((item) => item.hasOnlineAccount && !item.emailConfirmed).length, color: 'warning.main' },
+    { label: 'Blocked', value: customers.filter((item) => item.isBlocked).length, color: 'error.main' },
+  ], [customers])
 
   function openCreate() { setEditing(null); setForm(emptyForm); setError(''); setOpen(true) }
   function openEdit(customer: Customer) {
@@ -126,10 +145,17 @@ export function CustomersPage({ administrationView = false }: { administrationVi
     </Stack>
     {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     {notice && <Alert severity="success" sx={{ mb: 2 }}>{notice}</Alert>}
+    <Grid container spacing={2} mb={2.5}>
+      {customerSummary.map((item) => <Grid key={item.label} size={{ xs: 6, md: 4, lg: 2.4 }}><Card variant="outlined" sx={{ height: '100%' }}><CardContent sx={{ py: 2 }}><Typography variant="h4" fontWeight={800} color={item.color}>{item.value}</Typography><Typography variant="caption" color="text.secondary" fontWeight={700} textTransform="uppercase" letterSpacing={.6}>{item.label}</Typography></CardContent></Card></Grid>)}
+    </Grid>
     <Card variant="outlined"><CardContent sx={{ p: 0 }}>
-      <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}><TextField size="small" placeholder="Search customers" value={search}
-        onChange={(event) => setSearch(event.target.value)} sx={{ width: { xs: '100%', sm: 380 } }}
-        InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} /></Box>
+      <Stack direction={{ xs: 'column', lg: 'row' }} gap={1.5} sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+        <TextField size="small" placeholder="Search by name, customer number, email or phone" value={search}
+          onChange={(event) => setSearch(event.target.value)} sx={{ flex: 1, minWidth: 260 }}
+          InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} />
+        <Stack direction="row" gap={.75} flexWrap="wrap">{(['All', 'Individual', 'Business'] as const).map((value) => <Button key={value} size="small" variant={typeFilter === value ? 'contained' : 'outlined'} color="inherit" onClick={() => setTypeFilter(value)}>{value === 'Business' ? 'Corporate' : value}</Button>)}</Stack>
+        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Account status</InputLabel><Select label="Account status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>{['All', 'Verified', 'Pending', 'Blocked'].map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl>
+      </Stack>
       {loading ? <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> :
         <TableContainer><Table><TableHead><TableRow sx={{ bgcolor: '#f6f6f3' }}>
           <TableCell>Customer</TableCell><TableCell>Type</TableCell><TableCell>Contact</TableCell>

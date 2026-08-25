@@ -17,8 +17,25 @@ namespace CREMS.Api.Controllers;
 
 [ApiController]
 [Route("api/public")]
-public sealed class PublicRentalsController(ApplicationDbContext db, UserManager<ApplicationUser> userManager, IEmailQueue emailQueue) : ControllerBase
+public sealed class PublicRentalsController(ApplicationDbContext db, UserManager<ApplicationUser> userManager, IEmailQueue emailQueue, IWebHostEnvironment environment) : ControllerBase
 {
+    [HttpGet("assets/{assetId:guid}/photos/{fileName}")]
+    [AllowAnonymous]
+    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
+    public async Task<ActionResult> GetAssetPhoto(Guid assetId, string fileName, CancellationToken token)
+    {
+        var safeName = Path.GetFileName(fileName);
+        if (!string.Equals(safeName, fileName, StringComparison.Ordinal)) return BadRequest();
+        var expectedUrl = $"/api/public/assets/{assetId}/photos/{safeName}";
+        var json = await db.Assets.AsNoTracking().Where(x => x.Id == assetId && x.IsActive).Select(x => x.PhotoUrlsJson).FirstOrDefaultAsync(token);
+        if (json is null || !ParseJsonArray(json).Contains(expectedUrl, StringComparer.Ordinal)) return NotFound();
+        var root = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "App_Data", "asset-images", assetId.ToString("N")));
+        var path = Path.GetFullPath(Path.Combine(root, safeName));
+        if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !System.IO.File.Exists(path)) return NotFound();
+        var contentType = Path.GetExtension(path).ToLowerInvariant() switch { ".png" => "image/png", ".webp" => "image/webp", _ => "image/jpeg" };
+        return PhysicalFile(path, contentType, enableRangeProcessing: true);
+    }
+
     [HttpGet("divisions")]
     [AllowAnonymous]
     public async Task<ActionResult> GetDivisions(CancellationToken cancellationToken) => Ok(
@@ -98,6 +115,15 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 ServiceName = asset.ServiceOffering != null ? asset.ServiceOffering.Name : null,
                 RequiresQuote = asset.ServiceOffering != null && asset.ServiceOffering.RequiresQuote,
                 RequiresDelivery = asset.ServiceOffering != null && asset.ServiceOffering.RequiresDelivery,
+                asset.PhotoUrlsJson,
+                Attributes = asset.AttributeValues
+                    .Where(value => value.AttributeDefinition != null &&
+                        value.AttributeDefinition.IsCustomerVisible && value.AttributeDefinition.IsSearchable)
+                    .OrderBy(value => value.AttributeDefinition!.DisplayOrder)
+                    .Select(value => new PublicAssetAttributeResponse(
+                        value.AttributeDefinition!.Code, value.AttributeDefinition.Name,
+                        value.Value ?? string.Empty, value.AttributeDefinition.Unit))
+                    .ToList(),
             })
             .ToListAsync(cancellationToken);
 
@@ -106,7 +132,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.BranchId, asset.BranchName, asset.DailyRate,
             asset.RegistrationNumber, asset.SerialNumber,
             asset.DivisionId, asset.DivisionName, asset.Category, asset.PersonnelRequirement,
-            asset.ServiceName, asset.RequiresQuote, asset.RequiresDelivery,
+            asset.ServiceName, asset.RequiresQuote, asset.RequiresDelivery, asset.PhotoUrlsJson,
+            asset.Attributes,
             startDate.HasValue
                 ? !unavailableAssetIds.Contains(asset.Id)
                 : asset.Status == AssetStatus.Available)).ToList());
@@ -448,7 +475,9 @@ public sealed record PublicAssetResponse(
     Guid BranchId, string BranchName, decimal DailyRate,
     string? RegistrationNumber, string? SerialNumber, Guid? DivisionId,
     string? DivisionName, string? Category, PersonnelRequirement PersonnelRequirement,
-    string? ServiceName, bool RequiresQuote, bool RequiresDelivery, bool IsAvailable);
+    string? ServiceName, bool RequiresQuote, bool RequiresDelivery, string PhotoUrlsJson,
+    IReadOnlyList<PublicAssetAttributeResponse> Attributes, bool IsAvailable);
+public sealed record PublicAssetAttributeResponse(string Code, string Name, string Value, string? Unit);
 public sealed record PublicBookingRequest(
     Guid AssetId,
     DateOnly StartDate,

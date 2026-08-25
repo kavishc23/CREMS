@@ -1,19 +1,13 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined'
-import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import BuildCircleOutlined from '@mui/icons-material/BuildCircleOutlined'
 import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined'
 import DirectionsCarOutlined from '@mui/icons-material/DirectionsCarOutlined'
 import EventBusyOutlined from '@mui/icons-material/EventBusyOutlined'
-import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined'
-import QrCodeScannerOutlined from '@mui/icons-material/QrCodeScannerOutlined'
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined'
-import SettingsOutlined from '@mui/icons-material/SettingsOutlined'
 import TrendingUpOutlined from '@mui/icons-material/TrendingUpOutlined'
-import { Alert, Avatar, Box, Button, Card, CardContent, Chip, Grid, LinearProgress, Skeleton, Stack, Typography } from '@mui/material'
-import { canAccessPage, formatRole, getPrimaryRole, roles, type AppPage } from '../auth/access'
+import { Alert, Avatar, Box, Button, Card, CardContent, Chip, Grid, Skeleton, Stack, Typography } from '@mui/material'
+import { formatRole, getPrimaryRole, roles, type AppPage } from '../auth/access'
 import { api } from '../api/client'
-import { isPageEnabledForDemo } from '../config/demoMode'
 
 type DashboardPageProps = { userName: string; userRoles: string[]; onNavigate: (page: AppPage) => void }
 type DashboardSummary = {
@@ -21,11 +15,10 @@ type DashboardSummary = {
   pendingRequests: number; upcomingBookings: number; servicesDueSoon: number
   vehicleUtilization: number; equipmentUtilization: number; totalAssets: number
 }
+type OperationsSummary = { currentRevenue:number;previousRevenue:number;currentCosts:number;previousCosts:number;updatedAt:string;fleet:{division:string;status:string;count:number}[];alerts:{type:string;detail:string;priority:string;page:AppPage}[];activity:{id:string;action:string;summary:string;userName:string;occurredAt:string;branchName:string|null}[] }
 type MetricKey = keyof DashboardSummary
-type Action = { label: string; description: string; page: AppPage; icon: ReactNode }
 type RoleView = {
-  eyebrow: string; title: string; description: string
-  metricKeys: MetricKey[]; actions: Action[]; showUtilization?: boolean
+  eyebrow: string; title: string; metricKeys: MetricKey[]
 }
 
 const emptySummary: DashboardSummary = { availableAssets: 0, activeRentals: 0, underMaintenance: 0, overdueRentals: 0, pendingRequests: 0, upcomingBookings: 0, servicesDueSoon: 0, vehicleUtilization: 0, equipmentUtilization: 0, totalAssets: 0 }
@@ -42,25 +35,13 @@ const metricDetails: Record<MetricKey, { label: string; helper: string; icon: Re
   totalAssets: { label: 'Assets in scope', helper: 'Active register records', icon: <DirectionsCarOutlined />, tone: '#ffed00' },
 }
 
-const actions = {
-  bookings: { label: 'Review booking requests', description: 'Confirm customers, dates and asset availability.', page: 'bookings', icon: <CalendarMonthOutlined /> },
-  rentals: { label: 'Manage pickups and returns', description: 'Prepare agreements, check out and receive assets.', page: 'rentals', icon: <ReceiptLongOutlined /> },
-  assets: { label: 'Open asset register', description: 'Find an asset and review its operational profile.', page: 'assets', icon: <DirectionsCarOutlined /> },
-  maintenance: { label: 'Manage maintenance', description: 'Record faults, servicing, costs and completion.', page: 'maintenance', icon: <BuildCircleOutlined /> },
-  scan: { label: 'Scan an asset QR', description: 'Start a field check-in, check-out or inspection.', page: 'scan', icon: <QrCodeScannerOutlined /> },
-  reports: { label: 'Open management reports', description: 'Review utilization, profitability and trends.', page: 'reports', icon: <AssessmentOutlined /> },
-  users: { label: 'Manage staff access', description: 'Review users, roles and security controls.', page: 'users', icon: <ManageAccountsOutlined /> },
-  divisions: { label: 'Configure organization', description: 'Manage divisions, services and operational settings.', page: 'divisions', icon: <SettingsOutlined /> },
-} satisfies Record<string, Action>
-
 const roleViews: Record<string, RoleView> = {
-  [roles.superAdministrator]: { eyebrow: 'Group administration', title: 'System and group overview', description: 'Monitor group operations, then move into configuration or access only when required.', metricKeys: ['totalAssets', 'activeRentals', 'overdueRentals'], actions: [actions.users, actions.divisions, actions.reports], showUtilization: true },
-  [roles.administrator]: { eyebrow: 'Administration', title: 'Operations and access overview', description: 'Review group-wide activity and handle the administrative work requiring attention.', metricKeys: ['totalAssets', 'pendingRequests', 'overdueRentals'], actions: [actions.users, actions.reports, actions.assets], showUtilization: true },
-  [roles.branchManager]: { eyebrow: 'Branch management', title: 'Your branch at a glance', description: 'Focus on exceptions, fleet use and work waiting for branch approval.', metricKeys: ['activeRentals', 'overdueRentals', 'underMaintenance'], actions: [actions.bookings, actions.maintenance, actions.reports], showUtilization: true },
-  [roles.rentalOfficer]: { eyebrow: 'Rental desk', title: 'Today’s rental work', description: 'Work through requests, collections and returns without management-only information.', metricKeys: ['pendingRequests', 'upcomingBookings', 'overdueRentals'], actions: [actions.bookings, actions.rentals, actions.assets] },
-  [roles.maintenanceOfficer]: { eyebrow: 'Workshop', title: 'Maintenance work today', description: 'Prioritize unavailable assets and services approaching their due date.', metricKeys: ['underMaintenance', 'servicesDueSoon', 'availableAssets'], actions: [actions.maintenance, actions.scan, actions.assets] },
-  [roles.financeOfficer]: { eyebrow: 'Finance', title: 'Financial reporting workspace', description: 'Move directly into asset performance and management reporting for your assigned scope.', metricKeys: ['activeRentals', 'totalAssets', 'overdueRentals'], actions: [actions.reports, actions.assets] },
-  [roles.driver]: { eyebrow: 'Field operations', title: 'Your field tools', description: 'Identify assets quickly and complete the required handover or inspection workflow.', metricKeys: ['activeRentals', 'upcomingBookings', 'overdueRentals'], actions: [actions.scan, actions.assets] },
+  [roles.superAdministrator]: { eyebrow: 'Group administration', title: 'System and group overview', metricKeys: ['totalAssets', 'activeRentals', 'overdueRentals'] },
+  [roles.administrator]: { eyebrow: 'Administration', title: 'Operations and access overview', metricKeys: ['totalAssets', 'pendingRequests', 'overdueRentals'] },
+  [roles.branchManager]: { eyebrow: 'Branch management', title: 'Your branch at a glance', metricKeys: ['activeRentals', 'overdueRentals', 'underMaintenance'] },
+  [roles.rentalOfficer]: { eyebrow: 'Rental desk', title: 'Today’s rental work', metricKeys: ['pendingRequests', 'upcomingBookings', 'overdueRentals'] },
+  [roles.maintenanceOfficer]: { eyebrow: 'Workshop', title: 'Maintenance work today', metricKeys: ['underMaintenance', 'servicesDueSoon', 'availableAssets'] },
+  [roles.financeOfficer]: { eyebrow: 'Finance', title: 'Financial control workspace', metricKeys: ['activeRentals', 'totalAssets', 'overdueRentals'] },
 }
 
 function formatToday() {
@@ -68,26 +49,26 @@ function formatToday() {
 }
 
 export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPageProps) {
+  const primaryRole = getPrimaryRole(userRoles)
+  const canViewOperations = new Set<string>([roles.superAdministrator,roles.administrator,roles.branchManager,roles.financeOfficer]).has(primaryRole)
   const [summary, setSummary] = useState<DashboardSummary>(emptySummary)
+  const [operations,setOperations]=useState<OperationsSummary|null>(null)
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
   const loadSummary = useCallback(async () => {
     setLoading(true); setLoadFailed(false)
-    try { setSummary((await api.get<DashboardSummary>('/dashboard/summary')).data) }
+    try { const [summaryResponse,operationsResponse]=await Promise.all([api.get<DashboardSummary>('/dashboard/summary'),canViewOperations?api.get<OperationsSummary>('/dashboard/operations'):Promise.resolve(null)]);setSummary(summaryResponse.data);setOperations(operationsResponse?.data??null) }
     catch { setLoadFailed(true) }
     finally { setLoading(false) }
-  }, [])
-  useEffect(() => { void loadSummary() }, [loadSummary])
+  }, [canViewOperations])
+  useEffect(() => {
+    // Initial synchronization with the role-scoped dashboard summary.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadSummary()
+  }, [loadSummary])
 
-  const primaryRole = getPrimaryRole(userRoles)
   const view = roleViews[primaryRole] ?? roleViews[roles.rentalOfficer]
-  const availableActions = useMemo(() => view.actions.filter(action => canAccessPage(userRoles, action.page) && isPageEnabledForDemo(action.page)).slice(0, 3), [userRoles, view.actions])
   const firstName = userName.trim().split(/\s+/)[0] || 'there'
-  const calculatedPriority = getPriority(primaryRole, summary)
-  const priority = isPageEnabledForDemo(calculatedPriority.page)
-    ? calculatedPriority
-    : { title: 'Your asset register is ready to review', description: 'Explore the assets available within your assigned division and branch.', page: 'assets' as AppPage, button: 'Open asset register' }
-
   return <Box sx={{ p: { xs: 2.5, sm: 4, lg: 5 }, maxWidth: 1380, mx: 'auto' }}>
     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ md: 'flex-end' }} gap={2} mb={3}>
       <Box>
@@ -98,68 +79,43 @@ export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPage
         <Typography variant="h4" fontWeight={850}>{view.title}</Typography>
         <Typography color="text.secondary" mt={.5}>{formatToday()} · Welcome, {firstName}</Typography>
       </Box>
-      {availableActions[0] && <Button variant="contained" endIcon={<ArrowForwardOutlined />} onClick={() => onNavigate(availableActions[0].page)}>{availableActions[0].label}</Button>}
     </Stack>
 
     {loadFailed && <Alert severity="warning" action={<Button color="inherit" size="small" onClick={() => void loadSummary()}>Retry</Button>} sx={{ mb: 2 }}>Live dashboard figures are temporarily unavailable.</Alert>}
 
     <Grid container spacing={{ xs: 2.5, md: 3.5 }}>
-      <Grid size={{ xs: 12, lg: 8 }}>
-        <Card sx={{ bgcolor: '#111', color: 'white', border: 0, minHeight: 190 }}>
-          <CardContent sx={{ p: { xs: 3.5, md: 4.5 } }}>
-            <Typography variant="overline" sx={{ color: 'secondary.main', fontWeight: 850, letterSpacing: 1.1 }}>Priority</Typography>
-            {loading ? <><Skeleton variant="text" width="60%" height={48} sx={{ bgcolor: 'rgba(255,255,255,.12)' }} /><Skeleton variant="text" width="80%" sx={{ bgcolor: 'rgba(255,255,255,.08)' }} /></> : <>
-              <Typography variant="h5" fontWeight={850} mt={.5}>{priority.title}</Typography>
-              <Typography sx={{ color: 'rgba(255,255,255,.68)', mt: 1, maxWidth: 720 }}>{priority.description}</Typography>
-              <Button variant="contained" sx={{ mt: 2.5 }} endIcon={<ArrowForwardOutlined />} onClick={() => onNavigate(priority.page)}>{priority.button}</Button>
-            </>}
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid size={{ xs: 12, lg: 4 }}>
-        <Card variant="outlined" sx={{ height: '100%' }}><CardContent sx={{ p: { xs: 3, md: 3.5 } }}>
-          <Typography variant="h6" fontWeight={800}>Your focus</Typography>
-          <Typography variant="body2" color="text.secondary" mt={.5}>{view.description}</Typography>
-          <Stack direction="row" gap={.75} mt={2.5} flexWrap="wrap"><Chip size="small" label="Your assigned scope" /><Chip size="small" label="Live operational data" /></Stack>
-        </CardContent></Card>
-      </Grid>
-    </Grid>
-
-    <Grid container spacing={{ xs: 2.5, md: 3.5 }} sx={{ mt: { xs: 1, md: 1.5 } }}>
       {view.metricKeys.map(key => <Grid key={key} size={{ xs: 12, sm: 4 }}><MetricCard metricKey={key} value={summary[key]} loading={loading} /></Grid>)}
     </Grid>
 
-    <Grid container spacing={{ xs: 2.5, md: 3.5 }} sx={{ mt: { xs: 1, md: 1.5 }, pb: 2 }}>
-      <Grid size={{ xs: 12, lg: view.showUtilization ? 7 : 12 }}>
-        <Card variant="outlined"><CardContent sx={{ p: { xs: 3, md: 3.5 } }}>
-          <Typography variant="h6" fontWeight={800}>Common tasks</Typography>
-          <Typography variant="body2" color="text.secondary" mb={2.25}>Only actions available to your role are shown.</Typography>
-          <Grid container spacing={2}>{availableActions.map(action => <Grid key={action.label} size={{ xs: 12, md: availableActions.length === 2 ? 6 : 4 }}><Button color="inherit" onClick={() => onNavigate(action.page)} sx={{ width: '100%', height: '100%', minHeight: 128, alignItems: 'flex-start', justifyContent: 'flex-start', textAlign: 'left', p: 2.5, border: 1, borderColor: 'divider', borderRadius: 2.5 }}><Stack alignItems="flex-start" gap={1.25}><Avatar sx={{ bgcolor: 'secondary.main', color: '#111', width: 40, height: 40 }}>{action.icon}</Avatar><Box><Typography fontWeight={800}>{action.label}</Typography><Typography variant="caption" color="text.secondary">{action.description}</Typography></Box></Stack></Button></Grid>)}</Grid>
-        </CardContent></Card>
-      </Grid>
-      {view.showUtilization && <Grid size={{ xs: 12, lg: 5 }}><Utilization summary={summary} loading={loading} /></Grid>}
-    </Grid>
+    {operations&&<OperationsPanel data={operations} summary={summary} onNavigate={onNavigate}/>}
+
   </Box>
 }
+
+function OperationsPanel({data,summary,onNavigate}:{data:OperationsSummary;summary:DashboardSummary;onNavigate:(page:AppPage)=>void}){
+  const revenueDelta=data.previousRevenue?Math.round((data.currentRevenue-data.previousRevenue)*100/data.previousRevenue):null
+  const costDelta=data.previousCosts?Math.round((data.currentCosts-data.previousCosts)*100/data.previousCosts):null
+  const totals=data.fleet.reduce<Record<string,number>>((result,item)=>({...result,[item.status]:(result[item.status]??0)+item.count}),{})
+  const divisions=Array.from(new Set(data.fleet.map(item=>item.division)))
+  const money=(value:number)=>`FJD ${value.toLocaleString('en-FJ',{maximumFractionDigits:0})}`
+  return <Box mt={{xs:3,md:4}}><Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" gap={1} mb={2}><Box><Typography variant="h5" fontWeight={850}>Operational performance</Typography><Typography variant="body2" color="text.secondary">Live financial, fleet and exception information for your assigned scope.</Typography></Box><Typography variant="caption" color="text.secondary">Updated {new Date(data.updatedAt).toLocaleString('en-FJ')}</Typography></Stack><Grid container spacing={2.5}><Grid size={{xs:12,md:6,lg:3}}><TrendCard label="Revenue this month" value={money(data.currentRevenue)} delta={revenueDelta} goodWhenPositive/></Grid><Grid size={{xs:12,md:6,lg:3}}><TrendCard label="Maintenance cost" value={money(data.currentCosts)} delta={costDelta}/></Grid><Grid size={{xs:12,md:6,lg:3}}><TrendCard label="Fleet utilization" value={`${summary.totalAssets?Math.round(summary.activeRentals*100/summary.totalAssets):0}%`} detail={`${summary.activeRentals} assets currently on hire`}/></Grid><Grid size={{xs:12,md:6,lg:3}}><TrendCard label="Overdue returns" value={String(summary.overdueRentals)} detail={summary.overdueRentals?'Immediate follow-up required':'No overdue returns'}/></Grid>
+    <Grid size={{xs:12,lg:7}}><FleetStatus fleet={data.fleet} totals={totals} divisions={divisions}/></Grid>
+    <Grid size={{xs:12,lg:5}}><Card variant="outlined" sx={{height:'100%'}}><CardContent sx={{p:{xs:2.5,md:3}}}><Typography variant="h6" fontWeight={800}>Alerts requiring action</Typography><Typography variant="body2" color="text.secondary" mb={1.5}>Highest-priority exceptions are shown first.</Typography><Stack>{data.alerts.length?data.alerts.map((alert,index)=><Button key={`${alert.type}-${index}`} color="inherit" onClick={()=>onNavigate(alert.page)} sx={{p:1.5,textAlign:'left',justifyContent:'flex-start',borderBottom:index<data.alerts.length-1?1:0,borderColor:'divider',borderRadius:0}}><Stack direction="row" gap= {1.25} alignItems="flex-start"><Box sx={{width:9,height:9,borderRadius:'50%',mt:.7,bgcolor:alert.priority==='High'?'error.main':'warning.main',flex:'0 0 auto'}}/><Box><Typography variant="body2" fontWeight={750}>{alert.type}</Typography><Typography variant="caption" color="text.secondary">{alert.detail}</Typography></Box></Stack></Button>):<Typography color="text.secondary" py={3}>No urgent operational alerts.</Typography>}</Stack></CardContent></Card></Grid>
+    <Grid size={{xs:12}}><Card variant="outlined"><CardContent sx={{p:{xs:2.5,md:3}}}><Typography variant="h6" fontWeight={800}>Recent activity</Typography><Typography variant="body2" color="text.secondary" mb={1}>Latest recorded events in your scope.</Typography><Grid container spacing={0}>{data.activity.map(item=><Grid key={item.id} size={{xs:12,md:6}}><Box sx={{py:1.5,pr:2,borderBottom:1,borderColor:'divider'}}><Typography variant="body2" fontWeight={750}>{item.action}</Typography><Typography variant="caption" color="text.secondary" display="block">{item.summary}</Typography><Typography variant="caption" color="text.disabled">{item.userName} · {new Date(item.occurredAt).toLocaleString('en-FJ')}{item.branchName?` · ${item.branchName}`:''}</Typography></Box></Grid>)}</Grid></CardContent></Card></Grid></Grid></Box>
+}
+
+function TrendCard({label,value,delta,detail,goodWhenPositive=false}:{label:string;value:string;delta?:number|null;detail?:string;goodWhenPositive?:boolean}){const favorable=delta==null?null:goodWhenPositive?delta>=0:delta<=0;return <Card variant="outlined" sx={{height:'100%',borderTop:3,borderTopColor:'secondary.main'}}><CardContent><Typography variant="body2" color="text.secondary">{label}</Typography><Typography variant="h4" fontWeight={850} mt={.75}>{value}</Typography>{delta==null?<Typography variant="caption" color="text.secondary">{detail??'No previous-period comparison'}</Typography>:<Typography variant="caption" color={favorable?'success.main':'error.main'} fontWeight={750}>{delta>=0?'▲':'▼'} {Math.abs(delta)}% versus last month</Typography>}</CardContent></Card>}
+function FleetStatus({fleet,totals,divisions}:{fleet:OperationsSummary['fleet'];totals:Record<string,number>;divisions:string[]}){
+  const statuses=['Available','Rented','Reserved','Maintenance','Inspection','OutOfService']
+  const fleetTotal=Object.values(totals).reduce((sum,count)=>sum+count,0)
+  const utilization=fleetTotal?Math.round(((totals.Rented??0)+(totals.Reserved??0))*100/fleetTotal):0
+  return <Card variant="outlined" sx={{height:'100%'}}><CardContent sx={{p:{xs:2.5,md:3}}}><Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={2}><Box><Typography variant="h6" fontWeight={800}>Fleet status</Typography><Typography variant="body2" color="text.secondary">Availability and utilization by division.</Typography></Box><Box textAlign="right"><Typography variant="h4" fontWeight={850}>{utilization}%</Typography><Typography variant="caption" color="text.secondary">utilized or reserved</Typography></Box></Stack><Stack gap={3} mt={3}>{divisions.map(division=>{const rows=fleet.filter(item=>item.division===division);const total=rows.reduce((sum,item)=>sum+item.count,0);return <Box key={division}><Stack direction="row" justifyContent="space-between" alignItems="baseline"><Typography fontWeight={800}>{division}</Typography><Typography variant="caption" color="text.secondary">{total} assets</Typography></Stack><Stack direction="row" sx={{height:18,borderRadius:2,overflow:'hidden',bgcolor:'grey.100',mt:1}}>{statuses.map(status=>{const count=rows.find(item=>item.status===status)?.count??0;return count?<Box key={status} title={`${statusLabel(status)}: ${count} (${Math.round(count*100/total)}%)`} sx={{width:`${count*100/total}%`,bgcolor:statusTone(status),minWidth:4}}/>:null})}</Stack><Stack direction="row" gap={1.5} mt={1} flexWrap="wrap">{statuses.map(status=>{const count=rows.find(item=>item.status===status)?.count??0;return count?<Typography key={status} variant="caption" color="text.secondary"><Box component="span" sx={{display:'inline-block',width:8,height:8,borderRadius:.5,bgcolor:statusTone(status),mr:.6}}/>{statusLabel(status)} {count}</Typography>:null})}</Stack></Box>})}</Stack><Stack direction="row" gap={2} mt={3} pt={2} borderTop={1} borderColor="divider" flexWrap="wrap">{statuses.map(status=>{const count=totals[status]??0;return count?<Typography key={status} variant="caption" fontWeight={700}><Box component="span" sx={{display:'inline-block',width:9,height:9,borderRadius:.5,bgcolor:statusTone(status),mr:.7}}/>{statusLabel(status)} · {count}</Typography>:null})}</Stack></CardContent></Card>
+}
+function statusLabel(status:string){return status==='Rented'?'On hire':status==='OutOfService'?'Out of service':status}
+function statusTone(status:string){if(status==='Available')return 'success.main';if(status==='Rented')return '#3e5c76';if(status==='Reserved')return 'info.light';if(status==='Maintenance')return 'warning.main';if(status==='Inspection')return 'secondary.dark';return 'error.main'}
 
 function MetricCard({ metricKey, value, loading }: { metricKey: MetricKey; value: number; loading: boolean }) {
   const detail = metricDetails[metricKey]
   const percentage = metricKey === 'vehicleUtilization' || metricKey === 'equipmentUtilization'
   return <Card variant="outlined" sx={{ height: '100%', borderTop: 4, borderTopColor: detail.tone }}><CardContent sx={{ p: { xs: 3, md: 3.25 } }}><Stack direction="row" justifyContent="space-between" gap={2.5}><Box><Typography variant="body2" color="text.secondary">{detail.label}</Typography>{loading ? <Skeleton width={72} height={52} /> : <Typography variant="h3" fontWeight={850} mt={.5}>{value}{percentage ? '%' : ''}</Typography>}<Typography variant="caption" color="text.secondary">{detail.helper}</Typography></Box><Avatar variant="rounded" sx={{ bgcolor: detail.tone, color: detail.tone === '#d14343' ? 'white' : '#111', width: 46, height: 46 }}>{detail.icon}</Avatar></Stack></CardContent></Card>
-}
-
-function Utilization({ summary, loading }: { summary: DashboardSummary; loading: boolean }) {
-  return <Card variant="outlined" sx={{ height: '100%' }}><CardContent sx={{ p: { xs: 3, md: 3.5 } }}><Typography variant="h6" fontWeight={800}>Utilization</Typography><Typography variant="body2" color="text.secondary" mb={3.5}>Assets currently on hire within your scope.</Typography><Stack gap={3}>{[['Vehicles', summary.vehicleUtilization], ['Equipment', summary.equipmentUtilization]].map(([label, value]) => <Box key={String(label)}><Stack direction="row" justifyContent="space-between" mb={1}><Typography variant="body2" fontWeight={700}>{label}</Typography><Typography variant="body2" fontWeight={800}>{loading ? '—' : `${value}%`}</Typography></Stack><LinearProgress variant="determinate" value={loading ? 0 : Number(value)} sx={{ height: 9, borderRadius: 8, bgcolor: '#eeeeea', '& .MuiLinearProgress-bar': { bgcolor: 'secondary.main', borderRadius: 8 } }} /></Box>)}</Stack></CardContent></Card>
-}
-
-function getPriority(role: string, summary: DashboardSummary): { title: string; description: string; page: AppPage; button: string } {
-  if (role === roles.maintenanceOfficer) return summary.underMaintenance > 0
-    ? { title: `${summary.underMaintenance} asset${summary.underMaintenance === 1 ? '' : 's'} currently in maintenance`, description: `${summary.servicesDueSoon} additional services are due within 30 days. Review work status and return completed assets to service.`, page: 'maintenance', button: 'Open maintenance' }
-    : { title: 'No assets are currently in maintenance', description: `${summary.servicesDueSoon} services are approaching their due date.`, page: 'maintenance', button: 'Review service schedule' }
-  if (role === roles.driver) return { title: 'Start by scanning the assigned asset', description: 'Confirm the asset identity before recording a handover, return, meter reading or inspection.', page: 'scan', button: 'Scan QR' }
-  if (role === roles.financeOfficer) return { title: 'Review asset profitability and exceptions', description: `${summary.activeRentals} active rentals are contributing to the current operating position.`, page: 'reports', button: 'Open reports' }
-  if (summary.overdueRentals > 0) return { title: `${summary.overdueRentals} overdue return${summary.overdueRentals === 1 ? '' : 's'} need attention`, description: 'Contact the customer, confirm the asset position and record the agreed return arrangement.', page: 'rentals', button: 'Review overdue rentals' }
-  if (summary.pendingRequests > 0) return { title: `${summary.pendingRequests} booking request${summary.pendingRequests === 1 ? '' : 's'} waiting`, description: 'Confirm the customer, branch, dates and asset before approving the request.', page: 'bookings', button: 'Review requests' }
-  if (role === roles.superAdministrator || role === roles.administrator) return { title: 'Operations are within normal thresholds', description: 'No overdue rental or request requires immediate group-level intervention.', page: 'reports', button: 'Review reports' }
-  return { title: `${summary.upcomingBookings} upcoming collection${summary.upcomingBookings === 1 ? '' : 's'}`, description: 'Prepare customer details, the assigned asset and the rental agreement before collection.', page: 'bookings', button: 'Open booking schedule' }
 }

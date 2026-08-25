@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import AddOutlined from '@mui/icons-material/AddOutlined'
 import EditOutlined from '@mui/icons-material/EditOutlined'
 import LockResetOutlined from '@mui/icons-material/LockResetOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
 import LockOpenOutlined from '@mui/icons-material/LockOpenOutlined'
 import SecurityOutlined from '@mui/icons-material/SecurityOutlined'
+import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import {
   Alert,
   Box,
@@ -18,6 +19,8 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  InputAdornment,
+  Grid,
   MenuItem,
   Stack,
   Table,
@@ -58,7 +61,6 @@ const roleHelp: Record<string, string> = {
   [roles.rentalOfficer]: 'Processes customers, bookings, agreements, collections and returns.',
   [roles.maintenanceOfficer]: 'Records inspections, servicing, parts, costs and asset availability.',
   [roles.financeOfficer]: 'Handles invoices, payments, statements and financial reporting.',
-  [roles.driver]: 'Uses assigned asset information and QR check-in/check-out workflows.',
 }
 
 export function UsersPage({ userRoles }: { userRoles: string[] }) {
@@ -74,6 +76,8 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
   const [error, setError] = useState('')
   const [form, setForm] = useState(initialForm)
   const [search, setSearch] = useState(''); const [securityUser, setSecurityUser] = useState<UserRecord | null>(null); const [reason, setReason] = useState(''); const [temporaryPassword, setTemporaryPassword] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Suspended'>('All')
+  const [roleFilter, setRoleFilter] = useState('All')
   const [accessUser, setAccessUser] = useState<UserRecord | null>(null); const [access, setAccess] = useState<AccessDetail | null>(null); const [permissionCatalog, setPermissionCatalog] = useState<string[]>([]); const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]); const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]); const [selectedBranches, setSelectedBranches] = useState<string[]>([]); const [accessExpiry, setAccessExpiry] = useState(''); const [accessReason, setAccessReason] = useState(''); const [accountStatus, setAccountStatus] = useState('Active'); const [mfaRequired, setMfaRequired] = useState(false)
 
   async function loadUsers() {
@@ -98,6 +102,21 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadUsers()
   }, [])
+
+  const visibleUsers = useMemo(() => users.filter((user) => {
+    const matchesSearch = [user.fullName, user.email, user.roles.join(' ')].join(' ').toLowerCase().includes(search.trim().toLowerCase())
+    const matchesStatus = statusFilter === 'All' || (statusFilter === 'Active' ? user.isActive : !user.isActive)
+    const matchesRole = roleFilter === 'All' || user.roles.includes(roleFilter)
+    return matchesSearch && matchesStatus && matchesRole
+  }), [roleFilter, search, statusFilter, users])
+
+  const staffSummary = useMemo(() => [
+    { label: 'Total staff', value: users.length, color: 'text.primary' },
+    { label: 'Active', value: users.filter((item) => item.isActive).length, color: 'success.main' },
+    { label: 'Roles in use', value: new Set(users.flatMap((item) => item.roles)).size, color: 'info.main' },
+    { label: 'Suspended', value: users.filter((item) => !item.isActive).length, color: 'warning.main' },
+    { label: 'Locked', value: users.filter((item) => item.lockoutEnd && new Date(item.lockoutEnd) > new Date()).length, color: 'error.main' },
+  ], [users])
 
   async function saveUser(event: FormEvent) {
     event.preventDefault()
@@ -139,10 +158,10 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1400, mx: 'auto' }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} mb={3}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'flex-end' }} gap={2} mb={2.5}>
         <Box>
-          <Typography variant="h4" fontWeight={750}>Users & roles</Typography>
-          <Typography color="text.secondary" mt={0.5}>Create accounts and control which CREMS areas each person can access.</Typography>
+          <Typography variant="h5" fontWeight={800}>Staff directory</Typography>
+          <Typography color="text.secondary" mt={0.5}>Review staff status, assigned scope and account activity.</Typography>
         </Box>
         <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>
           Create user
@@ -150,8 +169,11 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
       </Stack>
 
       {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      <Grid container spacing={2} mb={2.5}>
+        {staffSummary.map((item) => <Grid key={item.label} size={{ xs: 6, md: 4, lg: 2.4 }}><Card variant="outlined" sx={{ height: '100%' }}><CardContent sx={{ py: 2 }}><Typography variant="h4" fontWeight={800} color={item.color}>{item.value}</Typography><Typography variant="caption" color="text.secondary" fontWeight={700} textTransform="uppercase" letterSpacing={.6}>{item.label}</Typography></CardContent></Card></Grid>)}
+      </Grid>
       <Card variant="outlined">
-        <CardContent sx={{ p: 0 }}><Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}><TextField size="small" label="Search users" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ width: { xs: '100%', sm: 360 } }} /></Box>
+        <CardContent sx={{ p: 0 }}><Stack direction={{ xs: 'column', lg: 'row' }} gap={1.5} sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}><TextField size="small" placeholder="Search by staff name, email or role" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ flex: 1, minWidth: 260 }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} /><Stack direction="row" gap={.75}>{(['All', 'Active', 'Suspended'] as const).map(value => <Button key={value} size="small" variant={statusFilter === value ? 'contained' : 'outlined'} color="inherit" onClick={() => setStatusFilter(value)}>{value}</Button>)}</Stack><TextField select size="small" label="Role" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)} sx={{ minWidth: 190 }}><MenuItem value="All">All roles</MenuItem>{Object.values(roles).map(role => <MenuItem key={role} value={role}>{formatRole(role)}</MenuItem>)}</TextField></Stack>
           {loading ? (
             <Box sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>
           ) : (
@@ -161,9 +183,9 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
                   <TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Role</TableCell><TableCell>Division / branch</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell>
                 </TableRow></TableHead>
                 <TableBody>
-                  {users.filter((user) => [user.fullName, user.email, user.roles.join(' ')].join(' ').toLowerCase().includes(search.toLowerCase())).map((user) => <TableRow key={user.id} hover>
+                  {visibleUsers.map((user) => <TableRow key={user.id} hover>
                     <TableCell sx={{ fontWeight: 600 }}>{user.fullName || 'Unnamed user'}</TableCell>
-                    <TableCell>{user.email}</TableCell>
+                    <TableCell><Typography variant="body2">{user.email}</Typography><Typography variant="caption" color="text.secondary">Last active {user.lastActivityAt ? new Date(user.lastActivityAt).toLocaleString('en-FJ') : 'never'}</Typography></TableCell>
                     <TableCell>{user.roles.map((role) => <Chip key={role} label={formatRole(role)} size="small" sx={{ bgcolor: 'secondary.main', fontWeight: 600 }} />)}</TableCell>
                     <TableCell>{user.roles.some(role => role === roles.administrator || role === roles.superAdministrator) ? 'All divisions and branches' : <><Typography variant="body2" fontWeight={650}>{divisions.find(x => x.id === user.divisionId)?.name ?? 'Division unassigned'}</Typography><Typography variant="caption" color="text.secondary">{branches.find((branch) => branch.id === user.branchId)?.name ?? 'Branch unassigned'}</Typography></>}</TableCell>
                     <TableCell><Stack direction="row" gap={.5} flexWrap="wrap"><Chip label={user.isActive ? 'Active' : 'Disabled'} size="small" color={user.isActive ? 'success' : 'default'} variant="outlined" />{user.lockoutEnd && new Date(user.lockoutEnd) > new Date() && <Chip label="Locked" size="small" color="error" />}{user.mustChangePassword && <Chip label="Password change required" size="small" color="warning" />}</Stack></TableCell>

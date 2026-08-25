@@ -1,25 +1,27 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined'
-import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined'
 import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
-import ConstructionOutlined from '@mui/icons-material/ConstructionOutlined'
-import DirectionsCarOutlined from '@mui/icons-material/DirectionsCarOutlined'
 import LocationOnOutlined from '@mui/icons-material/LocationOnOutlined'
-import MenuOutlined from '@mui/icons-material/MenuOutlined'
 import PhoneOutlined from '@mui/icons-material/PhoneOutlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import VerifiedOutlined from '@mui/icons-material/VerifiedOutlined'
 import SupportAgentOutlined from '@mui/icons-material/SupportAgentOutlined'
 import LocalShippingOutlined from '@mui/icons-material/LocalShippingOutlined'
+import ImageOutlined from '@mui/icons-material/ImageOutlined'
 import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined'
+import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined'
+import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined'
+import CloseOutlined from '@mui/icons-material/CloseOutlined'
+import EditOutlined from '@mui/icons-material/EditOutlined'
 import {
-  Accordion, AccordionDetails, AccordionSummary, Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress,
   Checkbox, Container, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
-  Drawer, FormControl, FormControlLabel, Grid, IconButton, InputLabel, Link,
-  MenuItem, Select, Stack, Step, StepLabel, Stepper, TextField, Toolbar, Typography,
+  FormControl, FormControlLabel, Grid, IconButton, InputLabel, Link,
+  MenuItem, Select, Stack, Step, StepLabel, Stepper, Switch, TextField, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
+import { CustomerSiteHeader, type CustomerSiteSection } from '../components/CustomerSiteHeader'
 import { PublicAssetDetailDialog } from '../components/PublicAssetDetailDialog'
 
 type AssetType = 'Vehicle' | 'Equipment'
@@ -29,8 +31,11 @@ type PublicAsset = {
   divisionId: string | null; divisionName: string | null; category: string | null
   personnelRequirement: 'None' | 'Optional' | 'Required'
   serviceName: string | null; requiresQuote: boolean; requiresDelivery: boolean
+  photoUrlsJson: string
+  attributes: { code: string; name: string; value: string; unit: string | null }[]
 }
 type CustomerPreference = 'NoPreference' | 'Vehicles' | 'Equipment' | 'WasteAndSiteHire'
+type CatalogueSort = 'recommended' | 'price-low' | 'price-high'
 type CheckoutDetail = {
   service: { requiresQuote: boolean; requiresDelivery: boolean; defaultDepositAmount: number; requiredDocuments: string[] } | null
   charges: { id: string; name: string; category: string; unit: string; defaultSellingRate: number; isRequired: boolean }[]
@@ -56,47 +61,74 @@ function dateInputValue(offsetDays: number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-function catalogueImage(asset: PublicAsset) {
-  const searchableName = `${asset.assetNumber} ${asset.name}`.toLowerCase()
-
-  if (asset.type === 'Vehicle') {
-    if (/navara|d-max|pickup/.test(searchableName)) return '/catalog/pickup.jpg'
-    if (/nv350|urvan|staria|seater|coach|minibus|bus/.test(searchableName)) return '/catalog/minibus.jpg'
-    if (/npr|cargo|truck/.test(searchableName)) return '/catalog/truck.jpg'
-    if (/i10|sedan/.test(searchableName)) return '/catalog/sedan.jpg'
-    return '/catalog/suv.jpg'
-  }
-
-  if (/forklift/.test(searchableName)) return '/catalog/forklift.jpg'
-  if (/scissor|scaffold/.test(searchableName)) return '/catalog/scissor-lift.jpg'
-  if (/generator|compressor/.test(searchableName)) return '/catalog/generator.jpg'
-  if (/bin|portable toilet|portaloo/.test(searchableName)) return '/catalog/truck.jpg'
-  return '/catalog/excavator.jpg'
+function assetPhotoUrls(asset: PublicAsset) {
+  try {
+    const uploaded = JSON.parse(asset.photoUrlsJson || '[]') as string[]
+    return uploaded.filter(url => typeof url === 'string' && url.startsWith('/api/public/assets/'))
+  } catch { return [] }
 }
 
 function isEquipmentDivision(division: PublicDivision) {
   return /carptrac|shipping/i.test(`${division.code} ${division.name}`)
 }
 
-export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = false }: { onCustomerAccount: () => void; customerAuthenticated?: boolean }) {
+function catalogueFeatures(asset: PublicAsset) {
+  const features = (asset.attributes ?? []).map(attribute => attribute.code === 'SEATS'
+    ? `${attribute.value} seats`
+    : `${attribute.value}${attribute.unit ? ` ${attribute.unit}` : ''}`)
+  if (asset.category && features.length < 3) features.push(asset.category)
+  if (asset.requiresDelivery) features.push('Delivery arranged')
+  if (asset.personnelRequirement === 'Required') features.push('Operator included in quote')
+  else if (asset.personnelRequirement === 'Optional') features.push('Operator available')
+  return [...new Set(features)].slice(0, 3)
+}
+
+function assetAttribute(asset: PublicAsset, code: string) {
+  return (asset.attributes ?? []).find(attribute => attribute.code === code)?.value ?? ''
+}
+
+type CatalogueState = {
+  divisionId: string; branchId: string; type: AssetType | ''; category: string; startDate: string; endDate: string
+}
+
+function readCatalogueState(): CatalogueState | null {
+  try {
+    const value = sessionStorage.getItem('crems.catalogueState')
+    if (!value) return null
+    const saved = JSON.parse(value) as CatalogueState
+    const earliestPickup = dateInputValue(1)
+    if (!saved.startDate || !saved.endDate || saved.startDate < earliestPickup || saved.endDate <= saved.startDate) {
+      return { ...saved, startDate: earliestPickup, endDate: dateInputValue(3) }
+    }
+    return saved
+  } catch { return null }
+}
+
+export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, customerAuthenticated = false }: { onCustomerAccount: () => void; onCustomerSignOut?: () => void | Promise<void>; customerAuthenticated?: boolean }) {
+  const [savedCatalogue] = useState(readCatalogueState)
   const [assets, setAssets] = useState<PublicAsset[]>([])
   const [catalogueAssets, setCatalogueAssets] = useState<PublicAsset[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [divisions, setDivisions] = useState<PublicDivision[]>([])
-  const [divisionId, setDivisionId] = useState('')
-  const [branchId, setBranchId] = useState('')
-  const [type, setType] = useState<AssetType | ''>('')
-  const [category, setCategory] = useState('All')
-  const [startDate, setStartDate] = useState(dateInputValue(1))
-  const [endDate, setEndDate] = useState(dateInputValue(3))
+  const [divisionId, setDivisionId] = useState(savedCatalogue?.divisionId ?? '')
+  const [branchId, setBranchId] = useState(savedCatalogue?.branchId ?? '')
+  const [differentReturnLocation, setDifferentReturnLocation] = useState(false)
+  const [returnBranchId, setReturnBranchId] = useState('')
+  const [type, setType] = useState<AssetType | ''>(savedCatalogue?.type ?? '')
+  const [category, setCategory] = useState(savedCatalogue?.category ?? 'All')
+  const [sort, setSort] = useState<CatalogueSort>('recommended')
+  const [seatFilter, setSeatFilter] = useState('')
+  const [transmissionFilter, setTransmissionFilter] = useState('')
+  const [priceFilter, setPriceFilter] = useState('')
+  const [availableOnly, setAvailableOnly] = useState(false)
+  const [startDate, setStartDate] = useState(savedCatalogue?.startDate ?? dateInputValue(1))
+  const [endDate, setEndDate] = useState(savedCatalogue?.endDate ?? dateInputValue(3))
   const [loading, setLoading] = useState(true)
   const [searched, setSearched] = useState(false)
-  const [mobileMenu, setMobileMenu] = useState(false)
   const [selected, setSelected] = useState<PublicAsset | null>(null)
   const [detailAsset, setDetailAsset] = useState<PublicAsset | null>(null)
   const [checkoutDetail, setCheckoutDetail] = useState<CheckoutDetail | null>(null)
   const [selectedExtras, setSelectedExtras] = useState<Record<string, number>>({})
-  const [customerPreference, setCustomerPreference] = useState<CustomerPreference>('NoPreference')
   const [booking, setBooking] = useState<BookingForm>(emptyBooking)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -104,6 +136,15 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
   const [responseKind, setResponseKind] = useState<'Booking' | 'Quotation'>('Booking')
   const [bookingStep, setBookingStep] = useState(0)
   const [termsAccepted, setTermsAccepted] = useState(false)
+  const [photoIndexes, setPhotoIndexes] = useState<Record<string, number>>({})
+  const [showModifySearch, setShowModifySearch] = useState(false)
+
+  function changeCataloguePhoto(assetId: string, photoCount: number, direction: number) {
+    setPhotoIndexes(current => ({
+      ...current,
+      [assetId]: ((current[assetId] ?? 0) + direction + photoCount) % photoCount,
+    }))
+  }
 
   const loadBranches = useCallback(async () => {
     try { setBranches((await api.get<Branch[]>('/public/branches')).data) } catch { /* Contacts remain optional. */ }
@@ -124,7 +165,10 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
   const checkAvailability = useCallback(async () => {
     if (!startDate || !endDate || endDate <= startDate) {
       setError('Choose a return date after the pickup date.')
-      setSearched(false)
+      return
+    }
+    if (differentReturnLocation && !returnBranchId) {
+      setError('Choose a return location or turn off the different return location option.')
       return
     }
     setLoading(true); setError('')
@@ -132,10 +176,10 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
       const response = await api.get<PublicAsset[]>('/public/assets', { params: {
         branchId: branchId || undefined, divisionId: divisionId || undefined, type: type || undefined, startDate, endDate,
       } })
-      setAssets(response.data); setSearched(true)
+      setAssets(response.data); setSearched(true); setShowModifySearch(false)
     } catch { setError('We could not check availability. Please try again or contact a branch.') }
     finally { setLoading(false) }
-  }, [branchId, divisionId, endDate, startDate, type])
+  }, [branchId, differentReturnLocation, divisionId, endDate, returnBranchId, startDate, type])
 
   useEffect(() => {
     // Public catalogue and contact data are intentionally available without authentication.
@@ -147,6 +191,12 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
     if (divisionId && asset.divisionId !== divisionId) return false
     if (branchId && asset.branchId !== branchId) return false
     if (type && asset.type !== type) return false
+    if (availableOnly && searched && !asset.isAvailable) return false
+    if (seatFilter && Number(assetAttribute(asset, 'SEATS')) < Number(seatFilter)) return false
+    if (transmissionFilter && assetAttribute(asset, 'TRANSMISSION') !== transmissionFilter) return false
+    if (priceFilter === 'under-200' && asset.dailyRate >= 200) return false
+    if (priceFilter === '200-500' && (asset.dailyRate < 200 || asset.dailyRate > 500)) return false
+    if (priceFilter === 'over-500' && asset.dailyRate <= 500) return false
     if (category === 'All') return true
     const value = `${asset.name} ${asset.category}`.toLowerCase()
     if (category === 'Cars & SUVs') return asset.type === 'Vehicle' && !/truck|van|urvan|staria|coach|seater/.test(value)
@@ -155,8 +205,14 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
     if (category === 'Lifting') return /crane|forklift|telehandler|scissor/.test(value)
     if (category === 'Power & site') return /generator|compressor|compactor|mixer|scaffold|toilet|portaloo|bin/.test(value)
     return true
-  }), [assets, branchId, catalogueAssets, category, divisionId, searched, type])
-  const availableCount = useMemo(() => displayedAssets.filter((asset) => asset.isAvailable).length, [displayedAssets])
+  }), [assets, availableOnly, branchId, catalogueAssets, category, divisionId, priceFilter, searched, seatFilter, transmissionFilter, type])
+  const seatOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'SEATS')).filter(Boolean).map(Number))].sort((a, b) => a - b), [catalogueAssets])
+  const transmissionOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'TRANSMISSION')).filter(Boolean))].sort(), [catalogueAssets])
+  const sortedAssets = useMemo(() => [...displayedAssets].sort((left, right) => {
+    if (sort === 'price-low') return left.dailyRate - right.dailyRate
+    if (sort === 'price-high') return right.dailyRate - left.dailyRate
+    return Number(right.isAvailable) - Number(left.isAvailable) || left.dailyRate - right.dailyRate
+  }), [displayedAssets, sort])
   const rentalDays = Math.max(1, Math.ceil((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86400000))
   const checkoutCharges = useMemo(() => (checkoutDetail?.charges ?? []).filter(charge => charge.isRequired ||
     (selectedExtras[charge.id] ?? 0) > 0 || booking.fulfilment === 'Delivery' && charge.category === 'Transport' ||
@@ -168,7 +224,7 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
   const estimatedTax = (baseHire + extrasTotal) * .15
   const estimatedTotal = baseHire + extrasTotal + estimatedTax
   const quotationFlow = Boolean(selected && (selected.type === 'Equipment' || selected.requiresQuote || selected.personnelRequirement !== 'None' || booking.customerType === 'Business'))
-  function scrollTo(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }); setMobileMenu(false) }
+  function scrollTo(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }) }
   function openRequest(asset: PublicAsset, details: CheckoutDetail, customerDetails: BookingForm = emptyBooking) { setSelected(asset); setCheckoutDetail(details); setSelectedExtras(Object.fromEntries(details.charges.filter(x => x.isRequired).map(x => [x.id, 1]))); setBooking({ ...customerDetails, fulfilment: details.service?.requiresDelivery ? 'Delivery' : customerDetails.fulfilment, personnelRequested: asset.personnelRequirement === 'Required' || customerDetails.personnelRequested }); setBookingStep(0); setTermsAccepted(false); setReference(''); setError('') }
   async function submitRequest(event: FormEvent) {
     event.preventDefault(); if (!selected) return
@@ -186,12 +242,6 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
     } finally { setSubmitting(false) }
   }
 
-  function chooseDivision(division: PublicDivision) {
-    setDivisionId(division.id)
-    setType(isEquipmentDivision(division) ? 'Equipment' : 'Vehicle')
-    setSearched(false)
-    setTimeout(() => scrollTo('search'), 0)
-  }
   async function requestBooking(asset: PublicAsset) {
     if (!customerAuthenticated) {
       sessionStorage.setItem('crems.pendingBooking', JSON.stringify({ assetId: asset.id, startDate, endDate }))
@@ -228,83 +278,102 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
   }, [catalogueAssets, customerAuthenticated])
 
   useEffect(() => {
+    sessionStorage.setItem('crems.catalogueState', JSON.stringify({ divisionId, branchId, type, category, startDate, endDate }))
+  }, [branchId, category, divisionId, endDate, startDate, type])
+
+  useEffect(() => {
+    const target = sessionStorage.getItem('crems.publicTarget')
+    if (!target) return
+    sessionStorage.removeItem('crems.publicTarget')
+    window.setTimeout(() => scrollTo(target), 0)
+  }, [])
+
+  useEffect(() => {
     if (!customerAuthenticated) return
     void api.get<{ hirePreference: CustomerPreference }>('/customer-account/session').then(({ data }) => {
-      setCustomerPreference(data.hirePreference)
+      if (savedCatalogue) return
       if (data.hirePreference === 'Vehicles') { setType('Vehicle'); setCategory('All') }
       else if (data.hirePreference === 'Equipment') { setType('Equipment'); setCategory('All') }
       else if (data.hirePreference === 'WasteAndSiteHire') { setType('Equipment'); setCategory('Power & site') }
     }).catch(() => undefined)
-  }, [customerAuthenticated])
+  }, [customerAuthenticated, savedCatalogue])
 
-  const nav = <Stack direction={{ xs: 'column', md: 'row' }} gap={{ xs: 1, md: 3 }} alignItems={{ md: 'center' }}>
-    <Button color="inherit" onClick={() => scrollTo('services')}>Services</Button><Button color="inherit" onClick={() => scrollTo('rentals')}>Browse fleet</Button><Button color="inherit" onClick={() => scrollTo('how-it-works')}>How it works</Button><Button color="inherit" onClick={() => scrollTo('faq')}>Help</Button>
-    <Button color="inherit" onClick={() => scrollTo('contact')}>Contact</Button><Button variant="contained" color="secondary" onClick={onCustomerAccount}>{customerAuthenticated ? 'My bookings' : 'Customer login'}</Button>
-  </Stack>
+  function renderSearchForm(compact = false) {
+    return <Box>
+      <Grid container spacing={2} alignItems="end">
+        <Grid size={{ xs: 12, md: differentReturnLocation ? 2.5 : compact ? 4.5 : 6 }}><FormControl fullWidth><InputLabel>Pickup location</InputLabel><Select label="Pickup location" value={branchId} onChange={(e) => { setBranchId(e.target.value); if (returnBranchId === e.target.value) setReturnBranchId(''); if (!compact) setSearched(false) }}><MenuItem value="">All participating locations</MenuItem>{branches.map(branch => <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>)}</Select></FormControl></Grid>
+        {differentReturnLocation && <Grid size={{ xs: 12, md: 2.5 }}><FormControl fullWidth><InputLabel>Return location</InputLabel><Select label="Return location" value={returnBranchId} onChange={(e) => { setReturnBranchId(e.target.value); if (!compact) setSearched(false) }}><MenuItem value="">Select location</MenuItem>{branches.filter(branch => branch.id !== branchId).map(branch => <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>)}</Select></FormControl></Grid>}
+        <Grid size={{ xs: 12, sm: 6, md: differentReturnLocation ? 2 : compact ? 2.25 : 3 }}><TextField fullWidth type="date" label="Pickup date" InputLabelProps={{ shrink: true }} inputProps={{ min: dateInputValue(0) }} value={startDate} onChange={(e) => { setStartDate(e.target.value); if (!compact) setSearched(false) }} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, md: differentReturnLocation ? 2 : compact ? 2.25 : 3 }}><TextField fullWidth type="date" label="Return date" InputLabelProps={{ shrink: true }} inputProps={{ min: startDate }} value={endDate} onChange={(e) => { setEndDate(e.target.value); if (!compact) setSearched(false) }} /></Grid>
+        {compact && <Grid size={{ xs: 12, md: 3 }}><Button fullWidth size="large" variant="contained" startIcon={<SearchOutlined />} onClick={() => void checkAvailability()} sx={{ minHeight: 56 }}>Update results</Button></Grid>}
+        <Grid size={12}><FormControlLabel sx={{ m: 0 }} control={<Switch checked={differentReturnLocation} onChange={event => { setDifferentReturnLocation(event.target.checked); if (!event.target.checked) setReturnBranchId(''); if (!compact) setSearched(false) }} />} label={<Box><Typography variant="body2" fontWeight={700}>Return to a different location</Typography><Typography variant="caption" color="text.secondary">A one-way or transfer fee may apply.</Typography></Box>} /></Grid>
+        {!compact && <Grid size={12}><Button fullWidth size="large" variant="contained" startIcon={<SearchOutlined />} onClick={() => void checkAvailability()} sx={{ minHeight: 58 }}>Show available rentals</Button></Grid>}
+      </Grid>
+    </Box>
+  }
 
   return <Box sx={{ minHeight: '100vh', bgcolor: '#f7f7f3' }}>
-    <AppBar position="sticky" elevation={0} sx={{ bgcolor: '#0b0b0b', color: 'white' }}><Toolbar sx={{ minHeight: 76 }}>
-      <Box component="img" src="/brand/carpenters-logo.png" alt="Carpenters Fiji" sx={{ width: 48, height: 48, mr: 1.5 }} />
-      <Box><Typography fontWeight={800} lineHeight={1}>Carpenters Services</Typography><Typography variant="caption" color="secondary.main">Simple rentals, group-wide capability</Typography></Box>
-      <Box sx={{ flexGrow: 1 }} /><Box sx={{ display: { xs: 'none', md: 'block' } }}>{nav}</Box>
-      <IconButton color="inherit" sx={{ display: { md: 'none' } }} onClick={() => setMobileMenu(true)}><MenuOutlined /></IconButton>
-    </Toolbar></AppBar>
-    <Drawer anchor="right" open={mobileMenu} onClose={() => setMobileMenu(false)}><Box sx={{ width: 280, p: 3 }}>{nav}</Box></Drawer>
+    <CustomerSiteHeader authenticated={customerAuthenticated} onAccount={onCustomerAccount} onNavigate={(section: CustomerSiteSection) => scrollTo(section)} onSignOut={onCustomerSignOut} />
 
-    <Box sx={{ bgcolor: '#111', color: 'white', position: 'relative', overflow: 'hidden', py: { xs: 7, md: 11 } }}>
-      <Box sx={{ position: 'absolute', width: 600, height: 600, borderRadius: '50%', bgcolor: 'secondary.main', opacity: .08, right: -120, top: -260 }} />
-      <Container maxWidth="lg" sx={{ position: 'relative' }}><Typography color="secondary.main" fontWeight={750} letterSpacing={1.5}>FIJI-WIDE RENTAL SERVICE</Typography>
-        <Typography variant="h2" fontWeight={800} maxWidth={760} mt={1} sx={{ fontSize: { xs: '2.5rem', md: '4rem' } }}>The right vehicle or equipment, when you need it.</Typography>
-        <Typography variant="h6" color="rgba(255,255,255,.7)" maxWidth={650} mt={2}>Browse vehicles, heavy equipment and selected site-hire services across Carpenters divisions. Check prices and live availability without creating an account.</Typography>
-        <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5} mt={3} alignItems={{ sm: 'center' }}><Button size="large" variant="contained" color="secondary" endIcon={<SearchOutlined />} onClick={() => scrollTo('search')}>Check availability</Button><Button size="large" variant="outlined" color="inherit" onClick={onCustomerAccount}>{customerAuthenticated ? 'Manage my bookings' : 'Sign in to book'}</Button><Typography variant="body2" color="rgba(255,255,255,.6)">No account needed to browse</Typography></Stack>
-      </Container>
-    </Box>
-
-    <Container id="services" maxWidth="lg" sx={{ py: { xs: 5, md: 7 } }}>
-      <Typography variant="h3" fontWeight={800} sx={{ fontSize: { xs: '2rem', md: '3rem' } }}>What would you like to hire?</Typography>
-      <Typography color="text.secondary" mt={1}>Start with the division that matches your need. You can return and change it at any time.</Typography>
-      <Grid container spacing={3} mt={1}>{divisions.map((division) => {
-        const equipment = isEquipmentDivision(division)
-        const active = divisionId === division.id
-        return <Grid key={division.id} size={{ xs: 12, md: divisions.length > 2 ? 4 : 6 }}><Card variant="outlined" onClick={() => chooseDivision(division)} sx={{ cursor: 'pointer', height: '100%', borderColor: active ? 'secondary.main' : undefined, borderWidth: active ? 2 : 1, transition: 'transform .2s ease, border-color .2s ease', '&:hover': { transform: 'translateY(-3px)', borderColor: 'secondary.main' } }}><CardContent sx={{ p: 3.5 }}><Avatar sx={{ bgcolor: 'secondary.main', color: '#111', width: 58, height: 58 }}>{equipment ? <ConstructionOutlined /> : <DirectionsCarOutlined />}</Avatar><Typography variant="h5" fontWeight={800} mt={2}>{division.name}</Typography><Typography color="text.secondary" mt={1}>{division.description || (equipment ? 'Equipment and site services for commercial, industrial and project work.' : 'Cars, SUVs, pickups, vans and other vehicles for personal or business travel.')}</Typography><Button endIcon={<ArrowForwardOutlined />} sx={{ mt: 2 }}>View rentals</Button></CardContent></Card></Grid>
-      })}</Grid>
-    </Container>
-
-    <Container id="search" maxWidth="lg" sx={{ position: 'relative' }}>
-      <Card elevation={5}><CardContent sx={{ p: { xs: 2.5, md: 3 } }}><Grid container spacing={2} alignItems="end">
-        <Grid size={{ xs: 12, md: 2 }}><FormControl fullWidth><InputLabel>Hire from</InputLabel><Select label="Hire from" value={divisionId} onChange={(e) => { const value = e.target.value; setDivisionId(value); setSearched(false); const division = divisions.find(x => x.id === value); setType(division ? (isEquipmentDivision(division) ? 'Equipment' : 'Vehicle') : '') }}><MenuItem value="">All divisions</MenuItem>{divisions.map((division) => <MenuItem key={division.id} value={division.id}>{division.name}</MenuItem>)}</Select></FormControl></Grid>
-        <Grid size={{ xs: 12, md: 2 }}><FormControl fullWidth><InputLabel>Pickup branch</InputLabel><Select label="Pickup branch" value={branchId} onChange={(e) => { setBranchId(e.target.value); setSearched(false) }}><MenuItem value="">All branches</MenuItem>{branches.map((branch) => <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>)}</Select></FormControl></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 1.5 }}><FormControl fullWidth><InputLabel>Rental type</InputLabel><Select label="Rental type" value={type} onChange={(e) => { setType(e.target.value as AssetType | ''); setSearched(false) }}><MenuItem value="">All</MenuItem><MenuItem value="Vehicle">Vehicles</MenuItem><MenuItem value="Equipment">Equipment</MenuItem></Select></FormControl></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 2 }}><TextField fullWidth type="date" label="Pickup date" InputLabelProps={{ shrink: true }} inputProps={{ min: dateInputValue(0) }} value={startDate} onChange={(e) => { setStartDate(e.target.value); setSearched(false) }} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 2 }}><TextField fullWidth type="date" label="Return date" InputLabelProps={{ shrink: true }} inputProps={{ min: startDate }} value={endDate} onChange={(e) => { setEndDate(e.target.value); setSearched(false) }} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 2.5 }}><Button fullWidth size="large" variant="contained" startIcon={<SearchOutlined />} onClick={() => void checkAvailability()} sx={{ minHeight: 56 }}>Check availability</Button></Grid>
-      </Grid></CardContent></Card>
-    </Container>
+    {!searched ? <Box id="top" sx={{ bgcolor: '#111', color: 'white', position: 'relative', overflow: 'hidden', py: { xs: 6, md: 9 } }}>
+      <Box sx={{ position: 'absolute', width: 650, height: 650, borderRadius: '50%', bgcolor: 'secondary.main', opacity: .09, right: -160, top: -250 }} />
+      <Container id="search" maxWidth="xl" sx={{ position: 'relative', px: { md: 5 } }}><Grid container spacing={{ xs: 4, md: 5 }} alignItems="center">
+        <Grid size={{ xs: 12, md: 8 }}><Card elevation={10} sx={{ borderRadius: 3 }}><CardContent sx={{ p: { xs: 3, md: 5 } }}><Typography variant="h4" fontWeight={850} mb={1}>Find your rental</Typography><Typography variant="body1" color="text.secondary" mb={3.5}>Choose a location and hire dates to see live availability.</Typography>{renderSearchForm()}</CardContent></Card></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><Typography color="secondary.main" fontWeight={800} letterSpacing={1.5}>CARPENTERS FIJI RENTALS</Typography><Typography variant="h2" fontWeight={900} mt={1} sx={{ fontSize: { xs: '2.6rem', md: '3.7rem' } }}>Hire with confidence.</Typography><Typography variant="h6" color="rgba(255,255,255,.72)" mt={2}>Vehicles, heavy equipment and site-hire services with local branch support across Fiji.</Typography><Button sx={{ mt: 3 }} size="large" variant="outlined" color="inherit" onClick={onCustomerAccount}>{customerAuthenticated ? 'Manage my bookings' : 'Sign in to book'}</Button></Grid>
+      </Grid></Container>
+    </Box> : <Box id="top" sx={{ bgcolor: 'white', borderBottom: 1, borderColor: 'divider', py: 2 }}><Container maxWidth="lg">
+      <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ md: 'center' }} justifyContent="space-between" gap={2}><Box><Typography variant="caption" color="text.secondary">YOUR RENTAL SEARCH</Typography><Typography fontWeight={800}>{branches.find(branch => branch.id === branchId)?.name ?? 'All participating locations'}{differentReturnLocation && returnBranchId ? ` → ${branches.find(branch => branch.id === returnBranchId)?.name}` : ''}</Typography><Typography variant="body2" color="text.secondary">{startDate} to {endDate} · {rentalDays} {rentalDays === 1 ? 'day' : 'days'}</Typography></Box><Button variant="outlined" startIcon={<EditOutlined />} onClick={() => setShowModifySearch(true)}>Modify search</Button></Stack>
+      {showModifySearch && <Card elevation={8} sx={{ mt: 2, position: 'relative' }}><IconButton aria-label="Close modify search" onClick={() => setShowModifySearch(false)} sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1 }}><CloseOutlined /></IconButton><CardContent sx={{ p: { xs: 2.5, md: 3 }, pt: { xs: 6, md: 3 } }}><Typography variant="h6" fontWeight={850} mb={2}>Modify location or dates</Typography>{renderSearchForm(true)}</CardContent></Card>}
+    </Container></Box>}
 
     <Container id="rentals" maxWidth="lg" sx={{ py: 9 }}>
-      {customerPreference !== 'NoPreference' && <Alert severity="info" sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => { setCustomerPreference('NoPreference'); setType(''); setCategory('All') }}>Show everything</Button>}>Your catalogue starts with {customerPreference === 'Vehicles' ? 'vehicles' : customerPreference === 'Equipment' ? 'construction and industrial equipment' : 'waste and site-hire equipment'} based on your account preference.</Alert>}
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} mb={3}><Box><Typography variant="h3" fontWeight={800} sx={{ fontSize: { xs: '2rem', md: '3rem' } }}>Rental availability</Typography><Typography color="text.secondary" mt={1}>{searched ? `${availableCount} of ${displayedAssets.length} options available from ${startDate} to ${endDate}` : 'Choose your dates above to check live availability. No login is required.'}</Typography></Box>
-        <Chip label={searched ? 'Availability checked' : 'Public availability search'} color={searched ? 'success' : 'default'} variant="outlined" icon={searched ? <CheckCircleOutlined /> : <SearchOutlined />} sx={{ alignSelf: 'flex-start' }} /></Stack>
-      <Alert severity={searched ? (availableCount > 0 ? 'success' : 'warning') : 'info'} sx={{ mb: 3 }}>
-        {searched ? (availableCount > 0 ? 'These results are for your selected dates. Sign in is only required when you continue with a booking.' : 'No items are available for this search. Try another branch, division or date range.') : 'Browse the catalogue below, then use Check availability to confirm an item for your hire period.'}
-      </Alert>
-      <Stack direction="row" gap={1} flexWrap="wrap" mb={3}>{['All', 'Cars & SUVs', 'Vans & trucks', 'Earthmoving', 'Lifting', 'Power & site'].map(item => <Chip key={item} clickable label={item} color={category === item ? 'primary' : 'default'} variant={category === item ? 'filled' : 'outlined'} onClick={() => setCategory(item)} />)}</Stack>
       {error && !selected && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
-      {loading ? <Box sx={{ py: 10, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : <Grid container spacing={3}>
-        {displayedAssets.length === 0 && <Grid size={12}><Card variant="outlined"><CardContent sx={{ textAlign: 'center', py: 8 }}><Typography variant="h6">No rentals match this search</Typography><Typography color="text.secondary">Try another category, branch or date range.</Typography><Button sx={{ mt: 2 }} onClick={() => setCategory('All')}>Clear category</Button></CardContent></Card></Grid>}
-        {displayedAssets.map((asset) => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 4 }}><Card variant="outlined" sx={{ height: '100%', overflow: 'hidden' }}>
-          <Box sx={{ height: 210, bgcolor: '#e8e8e2', position: 'relative', overflow: 'hidden' }}>
-            <Box component="img" src={catalogueImage(asset)} alt={`${asset.name} available from ${asset.branchName}`} loading="lazy" sx={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover', transition: 'transform .3s ease', '.MuiCard-root:hover &': { transform: 'scale(1.035)' } }} />
-            <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,.04) 45%, rgba(0,0,0,.36) 100%)', pointerEvents: 'none' }} />
-            <Chip label={!searched ? 'Check your dates' : asset.isAvailable ? 'Available for your dates' : 'Unavailable for your dates'} color={searched && asset.isAvailable ? 'success' : 'default'} size="small" sx={{ position: 'absolute', top: 14, right: 14, bgcolor: searched && asset.isAvailable ? undefined : 'white' }} />
-          </Box><CardContent sx={{ p: 2.5 }}><Typography variant="overline" color="text.secondary">{asset.divisionName || asset.type} · {asset.assetNumber}</Typography><Typography variant="h6" fontWeight={750}>{asset.name}</Typography>
-            {asset.personnelRequirement !== 'None' && <Chip size="small" sx={{ mt: 1 }} label={`Trained personnel ${asset.personnelRequirement.toLowerCase()}`} color={asset.personnelRequirement === 'Required' ? 'warning' : 'default'} />}
-            <Stack direction="row" alignItems="center" gap={.5} mt={1}><LocationOnOutlined fontSize="small" color="action" /><Typography variant="body2" color="text.secondary">{asset.branchName}</Typography></Stack>
-            <Divider sx={{ my: 2 }} /><Stack direction="row" justifyContent="space-between" alignItems="end" gap={2}><Box><Typography variant="caption" color="text.secondary">Estimated for {rentalDays} {rentalDays === 1 ? 'day' : 'days'}</Typography><Typography variant="h5" fontWeight={800}>${(asset.dailyRate * rentalDays).toFixed(2)}<Typography component="span" variant="body2" color="text.secondary"> FJD</Typography></Typography><Typography variant="caption" color="text.secondary">${asset.dailyRate.toFixed(2)} per day</Typography></Box>
-              <Stack gap={1} alignItems="flex-end"><Button size="small" onClick={() => setDetailAsset(asset)}>View details</Button><Button variant="contained" disabled={!searched || !asset.isAvailable} endIcon={<ArrowForwardOutlined />} onClick={() => void requestBooking(asset)}>{!searched ? 'Check dates first' : !customerAuthenticated ? 'Sign in to continue' : asset.type === 'Equipment' || asset.requiresQuote || asset.personnelRequirement !== 'None' ? 'Request quotation' : 'Book now'}</Button></Stack></Stack>
-            <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>Estimate excludes VAT, deposit, delivery, fuel and optional operator charges. Final price is confirmed before approval.</Typography>
-          </CardContent></Card></Grid>)}
-      </Grid>}
+      <Card variant="outlined" sx={{ mb: 3, bgcolor: 'white' }}><CardContent sx={{ p: 2 }}><Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} alignItems={{ md: 'center' }}>
+        <FormControl size="small" sx={{ minWidth: 175 }}><InputLabel>Division</InputLabel><Select label="Division" value={divisionId} onChange={event => { const value = event.target.value; setDivisionId(value); const division = divisions.find(item => item.id === value); setType(division ? (isEquipmentDivision(division) ? 'Equipment' : 'Vehicle') : '') }}><MenuItem value="">All divisions</MenuItem>{divisions.map(division => <MenuItem key={division.id} value={division.id}>{division.name}</MenuItem>)}</Select></FormControl>
+        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Rental category</InputLabel><Select label="Rental category" value={category} onChange={event => setCategory(event.target.value)}>{['All', 'Cars & SUVs', 'Vans & trucks', 'Earthmoving', 'Lifting', 'Power & site'].map(item => <MenuItem key={item} value={item}>{item === 'All' ? 'All categories' : item}</MenuItem>)}</Select></FormControl>
+        {type !== 'Equipment' && seatOptions.length > 0 && <FormControl size="small" sx={{ minWidth: 125 }}><InputLabel>Seats</InputLabel><Select label="Seats" value={seatFilter} onChange={event => setSeatFilter(event.target.value)}><MenuItem value="">Any seats</MenuItem>{seatOptions.map(seats => <MenuItem key={seats} value={String(seats)}>{seats}+ seats</MenuItem>)}</Select></FormControl>}
+        {type !== 'Equipment' && transmissionOptions.length > 0 && <FormControl size="small" sx={{ minWidth: 150 }}><InputLabel>Transmission</InputLabel><Select label="Transmission" value={transmissionFilter} onChange={event => setTransmissionFilter(event.target.value)}><MenuItem value="">Any</MenuItem>{transmissionOptions.map(option => <MenuItem key={option} value={option}>{option}</MenuItem>)}</Select></FormControl>}
+        <FormControl size="small" sx={{ minWidth: 145 }}><InputLabel>Daily price</InputLabel><Select label="Daily price" value={priceFilter} onChange={event => setPriceFilter(event.target.value)}><MenuItem value="">Any price</MenuItem><MenuItem value="under-200">Under FJD 200</MenuItem><MenuItem value="200-500">FJD 200–500</MenuItem><MenuItem value="over-500">Over FJD 500</MenuItem></Select></FormControl>
+        <Box sx={{ flex: 1 }} /><FormControl size="small" sx={{ minWidth: 180 }}><InputLabel>Sort by</InputLabel><Select label="Sort by" value={sort} onChange={event => setSort(event.target.value as CatalogueSort)}><MenuItem value="recommended">Recommended</MenuItem><MenuItem value="price-low">Price: low to high</MenuItem><MenuItem value="price-high">Price: high to low</MenuItem></Select></FormControl>
+        {(divisionId || category !== 'All' || seatFilter || transmissionFilter || priceFilter) && <Button size="small" onClick={() => { setDivisionId(''); setType(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter(''); setAvailableOnly(false) }}>Clear</Button>}
+      </Stack></CardContent></Card>
+      <Grid container spacing={3}>
+        <Grid size={12}>
+          <Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" alignItems={{sm:'center'}} gap={1.5} mb={2}>
+            <Box><Typography fontWeight={800}>{sortedAssets.length} {sortedAssets.length === 1 ? 'rental' : 'rentals'} found</Typography><Typography variant="body2" color="text.secondary">{branches.find(item => item.id === branchId)?.name ?? 'All participating locations'} · Prices in FJD</Typography></Box>
+            <FormControlLabel control={<Switch checked={availableOnly} onChange={event => setAvailableOnly(event.target.checked)} />} label="Available only" />
+          </Stack>
+          {loading ? <Box sx={{ py: 10, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : <Grid container spacing={3}>
+        {displayedAssets.length === 0 && <Grid size={12}><Card variant="outlined"><CardContent sx={{ textAlign: 'center', py: 8 }}><Typography variant="h6">No rentals match this search</Typography><Typography color="text.secondary">Try another category, branch or date range.</Typography><Button sx={{ mt: 2 }} onClick={() => { setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter('') }}>Clear filters</Button></CardContent></Card></Grid>}
+        {sortedAssets.map((asset) => {
+          const photos = assetPhotoUrls(asset)
+          const photoIndex = Math.min(photoIndexes[asset.id] ?? 0, Math.max(photos.length - 1, 0))
+          return <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 4 }}><Card variant="outlined" sx={{ height: '100%', overflow: 'hidden', borderRadius: 3, bgcolor: '#fff', borderColor: '#deddd6', borderTop: '4px solid', borderTopColor: 'secondary.main', transition: 'transform .2s ease, box-shadow .2s ease', '&:hover': { transform: 'translateY(-3px)', boxShadow: '0 14px 30px rgba(0,0,0,.09)' } }}>
+            <CardContent sx={{ p: 2.5, pb: 1 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
+                <Box><Typography variant="h5" fontWeight={850} lineHeight={1.15}>{asset.name}</Typography><Typography variant="body2" fontWeight={700} color="text.secondary" mt={.75}>{asset.category ?? asset.serviceName ?? asset.type} · {asset.assetNumber}</Typography></Box>
+                <Chip label={!searched ? 'Check dates' : asset.isAvailable ? 'Available' : 'Unavailable'} color={searched && asset.isAvailable ? 'success' : 'default'} size="small" sx={{ bgcolor: searched && asset.isAvailable ? undefined : 'white' }} />
+              </Stack>
+              <Stack direction="row" gap={.75} flexWrap="wrap" mt={1.5}>{catalogueFeatures(asset).map(feature => <Chip key={feature} size="small" label={feature} sx={{ bgcolor: 'rgba(255,255,255,.7)' }} />)}</Stack>
+            </CardContent>
+            <Box sx={{ height: { xs: 250, md: 285 }, position: 'relative', overflow: 'hidden', mx: 1.5, borderRadius: 2, bgcolor: '#f7f6ef' }}>
+              {photos[photoIndex] ? <Box component="img" src={photos[photoIndex]} alt={`${asset.name}, photo ${photoIndex + 1} of ${photos.length}`} loading="lazy" sx={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', p: 1.5 }} /> : <Stack sx={{height:'100%'}} alignItems="center" justifyContent="center"><ImageOutlined sx={{fontSize:52,color:'grey.400'}}/><Typography variant="body2" color="text.secondary">Photo coming soon</Typography></Stack>}
+              {photos.length > 1 && <>
+                <IconButton aria-label="Previous photo" onClick={() => changeCataloguePhoto(asset.id, photos.length, -1)} sx={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', bgcolor: 'rgba(255,255,255,.92)', '&:hover': { bgcolor: 'white' } }}><ChevronLeftOutlined /></IconButton>
+                <IconButton aria-label="Next photo" onClick={() => changeCataloguePhoto(asset.id, photos.length, 1)} sx={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', bgcolor: 'rgba(255,255,255,.92)', '&:hover': { bgcolor: 'white' } }}><ChevronRightOutlined /></IconButton>
+                <Stack direction="row" gap={.7} sx={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', bgcolor: 'rgba(255,255,255,.88)', borderRadius: 5, px: 1, py: .65 }}>{photos.map((_, index) => <Box key={index} component="button" aria-label={`Show photo ${index + 1}`} onClick={() => setPhotoIndexes(current => ({ ...current, [asset.id]: index }))} sx={{ border: 0, p: 0, width: 7, height: 7, borderRadius: '50%', cursor: 'pointer', bgcolor: index === photoIndex ? '#111' : 'grey.400' }} />)}</Stack>
+              </>}
+            </Box>
+            <CardContent sx={{ p: 2.5, pt: 2 }}>
+              <Stack direction="row" alignItems="center" gap={.5}><LocationOnOutlined fontSize="small" color="action" /><Typography variant="body2" color="text.secondary">{asset.branchName} · {asset.divisionName || asset.type}</Typography></Stack>
+              <Divider sx={{ my: 1.75 }} /><Stack direction="row" justifyContent="space-between" alignItems="flex-end" gap={1}><Box><Typography variant="h5" fontWeight={900}>FJD {asset.dailyRate.toFixed(2)}<Typography component="span" variant="body2" color="text.secondary"> / day</Typography></Typography><Typography variant="caption" color="text.secondary">FJD {(asset.dailyRate * rentalDays).toFixed(2)} estimated for {rentalDays} {rentalDays === 1 ? 'day' : 'days'}</Typography></Box><Button variant="contained" disabled={!searched || !asset.isAvailable} endIcon={<ArrowForwardOutlined />} onClick={() => void requestBooking(asset)}>{!searched ? 'Check dates' : !customerAuthenticated ? 'Continue' : asset.type === 'Equipment' || asset.requiresQuote || asset.personnelRequirement !== 'None' ? 'Get quote' : 'Book now'}</Button></Stack>
+              <Button size="small" sx={{ mt: 1.25, px: 0 }} onClick={() => setDetailAsset(asset)}>View full details and photos</Button>
+            </CardContent>
+          </Card></Grid>
+        })}
+          </Grid>}
+        </Grid>
+      </Grid>
     </Container>
 
     <Box sx={{ bgcolor: 'secondary.main', py: { xs: 6, md: 7 } }}><Container maxWidth="md"><Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ md: 'center' }} justifyContent="space-between" gap={3}><Box><Typography variant="h4" fontWeight={800}>Ready to book or track a booking?</Typography><Typography mt={1} sx={{ opacity: .72 }}>Sign in to submit bookings securely and see every status update in one place.</Typography></Box><Button size="large" variant="contained" onClick={onCustomerAccount} sx={{ bgcolor: '#111', color: 'white', minWidth: 190, '&:hover': { bgcolor: '#292929' } }}>{customerAuthenticated ? 'Open my bookings' : 'Customer login'}</Button></Stack></Container></Box>
@@ -322,7 +391,7 @@ export function PublicRentalPage({ onCustomerAccount, customerAuthenticated = fa
     </Grid></Container>
     <Box sx={{ bgcolor: '#080808', color: 'rgba(255,255,255,.65)', py: 3 }}><Container maxWidth="lg"><Typography variant="body2">© {new Date().getFullYear()} Carpenters Fiji — Vehicle & Equipment Rentals</Typography></Container></Box>
 
-    <PublicAssetDetailDialog asset={detailAsset} imageUrl={detailAsset ? catalogueImage(detailAsset) : ''} startDate={startDate} endDate={endDate} open={Boolean(detailAsset)} onClose={() => setDetailAsset(null)} onContinue={(asset) => { setDetailAsset(null); void requestBooking(asset as PublicAsset) }} />
+    <PublicAssetDetailDialog asset={detailAsset} imageUrls={detailAsset ? assetPhotoUrls(detailAsset) : []} startDate={startDate} endDate={endDate} open={Boolean(detailAsset)} onClose={() => setDetailAsset(null)} onContinue={(asset) => { setDetailAsset(null); void requestBooking(asset as PublicAsset) }} />
 
     <Dialog open={Boolean(selected)} onClose={() => !submitting && setSelected(null)} fullWidth maxWidth="lg"><DialogTitle>{reference ? 'Request received' : quotationFlow ? 'Request a quotation' : 'Book your vehicle'}</DialogTitle><DialogContent dividers>
       {reference ? <Stack alignItems="center" textAlign="center" py={4}><CheckCircleOutlined color="success" sx={{ fontSize: 70 }} /><Typography variant="h5" fontWeight={750} mt={2}>{responseKind === 'Quotation' ? 'Quotation request submitted' : 'Booking request submitted'}</Typography><Typography color="text.secondary" mt={1}>{responseKind === 'Quotation' ? 'A rental specialist will review transport, personnel and final pricing, normally within one business day.' : 'The branch will verify your details and confirm pickup requirements.'}</Typography><Chip label={`Reference: ${reference}`} sx={{ mt: 3, fontWeight: 700, fontSize: '1rem', py: 2.25 }} /><Button sx={{ mt: 2 }} onClick={onCustomerAccount}>{responseKind === 'Quotation' ? 'View my quotations' : 'View my bookings'}</Button></Stack> :

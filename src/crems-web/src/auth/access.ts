@@ -5,7 +5,6 @@ export const roles = {
   rentalOfficer: 'RentalOfficer',
   maintenanceOfficer: 'MaintenanceOfficer',
   financeOfficer: 'FinanceOfficer',
-  driver: 'Driver',
 } as const
 
 export type AppPage =
@@ -17,23 +16,27 @@ export type AppPage =
   | 'scan'
   | 'maintenance'
   | 'operations'
+  | 'finance'
   | 'reports'
   | 'users'
+  | 'customerAccounts'
   | 'branches'
   | 'divisions'
   | 'configuration'
 
 const pageRoles: Record<AppPage, readonly string[]> = {
   dashboard: Object.values(roles),
-  assets: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer, roles.maintenanceOfficer, roles.driver],
+  assets: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer, roles.maintenanceOfficer],
   customers: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer],
   bookings: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer],
   rentals: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer],
-  scan: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer, roles.maintenanceOfficer, roles.driver],
+  scan: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer, roles.maintenanceOfficer],
   maintenance: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.maintenanceOfficer],
   operations: [roles.superAdministrator, roles.administrator, roles.branchManager],
+  finance: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.financeOfficer],
   reports: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.financeOfficer],
   users: [roles.superAdministrator, roles.administrator],
+  customerAccounts: [roles.superAdministrator, roles.administrator],
   branches: [roles.superAdministrator, roles.administrator],
   divisions: [roles.superAdministrator],
   configuration: [roles.superAdministrator],

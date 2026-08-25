@@ -71,7 +71,6 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
         new { role = SystemRoles.RentalOfficer, scope = "Assigned branch", permissions = new[] { "Bookings", "Customer records", "Pickup and return", "Rental agreements", "Payments and incidents" } },
         new { role = SystemRoles.MaintenanceOfficer, scope = "Assigned division and branch", permissions = new[] { "Asset register", "Maintenance jobs", "Inspections", "Meter readings", "QR identification" } },
         new { role = SystemRoles.FinanceOfficer, scope = "Assigned division and branch", permissions = new[] { "Invoices", "Payments", "Customer statements", "Revenue and cost reports" } },
-        new { role = SystemRoles.Driver, scope = "Assigned division and branch", permissions = new[] { "Assigned asset details", "QR scanning", "Check-out and return evidence" } },
     });
 }
 
