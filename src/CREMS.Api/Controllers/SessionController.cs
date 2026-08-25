@@ -149,7 +149,7 @@ public sealed class SessionController(
     private async Task CompleteSignIn(ApplicationUser user)
     {
         await signInManager.SignInAsync(user, isPersistent: false); var now = DateTimeOffset.UtcNow; user.LastLoginAt = now; user.LastActivityAt = now; user.LastLoginIp = HttpContext.Connection.RemoteIpAddress?.ToString();
-        var windowId = Request.Headers["X-CREMS-Window-Id"].ToString(); db.UserSessions.Add(new UserSession { UserId = user.Id, WindowId = windowId, IpAddress = user.LastLoginIp, UserAgent = Request.Headers.UserAgent.ToString(), DeviceLabel = Device(Request.Headers.UserAgent.ToString()), ExpiresAt = now.AddMinutes(20) });
+        var windowId = Request.Headers["X-CREMS-Window-Id"].ToString(); db.UserSessions.Add(new UserSession { UserId = user.Id, WindowId = windowId, IpAddress = user.LastLoginIp, UserAgent = Request.Headers.UserAgent.ToString(), DeviceLabel = Device(Request.Headers.UserAgent.ToString()), ExpiresAt = now.AddMinutes(30) });
         await Record(user.Id, user.Email, SecurityEventType.LoginSucceeded, true, null, false); await db.SaveChangesAsync();
     }
     private async Task<MfaChallenge> IssueMfa(ApplicationUser user)

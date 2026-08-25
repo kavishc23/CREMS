@@ -23,7 +23,7 @@ type AuthContextValue = {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
-const sessionTimeoutMs = 20 * 60 * 1000
+const sessionTimeoutMs = 30 * 60 * 1000
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthenticatedUser | null>(null)

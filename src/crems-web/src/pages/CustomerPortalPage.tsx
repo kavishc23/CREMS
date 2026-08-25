@@ -131,7 +131,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
     }
     const timer = window.setTimeout(() => {
       void api.post('/customer-account/logout').catch(() => undefined).finally(expirePortalSession)
-    }, 20 * 60 * 1000)
+    }, 30 * 60 * 1000)
     window.addEventListener('crems:session-expired', expirePortalSession)
 
     return () => {

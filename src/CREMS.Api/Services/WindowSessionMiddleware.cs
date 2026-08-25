@@ -19,7 +19,7 @@ public sealed class WindowSessionRegistry
                 continue;
             }
 
-            if (now - current.CreatedAt > TimeSpan.FromMinutes(20))
+            if (now - current.CreatedAt > TimeSpan.FromMinutes(30))
             {
                 sessions.TryRemove(new KeyValuePair<string, WindowSession>(userId, current));
                 return WindowSessionResult.Expired;

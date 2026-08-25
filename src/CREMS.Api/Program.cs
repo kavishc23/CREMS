@@ -38,14 +38,15 @@ builder.Services.ConfigureApplicationCookie(options =>
         ? CookieSecurePolicy.SameAsRequest
         : CookieSecurePolicy.Always;
     options.Cookie.SameSite = SameSiteMode.Strict;
-    options.ExpireTimeSpan = TimeSpan.FromMinutes(20);
+    // Fixed session lifetime. Activity does not extend this period.
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
     options.SlidingExpiration = false;
     options.Events.OnValidatePrincipal = async context =>
     {
         await SecurityStampValidator.ValidatePrincipalAsync(context);
         if (context.Principal?.Identity?.IsAuthenticated == true &&
             context.Properties.IssuedUtc is { } issued &&
-            DateTimeOffset.UtcNow - issued > TimeSpan.FromMinutes(20))
+            DateTimeOffset.UtcNow - issued > TimeSpan.FromMinutes(30))
         {
             context.RejectPrincipal();
         }
