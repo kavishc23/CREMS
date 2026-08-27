@@ -104,6 +104,26 @@ function readCatalogueState(): CatalogueState | null {
   } catch { return null }
 }
 
+type PublicCatalogueBootstrap = { branches: Branch[]; divisions: PublicDivision[]; assets: PublicAsset[] }
+let publicCatalogueCache: { expiresAt: number; promise: Promise<PublicCatalogueBootstrap> } | null = null
+
+function loadPublicCatalogueBootstrap() {
+  const now = Date.now()
+  if (publicCatalogueCache && publicCatalogueCache.expiresAt > now) return publicCatalogueCache.promise
+  const promise = Promise.all([
+    api.get<Branch[]>('/public/branches'),
+    api.get<PublicDivision[]>('/public/divisions'),
+    api.get<PublicAsset[]>('/public/assets'),
+  ]).then(([branchResponse, divisionResponse, assetResponse]) => ({
+    branches: branchResponse.data,
+    divisions: divisionResponse.data,
+    assets: assetResponse.data,
+  }))
+  publicCatalogueCache = { expiresAt: now + 30_000, promise }
+  promise.catch(() => { publicCatalogueCache = null })
+  return promise
+}
+
 export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, customerAuthenticated = false, customerName }: { onCustomerAccount: (section?: 'overview' | 'bookings' | 'quotes' | 'documents' | 'receipts' | 'account') => void; onCustomerSignOut?: () => void | Promise<void>; customerAuthenticated?: boolean; customerName?: string }) {
   const [savedCatalogue] = useState(readCatalogueState)
   const [assets, setAssets] = useState<PublicAsset[]>([])
@@ -146,22 +166,6 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     }))
   }
 
-  const loadBranches = useCallback(async () => {
-    try { setBranches((await api.get<Branch[]>('/public/branches')).data) } catch { /* Contacts remain optional. */ }
-  }, [])
-  const loadDivisions = useCallback(async () => {
-    try { setDivisions((await api.get<PublicDivision[]>('/public/divisions')).data) } catch { /* Catalogue still works without the selector. */ }
-  }, [])
-  const loadCatalogue = useCallback(async () => {
-    setLoading(true)
-    try {
-      const catalogue = (await api.get<PublicAsset[]>('/public/assets')).data
-      setCatalogueAssets(catalogue)
-      setAssets(catalogue)
-    }
-    catch { setError('We could not load the rental catalogue. Please try again or contact a branch.') }
-    finally { setLoading(false) }
-  }, [])
   const checkAvailability = useCallback(async () => {
     if (!startDate || !endDate || endDate <= startDate) {
       setError('Choose a return date after the pickup date.')
@@ -182,10 +186,19 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   }, [branchId, differentReturnLocation, divisionId, endDate, returnBranchId, startDate, type])
 
   useEffect(() => {
-    // Public catalogue and contact data are intentionally available without authentication.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadBranches(); void loadDivisions(); void loadCatalogue()
-  }, [loadBranches, loadCatalogue, loadDivisions])
+    let active = true
+    void loadPublicCatalogueBootstrap()
+      .then(data => {
+        if (!active) return
+        setBranches(data.branches)
+        setDivisions(data.divisions)
+        setCatalogueAssets(data.assets)
+        setAssets(data.assets)
+      })
+      .catch(() => { if (active) setError('We could not load the rental catalogue. Please try again or contact a branch.') })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [])
 
   const displayedAssets = useMemo(() => (searched ? assets : catalogueAssets).filter((asset) => {
     if (divisionId && asset.divisionId !== divisionId) return false
@@ -223,7 +236,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const extrasTotal = checkoutCharges.reduce((sum, charge) => sum + charge.defaultSellingRate * charge.quantity, 0)
   const estimatedTax = (baseHire + extrasTotal) * .15
   const estimatedTotal = baseHire + extrasTotal + estimatedTax
-  const quotationFlow = Boolean(selected && (selected.type === 'Equipment' || selected.requiresQuote || selected.personnelRequirement !== 'None' || booking.customerType === 'Business'))
+  const quotationFlow = Boolean(selected && (selected.type === 'Equipment' || selected.requiresQuote || selected.personnelRequirement !== 'None'))
   function scrollTo(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }) }
   function openRequest(asset: PublicAsset, details: CheckoutDetail, customerDetails: BookingForm = emptyBooking) { setSelected(asset); setCheckoutDetail(details); setSelectedExtras(Object.fromEntries(details.charges.filter(x => x.isRequired).map(x => [x.id, 1]))); setBooking({ ...customerDetails, fulfilment: details.service?.requiresDelivery ? 'Delivery' : customerDetails.fulfilment, personnelRequested: asset.personnelRequirement === 'Required' || customerDetails.personnelRequested }); setBookingStep(0); setTermsAccepted(false); setReference(''); setError('') }
   async function submitRequest(event: FormEvent) {
@@ -249,10 +262,10 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       return
     }
     try {
-      const account = (await api.get<{ fullName: string; type: 'Individual' | 'Business'; customerName: string; email: string; phone: string | null; address: string | null }>('/customer-account/session')).data
+      const account = (await api.get<{ fullName: string; customerName: string; email: string; phone: string | null; address: string | null }>('/customer-account/session')).data
       const details = (await api.get<CheckoutDetail>(`/public/assets/${asset.id}`, { params: { startDate, endDate } })).data
-      openRequest(asset, details, { ...emptyBooking, fullName: account.fullName, customerType: account.type,
-        companyName: account.type === 'Business' ? account.customerName : '', email: account.email,
+      openRequest(asset, details, { ...emptyBooking, fullName: account.fullName, customerType: 'Individual',
+        companyName: '', email: account.email,
         phone: account.phone ?? '', address: account.address ?? '' })
     } catch { setError('We could not prepare this checkout. Please refresh availability and try again.') }
   }

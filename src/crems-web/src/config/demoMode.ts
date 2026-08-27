@@ -20,7 +20,6 @@ const week2Pages = new Set<AppPage>([
 const week3Pages = new Set<AppPage>([
   'dashboard',
   'assets',
-  'scan',
   'users',
   'customerAccounts',
 ])

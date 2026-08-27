@@ -37,9 +37,9 @@ public sealed class CustomerAccountController(
 
         var customer = new Customer
         {
-            CustomerNumber = $"CUS-{Guid.NewGuid():N}"[..14].ToUpperInvariant(),
-            Type = request.Type,
-            Name = request.Type == CustomerType.Business ? request.BusinessName!.Trim() : request.FullName.Trim(),
+            CustomerNumber = await NextCustomerNumber(token),
+            Type = CustomerType.Individual,
+            Name = request.FullName.Trim(),
             Email = email,
             Phone = request.Phone.Trim(),
             Address = Clean(request.Address),
@@ -94,8 +94,9 @@ public sealed class CustomerAccountController(
         if (user is null || !user.IsActive || !user.CustomerId.HasValue) return Unauthorized();
         var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == user.CustomerId);
         if (customer is null || !customer.IsActive || customer.IsBlocked) return Forbid();
-        return Ok(new { user.Id, user.Email, user.FullName, user.CustomerId, customer.CustomerNumber, customer.Type,
-            CustomerName = customer.Name, customer.Phone, customer.Address, customer.HirePreference, user.EmailConfirmed });
+        return Ok(new { user.Id, user.Email, user.FullName, user.CustomerId, customer.CustomerNumber,
+            CustomerName = customer.Name, customer.Phone, customer.Address, customer.IdentificationNumber,
+            customer.HirePreference, user.EmailConfirmed });
     }
 
     [HttpGet("bookings")]
@@ -364,6 +365,17 @@ public sealed class CustomerAccountController(
         Directory.CreateDirectory(root);
         var storageName = $"{Guid.NewGuid():N}{extension}";
         await System.IO.File.WriteAllBytesAsync(Path.Combine(root, storageName), bytes, token);
+        if (!request.BookingId.HasValue)
+        {
+            var previous = await db.DocumentRecords.Where(document => document.EntityType == nameof(Customer) &&
+                document.EntityId == user.CustomerId && document.Type == "DriverLicence").ToListAsync(token);
+            foreach (var old in previous)
+            {
+                var oldPath = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "App_Data", "customer-documents", old.StoragePath));
+                if (System.IO.File.Exists(oldPath)) System.IO.File.Delete(oldPath);
+            }
+            db.DocumentRecords.RemoveRange(previous);
+        }
         var record = new DocumentRecord { DocumentNumber = Number("DOC"), EntityType = entityType, EntityId = entityId,
             BranchId = branchId, Type = request.Type, FileName = Path.GetFileName(request.File.FileName),
             StoragePath = Path.Combine(user.CustomerId.Value.ToString("N"), storageName),
@@ -399,10 +411,11 @@ public sealed class CustomerAccountController(
         user.FullName = request.FullName.Trim();
         customer.Phone = request.Phone.Trim();
         customer.Address = Clean(request.Address);
+        customer.IdentificationNumber = Clean(request.IdentificationNumber);
         customer.HirePreference = request.HirePreference;
         await userManager.UpdateAsync(user);
         await db.SaveChangesAsync(token);
-        return Ok(new { user.FullName, customer.Phone, customer.Address, customer.HirePreference });
+        return Ok(new { user.FullName, customer.Phone, customer.Address, customer.IdentificationNumber, customer.HirePreference });
     }
 
     [HttpPut("bookings/{bookingId:guid}/dates")]
@@ -564,6 +577,16 @@ public sealed class CustomerAccountController(
     }
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private async Task<string> NextCustomerNumber(CancellationToken token)
+    {
+        var numbers = await db.Customers.AsNoTracking().Select(customer => customer.CustomerNumber).ToListAsync(token);
+        var next = numbers.Select(number => number.StartsWith("CUS-", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(number[4..], out var value) ? value : 0).DefaultIfEmpty().Max() + 1;
+        string candidate;
+        do candidate = $"CUS-{next++:D6}";
+        while (numbers.Contains(candidate, StringComparer.OrdinalIgnoreCase));
+        return candidate;
+    }
     private static bool HasValidSignature(string extension, byte[] bytes) => extension switch
     {
         ".pdf" => bytes.Length >= 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46,
@@ -588,6 +611,7 @@ public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset O
 public sealed record CustomerQuoteDecisionRequest(bool Accepted, [MaxLength(1000)] string? Note);
 public sealed record CustomerProfileRequest([Required, MaxLength(150)] string FullName,
     [Required, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,
+    [MaxLength(100)] string? IdentificationNumber,
     CustomerHirePreference HirePreference);
 public sealed record CustomerBookingDatesRequest(DateTimeOffset StartAt, DateTimeOffset EndAt);
 public sealed record ActivateCustomerAccountRequest([Required, EmailAddress] string Email,
@@ -595,18 +619,9 @@ public sealed record ActivateCustomerAccountRequest([Required, EmailAddress] str
 
 public sealed record RegisterCustomerRequest(
     [Required, MaxLength(150)] string FullName,
-    CustomerType Type,
-    [MaxLength(150)] string? BusinessName,
     [Required, EmailAddress, MaxLength(254)] string Email,
     [Required, MaxLength(50)] string Phone,
     [MaxLength(500)] string? Address,
     [MaxLength(100)] string? IdentificationNumber,
     CustomerHirePreference HirePreference,
-    [Required, MinLength(10)] string Password) : IValidatableObject
-{
-    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
-    {
-        if (Type == CustomerType.Business && string.IsNullOrWhiteSpace(BusinessName))
-            yield return new ValidationResult("Enter the registered business name.", [nameof(BusinessName)]);
-    }
-}
+    [Required, MinLength(10)] string Password);

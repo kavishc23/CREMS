@@ -48,7 +48,7 @@ export function BookingsPage(){
   const [search,setSearch]=useState(''); const [page,setPage]=useState(1); const [loading,setLoading]=useState(true); const [error,setError]=useState('')
   const [selected,setSelected]=useState<QueueRow|null>(null); const [workspace,setWorkspace]=useState<Workspace|null>(null); const [workspaceLoading,setWorkspaceLoading]=useState(false)
   const [menu,setMenu]=useState<{anchor:HTMLElement;row:QueueRow}|null>(null)
-  const load=useCallback(async()=>{setLoading(true);try{const response=await api.get<QueueResponse>('/bookings/work-queue',{params:{queue,search:search||undefined,page,pageSize:25}});setData(response.data);setError('')}catch{setError('Booking requests could not be loaded. Check that the API is running.')}finally{setLoading(false)}},[queue,search,page])
+  const load=useCallback(async()=>{setLoading(true);try{const response=await api.get<QueueResponse>('/bookings/work-queue',{params:{queue,search:search||undefined,page,pageSize:25}});setData(response.data);setError('')}catch(reason){setError(errorText(reason,'Booking requests could not be loaded. Please try again.'))}finally{setLoading(false)}},[queue,search,page])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),search?300:0);return()=>window.clearTimeout(timer)},[load,search])
   async function open(row:QueueRow){setSelected(row);setWorkspace(null);setWorkspaceLoading(true);setError('');try{setWorkspace((await api.get<Workspace>(`/bookings/${row.id}/workspace`)).data)}catch(reason){setError(errorText(reason,'The booking workspace could not be loaded.'))}finally{setWorkspaceLoading(false)}}
   const pageCount=Math.max(1,Math.ceil(data.total/data.pageSize))

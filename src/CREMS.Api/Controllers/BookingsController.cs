@@ -70,7 +70,13 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                 x.Items.Select(i => i.Asset!.AssetNumber).FirstOrDefault(), x.Items.Select(i => i.Asset!.Name).FirstOrDefault(),
                 x.Items.Select(i => i.Asset!.Category).FirstOrDefault(), x.Items.Select(i => (DateTimeOffset?)i.StartAt).FirstOrDefault(),
                 x.Items.Select(i => (DateTimeOffset?)i.EndAt).FirstOrDefault(),
-                x.Items.Sum(i => i.DailyRate * Math.Max(1, (decimal)Math.Ceiling((i.EndAt - i.StartAt).TotalDays))) - x.DiscountAmount + x.AdditionalCharges,
+                // Keep the duration calculation inside SQL. DateTimeOffset subtraction followed by
+                // TotalDays/Math.Ceiling cannot be translated by the SQL Server EF provider.
+                x.Items.Sum(i => i.DailyRate * (decimal)(
+                    EF.Functions.DateDiffMinute(i.StartAt, i.EndAt) <= 1440
+                        ? 1
+                        : (EF.Functions.DateDiffMinute(i.StartAt, i.EndAt) + 1439) / 1440))
+                    - x.DiscountAmount + x.AdditionalCharges,
                 x.DepositRequired, x.ApprovedAt, x.RentalAgreement != null,
                 x.Customer.IsBlocked ? "Customer account is blocked" : x.Items.Count == 0 ? "Asset information is missing" :
                     x.Items.Any(i => !i.Asset!.IsActive || i.Asset.Status == AssetStatus.Maintenance || i.Asset.Status == AssetStatus.OutOfService) ? "Asset is not available" : null))

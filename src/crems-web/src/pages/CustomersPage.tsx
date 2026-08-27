@@ -16,20 +16,19 @@ import {
 } from '@mui/material'
 import { api } from '../api/client'
 
-const customerTypes = ['Individual', 'Business'] as const
-type CustomerType = typeof customerTypes[number]
 type Customer = {
-  id: string; customerNumber: string; type: CustomerType; name: string
+  id: string; customerNumber: string; name: string
   email: string | null; phone: string | null; address: string | null
   identificationNumber: string | null; isBlocked: boolean; isActive: boolean
   hasOnlineAccount: boolean; emailConfirmed: boolean
+  driverLicenceDocumentId: string | null; driverLicenceFileName: string | null
 }
 type CustomerForm = {
-  customerNumber: string; type: CustomerType; name: string; email: string
+  customerNumber: string; name: string; email: string
   phone: string; address: string; identificationNumber: string
 }
 type CustomerActivity = {
-  customer: { id: string; customerNumber: string; name: string; type: string; email: string | null; phone: string | null }
+  customer: { id: string; customerNumber: string; name: string; email: string | null; phone: string | null }
   account: { emailConfirmed: boolean; isActive: boolean; lastLoginAt: string | null; lastActivityAt: string | null; lockoutEnd: string | null } | null
   summary: { bookings: number; invoices: number; totalBilled: number; outstanding: number; openCases: number }
   bookings: { id: string; bookingNumber: string; status: string; createdAt: string; branchName: string; assetCount: number }[]
@@ -37,7 +36,7 @@ type CustomerActivity = {
   cases: { id: string; caseNumber: string; type: string; priority: string; subject: string; status: string; createdAt: string }[]
 }
 const emptyForm: CustomerForm = {
-  customerNumber: '', type: 'Individual', name: '', email: '', phone: '', address: '', identificationNumber: '',
+  customerNumber: '', name: '', email: '', phone: '', address: '', identificationNumber: '',
 }
 
 export function CustomersPage({ administrationView = false }: { administrationView?: boolean }) {
@@ -48,7 +47,6 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form, setForm] = useState<CustomerForm>(emptyForm)
   const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState<'All' | CustomerType>('All')
   const [statusFilter, setStatusFilter] = useState<'All' | 'Verified' | 'Pending' | 'Blocked'>('All')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -75,27 +73,29 @@ export function CustomersPage({ administrationView = false }: { administrationVi
     return customers.filter((customer) => {
       const matchesSearch = !term || [customer.customerNumber, customer.name, customer.email, customer.phone, customer.identificationNumber]
         .some((value) => value?.toLowerCase().includes(term))
-      const matchesType = typeFilter === 'All' || customer.type === typeFilter
       const matchesStatus = statusFilter === 'All'
         || (statusFilter === 'Verified' && customer.emailConfirmed)
         || (statusFilter === 'Pending' && customer.hasOnlineAccount && !customer.emailConfirmed)
         || (statusFilter === 'Blocked' && customer.isBlocked)
-      return matchesSearch && matchesType && matchesStatus
+      return matchesSearch && matchesStatus
     })
-  }, [customers, search, statusFilter, typeFilter])
+  }, [customers, search, statusFilter])
 
   const customerSummary = useMemo(() => [
     { label: 'Total customers', value: customers.length, color: 'text.primary' },
     { label: 'Online verified', value: customers.filter((item) => item.emailConfirmed).length, color: 'success.main' },
-    { label: 'Corporate accounts', value: customers.filter((item) => item.type === 'Business').length, color: 'info.main' },
+    { label: 'Licence on file', value: customers.filter((item) => item.driverLicenceDocumentId).length, color: 'info.main' },
     { label: 'Pending activation', value: customers.filter((item) => item.hasOnlineAccount && !item.emailConfirmed).length, color: 'warning.main' },
     { label: 'Blocked', value: customers.filter((item) => item.isBlocked).length, color: 'error.main' },
   ], [customers])
 
-  function openCreate() { setEditing(null); setForm(emptyForm); setError(''); setOpen(true) }
+  function openCreate() {
+    const next = customers.map(customer => Number(customer.customerNumber.replace(/^CUS-/, '')) || 0).reduce((max, value) => Math.max(max, value), 0) + 1
+    setEditing(null); setForm({ ...emptyForm, customerNumber: `CUS-${String(next).padStart(6, '0')}` }); setError(''); setOpen(true)
+  }
   function openEdit(customer: Customer) {
     setEditing(customer)
-    setForm({ customerNumber: customer.customerNumber, type: customer.type, name: customer.name,
+    setForm({ customerNumber: customer.customerNumber, name: customer.name,
       email: customer.email ?? '', phone: customer.phone ?? '', address: customer.address ?? '',
       identificationNumber: customer.identificationNumber ?? '' })
     setError(''); setOpen(true)
@@ -136,6 +136,23 @@ export function CustomersPage({ administrationView = false }: { administrationVi
     finally { setActivityLoading(false) }
   }
   async function customerSecurity(path: string) { if (!activity) return; setSaving(true); setError(''); try { await api.post(`/customers/${activity.customer.id}/security/${path}`); await viewActivity({ id: activity.customer.id } as Customer); setNotice('Customer portal security was updated.') } catch (reason) { setError(axios.isAxiosError(reason) ? reason.response?.data?.message ?? 'Unable to update customer security.' : 'Unable to update customer security.') } finally { setSaving(false) } }
+  async function uploadLicence(file?: File) {
+    if (!editing || !file) return
+    setSaving(true); setError('')
+    try {
+      const data = new FormData(); data.append('file', file)
+      await api.post(`/customers/${editing.id}/driver-licence`, data, { headers: { 'Content-Type': 'multipart/form-data' } })
+      await loadCustomers(); setNotice('Driver licence updated.'); setOpen(false)
+    } catch (reason) { setError(axios.isAxiosError(reason) ? reason.response?.data?.message ?? 'Unable to upload the driver licence.' : 'Unable to upload the driver licence.') }
+    finally { setSaving(false) }
+  }
+  async function viewLicence(customer: Customer) {
+    if (!customer.driverLicenceDocumentId) return
+    try {
+      const response = await api.get(`/customers/${customer.id}/driver-licence/${customer.driverLicenceDocumentId}`, { responseType: 'blob' })
+      const url = URL.createObjectURL(response.data); window.open(url, '_blank', 'noopener,noreferrer'); setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch { setError('Unable to open the driver licence file.') }
+  }
 
   return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}>
     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2} mb={3}>
@@ -153,20 +170,18 @@ export function CustomersPage({ administrationView = false }: { administrationVi
         <TextField size="small" placeholder="Search by name, customer number, email or phone" value={search}
           onChange={(event) => setSearch(event.target.value)} sx={{ flex: 1, minWidth: 260 }}
           InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} />
-        <Stack direction="row" gap={.75} flexWrap="wrap">{(['All', 'Individual', 'Business'] as const).map((value) => <Button key={value} size="small" variant={typeFilter === value ? 'contained' : 'outlined'} color="inherit" onClick={() => setTypeFilter(value)}>{value === 'Business' ? 'Corporate' : value}</Button>)}</Stack>
         <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Account status</InputLabel><Select label="Account status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>{['All', 'Verified', 'Pending', 'Blocked'].map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl>
       </Stack>
       {loading ? <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> :
         <TableContainer><Table><TableHead><TableRow sx={{ bgcolor: '#f6f6f3' }}>
-          <TableCell>Customer</TableCell><TableCell>Type</TableCell><TableCell>Contact</TableCell>
+          <TableCell>Customer</TableCell><TableCell>Contact</TableCell>
           <TableCell>Identification</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell>
         </TableRow></TableHead><TableBody>
-          {visibleCustomers.length === 0 && <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8, color: 'text.secondary' }}>No matching customers found.</TableCell></TableRow>}
+          {visibleCustomers.length === 0 && <TableRow><TableCell colSpan={5} align="center" sx={{ py: 8, color: 'text.secondary' }}>No matching customers found.</TableCell></TableRow>}
           {visibleCustomers.map((customer) => <TableRow key={customer.id} hover>
             <TableCell><Typography fontWeight={700}>{customer.name}</Typography><Typography variant="body2" color="text.secondary">{customer.customerNumber}</Typography></TableCell>
-            <TableCell>{customer.type}</TableCell>
             <TableCell><Typography variant="body2">{customer.email || '—'}</Typography><Typography variant="body2" color="text.secondary">{customer.phone || '—'}</Typography></TableCell>
-            <TableCell>{customer.identificationNumber || '—'}</TableCell>
+            <TableCell><Typography variant="body2">{customer.identificationNumber || '—'}</Typography>{customer.driverLicenceDocumentId && <Button size="small" sx={{ px: 0, minWidth: 0 }} onClick={() => void viewLicence(customer)}>View licence</Button>}</TableCell>
             <TableCell><Stack direction="row" gap={0.75} flexWrap="wrap">
               <Chip size="small" label={customer.isActive ? 'Active' : 'Inactive'} color={customer.isActive ? 'success' : 'default'} variant="outlined" />
               {customer.isBlocked && <Chip size="small" label="Blocked" color="error" variant="outlined" />}
@@ -182,16 +197,14 @@ export function CustomersPage({ administrationView = false }: { administrationVi
     <Dialog open={open} onClose={() => !saving && setOpen(false)} fullWidth maxWidth="md">
       <Box component="form" onSubmit={save}><DialogTitle>{editing ? 'Edit customer' : 'Add customer'}</DialogTitle><DialogContent>
         <Stack spacing={2.25} mt={1}>{error && <Alert severity="error">{error}</Alert>}
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField fullWidth required label="Customer number" helperText="For example CUS-0001" inputProps={{ maxLength: 50 }} value={form.customerNumber} onChange={(e) => setForm({ ...form, customerNumber: e.target.value })} />
-            <FormControl fullWidth><InputLabel>Customer type</InputLabel><Select label="Customer type" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as CustomerType })}>{customerTypes.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl>
-          </Stack>
-          <TextField required label={form.type === 'Business' ? 'Business name' : 'Full name'} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <TextField fullWidth required label="Customer number" helperText="CREMS uses one customer-number sequence." inputProps={{ maxLength: 50, pattern: 'CUS-[0-9]{6}' }} value={form.customerNumber} onChange={(e) => setForm({ ...form, customerNumber: e.target.value.toUpperCase() })} />
+          <TextField required label="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField fullWidth type="email" label="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             <TextField fullWidth label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           </Stack>
-          <TextField label={form.type === 'Business' ? 'Registration / TIN' : 'Driver licence / ID number'} value={form.identificationNumber} onChange={(e) => setForm({ ...form, identificationNumber: e.target.value })} />
+          <TextField label="Driver licence / identification number" value={form.identificationNumber} onChange={(e) => setForm({ ...form, identificationNumber: e.target.value })} />
+          {editing && <Card variant="outlined"><CardContent><Typography fontWeight={750}>Driver licence file</Typography><Typography variant="body2" color="text.secondary" mb={1.5}>{editing.driverLicenceFileName ?? 'No driver licence file uploaded.'}</Typography><Stack direction="row" gap={1}>{editing.driverLicenceDocumentId && <Button onClick={() => void viewLicence(editing)}>View current</Button>}<Button component="label" variant="outlined">{editing.driverLicenceDocumentId ? 'Replace file' : 'Upload file'}<input hidden type="file" accept="application/pdf,image/jpeg,image/png" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void uploadLicence(file) }} /></Button></Stack></CardContent></Card>}
           <TextField label="Address" multiline minRows={2} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
         </Stack>
       </DialogContent><DialogActions sx={{ p: 3, pt: 1 }}><Button onClick={() => setOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" variant="contained" disabled={saving}>{saving ? 'Saving…' : 'Save customer'}</Button></DialogActions></Box>

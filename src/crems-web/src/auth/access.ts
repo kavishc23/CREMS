@@ -4,7 +4,6 @@ export const roles = {
   branchManager: 'BranchManager',
   rentalOfficer: 'RentalOfficer',
   maintenanceOfficer: 'MaintenanceOfficer',
-  financeOfficer: 'FinanceOfficer',
 } as const
 
 export type AppPage =
@@ -33,8 +32,8 @@ const pageRoles: Record<AppPage, readonly string[]> = {
   scan: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer, roles.maintenanceOfficer],
   maintenance: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.maintenanceOfficer],
   operations: [roles.superAdministrator, roles.administrator, roles.branchManager],
-  finance: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.financeOfficer],
-  reports: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.financeOfficer],
+  finance: [roles.superAdministrator, roles.administrator, roles.branchManager],
+  reports: [roles.superAdministrator, roles.administrator, roles.branchManager],
   users: [roles.superAdministrator, roles.administrator],
   customerAccounts: [roles.superAdministrator, roles.administrator],
   branches: [roles.superAdministrator, roles.administrator],

@@ -28,9 +28,12 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
             assetQuery = assetQuery.Where(asset => asset.BranchId == scope.BranchId && asset.DivisionId == scope.DivisionId);
             bookingQuery = bookingQuery.Where(booking => booking.BranchId == scope.BranchId && booking.Items.Any(item => item.Asset!.DivisionId == scope.DivisionId));
         }
-        var assets = await assetQuery
-            .Select(asset => new { asset.Type, asset.Status, asset.NextServiceDate })
+        var assetCounts = await assetQuery
+            .GroupBy(asset => new { asset.Type, asset.Status })
+            .Select(group => new { group.Key.Type, group.Key.Status, Count = group.Count() })
             .ToListAsync(cancellationToken);
+        var servicesDueSoon = await assetQuery.CountAsync(asset => asset.NextServiceDate.HasValue &&
+            asset.NextServiceDate.Value >= today && asset.NextServiceDate.Value <= today.AddDays(30), cancellationToken);
 
         var bookingCounts = await bookingQuery
             .GroupBy(booking => booking.Status)
@@ -43,23 +46,25 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
             .CountAsync(booking => booking.Status == BookingStatus.Confirmed &&
                 booking.Items.Any(item => item.StartAt >= now), cancellationToken);
 
-        var vehicleTotal = assets.Count(asset => asset.Type == AssetType.Vehicle);
-        var equipmentTotal = assets.Count(asset => asset.Type == AssetType.Equipment);
-        var vehicleRented = assets.Count(asset => asset.Type == AssetType.Vehicle && asset.Status == AssetStatus.Rented);
-        var equipmentRented = assets.Count(asset => asset.Type == AssetType.Equipment && asset.Status == AssetStatus.Rented);
+        int AssetCount(AssetStatus? status = null, AssetType? type = null) => assetCounts
+            .Where(item => (!status.HasValue || item.Status == status) && (!type.HasValue || item.Type == type))
+            .Sum(item => item.Count);
+        var vehicleTotal = AssetCount(type: AssetType.Vehicle);
+        var equipmentTotal = AssetCount(type: AssetType.Equipment);
+        var vehicleRented = AssetCount(AssetStatus.Rented, AssetType.Vehicle);
+        var equipmentRented = AssetCount(AssetStatus.Rented, AssetType.Equipment);
 
         return Ok(new DashboardSummaryResponse(
-            assets.Count(asset => asset.Status == AssetStatus.Available),
+            AssetCount(AssetStatus.Available),
             bookingCounts.GetValueOrDefault(BookingStatus.ConvertedToRental),
-            assets.Count(asset => asset.Status == AssetStatus.Maintenance),
+            AssetCount(AssetStatus.Maintenance),
             overdueRentals,
             bookingCounts.GetValueOrDefault(BookingStatus.Draft),
             upcomingBookings,
-            assets.Count(asset => asset.NextServiceDate.HasValue &&
-                asset.NextServiceDate.Value >= today && asset.NextServiceDate.Value <= today.AddDays(30)),
+            servicesDueSoon,
             vehicleTotal == 0 ? 0 : (int)Math.Round(vehicleRented * 100d / vehicleTotal),
             equipmentTotal == 0 ? 0 : (int)Math.Round(equipmentRented * 100d / equipmentTotal),
-            assets.Count));
+            AssetCount()));
     }
 
     [HttpGet("operations")]

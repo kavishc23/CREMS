@@ -60,7 +60,6 @@ const roleHelp: Record<string, string> = {
   [roles.branchManager]: 'Manages rentals, assets, staff work and reports for one division and branch.',
   [roles.rentalOfficer]: 'Processes customers, bookings, agreements, collections and returns.',
   [roles.maintenanceOfficer]: 'Records inspections, servicing, parts, costs and asset availability.',
-  [roles.financeOfficer]: 'Handles invoices, payments, statements and financial reporting.',
 }
 
 export function UsersPage({ userRoles }: { userRoles: string[] }) {

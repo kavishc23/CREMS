@@ -18,7 +18,7 @@ import { api } from '../api/client'
 import { roles } from '../auth/access'
 import { AssetQrLabelDialog } from '../components/AssetQrLabelDialog'
 import { AssetProfileDialog } from '../components/AssetProfileDialog'
-import { isWeek2Demo } from '../config/demoMode'
+import { isWeek2Demo, isWeek3Demo } from '../config/demoMode'
 
 const assetTypes = ['Vehicle', 'Equipment'] as const
 const assetStatuses = ['Available', 'Reserved', 'Rented', 'Inspection', 'Maintenance', 'OutOfService', 'Retired'] as const
@@ -85,20 +85,28 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [assetResponse,summaryResponse] = await Promise.all([api.get<Asset[]>('/assets', { params: { search: debouncedSearch || undefined, divisionId:divisionFilter||undefined, branchId:branchFilter||undefined, category:categoryFilter||undefined, status:statusFilter||undefined, page, pageSize: 50 } }),api.get<AssetSummary>('/assets/summary')])
+      const assetResponse = await api.get<Asset[]>('/assets', { params: { search: debouncedSearch || undefined, divisionId:divisionFilter||undefined, branchId:branchFilter||undefined, category:categoryFilter||undefined, status:statusFilter||undefined, page, pageSize: 50 } })
       setAssets(assetResponse.data)
       setTotalAssets(Number(assetResponse.headers['x-total-count'] ?? assetResponse.data.length))
-      setSummary(summaryResponse.data)
       setSelectedAssetId(current=>assetResponse.data.some(asset=>asset.id===current)?current:assetResponse.data[0]?.id??null)
     } catch { setError('Unable to load the asset register. Confirm that the backend is running.') }
     finally { setLoading(false) }
   }, [debouncedSearch, page, divisionFilter, branchFilter, categoryFilter, statusFilter])
+  const loadSummary = useCallback(async () => {
+    const response = await api.get<AssetSummary>('/assets/summary')
+    setSummary(response.data)
+  }, [])
 
   useEffect(() => {
     // Initial loading synchronizes the register with the API.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadData()
   }, [loadData])
+
+  useEffect(() => {
+    void loadSummary()
+      .catch(() => setError('Unable to load the fleet summary.'))
+  }, [loadSummary])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
@@ -131,7 +139,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
       const payload = { ...form, dailyRate: Number(form.dailyRate), nextServiceDate: form.nextServiceDate || null, modelYear:form.modelYear?Number(form.modelYear):null,currentMeterReading:form.currentMeterReading?Number(form.currentMeterReading):null,acquisitionDate:form.acquisitionDate||null,acquisitionCost:Number(form.acquisitionCost||0),currentBookValue:form.currentBookValue?Number(form.currentBookValue):null,insuranceExpiry:form.insuranceExpiry||null,warrantyExpiry:form.warrantyExpiry||null }
       if (editing) await api.put(`/assets/${editing.id}`, payload)
       else await api.post('/assets', payload)
-      setOpen(false); await loadData()
+      setOpen(false); await Promise.all([loadData(), loadSummary()])
     } catch (requestError: unknown) {
       const data = axios.isAxiosError(requestError) ? requestError.response?.data : undefined
       const errors = data?.errors as Record<string, string[]> | undefined
@@ -166,7 +174,12 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
   const divisionOptions=divisions.length?divisions.map(item=>({id:item.id,name:item.name})):Array.from(new Map(assets.filter(item=>item.divisionId).map(item=>[item.divisionId!,{id:item.divisionId!,name:item.divisionName??'Division'}])).values())
   const branchOptions=branches.length?branches.map(item=>({id:item.id,name:item.name})):Array.from(new Map(assets.map(item=>[item.branchId,{id:item.branchId,name:item.branchName}])).values())
 
-  return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}>
+  return <Box sx={{
+    p: { xs: 2, sm: 3, lg: 4 },
+    maxWidth: 1500,
+    mx: 'auto',
+    ...(isWeek3Demo && { '& button:has([data-testid="QrCode2OutlinedIcon"])': { display: 'none' } }),
+  }}>
     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2} mb={3}>
       <Box><Typography variant="overline" color="text.secondary" fontWeight={800}>Motors & Carptrac · {summary.total.toLocaleString()} active assets</Typography><Typography variant="h4" fontWeight={850}>Asset register</Typography>
         <Typography color="text.secondary" mt={0.5}>Search, compare and manage every asset within your assigned operating scope.</Typography></Box>
@@ -220,7 +233,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
         </Stack>
       </DialogContent><DialogActions sx={{ p: 3, pt: 1 }}><Button onClick={() => setOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" variant="contained" disabled={saving || !form.divisionId || !form.branchId}>{saving ? 'Saving…' : 'Save asset'}</Button></DialogActions></Box>
     </Dialog>
-    <AssetQrLabelDialog asset={qrAsset} open={Boolean(qrAsset)} onClose={() => setQrAsset(null)} />
+    {!isWeek3Demo && <AssetQrLabelDialog asset={qrAsset} open={Boolean(qrAsset)} onClose={() => setQrAsset(null)} />}
     <AssetProfileDialog assetId={profileAssetId} onClose={() => setProfileAssetId(null)} />
     <Dialog open={Boolean(photoAsset)} onClose={() => !photoSaving && setPhotoAsset(null)} fullWidth maxWidth="md"><DialogTitle>Asset photos · {photoAsset?.assetNumber}</DialogTitle><DialogContent dividers><Typography color="text.secondary" mb={2}>Upload up to eight clear photos. Every photo is displayed in full without cropping. The first photo is the catalogue cover and customers can browse the full gallery.</Typography>{error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}<Stack direction="row" flexWrap="wrap" gap={2}>{photoUrls(photoAsset).map((url, index) => <Card key={url} variant="outlined" sx={{ width: { xs: '100%', sm: 220 }, overflow: 'hidden' }}><Box component="img" src={url} alt={`${photoAsset?.name} photo ${index + 1}`} sx={{ width: '100%', height: 165, objectFit: 'contain', bgcolor: 'grey.100', display: 'block' }} /><CardContent sx={{ p: 1.5 }}><Stack direction="row" alignItems="center" justifyContent="space-between"><Chip size="small" label={index === 0 ? 'Catalogue cover' : `Photo ${index + 1}`} color={index === 0 ? 'secondary' : 'default'} /><IconButton size="small" color="error" disabled={photoSaving} aria-label={`Remove photo ${index + 1}`} onClick={() => void deleteAssetPhoto(url)}><DeleteOutline /></IconButton></Stack></CardContent></Card>)}{photoUrls(photoAsset).length === 0 && <Alert severity="info" sx={{ width: '100%' }}>No photos uploaded. Customers will see a neutral “photo coming soon” placeholder.</Alert>}</Stack></DialogContent><DialogActions sx={{ p: 2 }}><Button component="label" variant="contained" startIcon={<ImageOutlined />} disabled={photoSaving || photoUrls(photoAsset).length >= 8}>{photoSaving ? 'Uploading…' : 'Upload photos'}<input hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void uploadAssetPhotos(files) }} /></Button><Typography variant="caption" color="text.secondary">{photoUrls(photoAsset).length}/8 uploaded</Typography><Box sx={{ flex: 1 }} /><Button onClick={() => setPhotoAsset(null)} disabled={photoSaving}>Close</Button></DialogActions></Dialog>
     <Dialog open={performanceOpen} onClose={()=>setPerformanceOpen(false)} fullWidth maxWidth="md"><DialogTitle>Asset performance</DialogTitle><DialogContent dividers>{performanceLoading?<Box sx={{py:8,display:'grid',placeItems:'center'}}><CircularProgress/></Box>:performance&&<Stack spacing={2.5}><Box><Typography variant="h6" fontWeight={800}>{performance.assetNumber} — {performance.name}</Typography><Typography color="text.secondary">Lifetime operating position based on recorded rentals and costs.</Typography></Box><Stack direction={{xs:'column',sm:'row'}} gap={1}>{[{l:'Rental revenue',v:performance.rentalRevenue},{l:'Recorded expenditure',v:performance.totalExpense},{l:'Operating profit',v:performance.operatingProfit},{l:'Net after acquisition',v:performance.lifetimeNetAfterAcquisition}].map(x=><Card key={x.l} variant="outlined" sx={{flex:1,p:2}}><Typography variant="caption" color="text.secondary">{x.l}</Typography><Typography variant="h6" fontWeight={800} color={x.v<0?'error.main':'text.primary'}>FJD {x.v.toFixed(2)}</Typography></Card>)}</Stack><Stack direction="row" gap={1} flexWrap="wrap"><Chip label={`${performance.rentalCount} rentals`}/><Chip label={`${performance.rentalDays} rental days`}/><Chip label={`${performance.inspectionCount} inspections`}/><Chip label={`Maintenance FJD ${performance.maintenanceExpense.toFixed(2)}`}/><Chip label={`Transport/other FJD ${(performance.operatingExpense+performance.transferExpense).toFixed(2)}`}/></Stack><Typography variant="subtitle1" fontWeight={750}>Recent maintenance</Typography>{performance.maintenance.length?performance.maintenance.slice(0,6).map(x=><Box key={x.id}><Typography fontWeight={650}>{x.jobNumber} · {x.serviceType}</Typography><Typography variant="body2" color="text.secondary">{x.status} · FJD {(x.actualCost??0).toFixed(2)}</Typography></Box>):<Alert severity="info">No maintenance expense has been recorded.</Alert>}<Typography variant="subtitle1" fontWeight={750}>Other asset costs</Typography>{performance.costs.length?performance.costs.slice(0,6).map(x=><Box key={x.id}><Typography fontWeight={650}>{x.category} · {x.description}</Typography><Typography variant="body2" color="text.secondary">{x.occurredOn} · FJD {x.amount.toFixed(2)}</Typography></Box>):<Alert severity="info">No transport, labour or other operating costs have been recorded.</Alert>}</Stack>}</DialogContent><DialogActions><Button onClick={()=>setPerformanceOpen(false)}>Close</Button></DialogActions></Dialog>

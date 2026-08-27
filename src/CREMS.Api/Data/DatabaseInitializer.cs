@@ -35,11 +35,21 @@ public static class DatabaseInitializer
         }
         await SeedRolePermissionsAsync(db, cancellationToken);
         await DisableLegacyDriverAccessAsync(db, roleManager, userManager, cancellationToken);
+        await RemoveLegacyFinanceAccessAsync(db, roleManager, userManager, cancellationToken);
 
-        if (app.Environment.IsDevelopment())
+        // Development seed data is substantial. Populate a new database once instead
+        // of re-reading and updating the complete demo dataset on every API restart.
+        // Set DevelopmentData:RefreshOnStartup=true only when seed definitions need
+        // to be deliberately reapplied to an existing development database.
+        var refreshDevelopmentData = app.Configuration.GetValue<bool>("DevelopmentData:RefreshOnStartup");
+        var developmentDataMissing = app.Environment.IsDevelopment() &&
+            (!await db.Divisions.AsNoTracking().AnyAsync(cancellationToken) ||
+             !await db.Assets.AsNoTracking().AnyAsync(cancellationToken));
+        if (app.Environment.IsDevelopment() && (refreshDevelopmentData || developmentDataMissing))
         {
             await SeedDevelopmentDataAsync(db, userManager, app.Environment.ContentRootPath, cancellationToken);
         }
+        await NormalizeCustomersAsync(db, cancellationToken);
 
         var email = app.Configuration["BootstrapAdmin:Email"];
         var password = app.Configuration["BootstrapAdmin:Password"];
@@ -563,14 +573,14 @@ public static class DatabaseInitializer
         var customerSeeds = new[]
         {
             new CustomerSeed("CUS-000001", CustomerType.Individual, "Arieta Vula", "customer.arieta@crems.local", "+679 992 4101", "Laucala Bay, Suva", "TEST-DL-458210"),
-            new CustomerSeed("BUS-000001", CustomerType.Business, "Pacific Civil Works Ltd", "customer.pacificcivil@crems.local", "+679 995 3021", "Vuda, Lautoka", "TEST-TIN-71-45821"),
-            new CustomerSeed("BUS-000002", CustomerType.Business, "Island Events & Logistics Ltd", "customer.islandevents@crems.local", "+679 998 1446", "Walu Bay, Suva", "TEST-TIN-71-49206"),
+            new CustomerSeed("CUS-000002", CustomerType.Individual, "Pacific Civil Works Ltd", "customer.pacificcivil@crems.local", "+679 995 3021", "Vuda, Lautoka", "TEST-TIN-71-45821"),
+            new CustomerSeed("CUS-000003", CustomerType.Individual, "Island Events & Logistics Ltd", "customer.islandevents@crems.local", "+679 998 1446", "Walu Bay, Suva", "TEST-TIN-71-49206"),
             new CustomerSeed("CUS-000004", CustomerType.Individual, "Rakesh Kumar", "customer.rakesh@crems.local", "+679 934 8261", "Martintar, Nadi", "TEST-DL-463188"),
             new CustomerSeed("CUS-000005", CustomerType.Individual, "Ana Marama", "customer.ana@crems.local", "+679 977 0534", "Samabula, Suva", "TEST-DL-480357"),
-            new CustomerSeed("BUS-000003", CustomerType.Business, "Northern Builders Ltd", "customer.northernbuilders@crems.local", "+679 988 6512", "Nasekula Road, Labasa", "TEST-TIN-71-50684"),
-            new CustomerSeed("BUS-000004", CustomerType.Business, "Coral Coast Tours Ltd", "customer.coralcoast@crems.local", "+679 972 4480", "Queens Road, Nadi", "TEST-TIN-71-51739"),
-            new CustomerSeed("BUS-000005", CustomerType.Business, "Viti Freight Services Ltd", "customer.vitifreight@crems.local", "+679 933 2917", "Walu Bay, Suva", "TEST-TIN-71-52816"),
-            new CustomerSeed("CUS-000007", CustomerType.Individual, "Litia Rokotui", "customer.litia@crems.local", "+679 940 1836", "Field 40, Lautoka", "TEST-DL-487233"),
+            new CustomerSeed("CUS-000006", CustomerType.Individual, "Northern Builders Ltd", "customer.northernbuilders@crems.local", "+679 988 6512", "Nasekula Road, Labasa", "TEST-TIN-71-50684"),
+            new CustomerSeed("CUS-000007", CustomerType.Individual, "Coral Coast Tours Ltd", "customer.coralcoast@crems.local", "+679 972 4480", "Queens Road, Nadi", "TEST-TIN-71-51739"),
+            new CustomerSeed("CUS-000008", CustomerType.Individual, "Viti Freight Services Ltd", "customer.vitifreight@crems.local", "+679 933 2917", "Walu Bay, Suva", "TEST-TIN-71-52816"),
+            new CustomerSeed("CUS-000009", CustomerType.Individual, "Litia Rokotui", "customer.litia@crems.local", "+679 940 1836", "Field 40, Lautoka", "TEST-DL-487233"),
         };
 
         var existingCustomers = await db.Customers
@@ -647,12 +657,11 @@ public static class DatabaseInitializer
             new DevelopmentUserSeed("maintenance.suva@crems.local", "Kelera Waqa", SystemRoles.MaintenanceOfficer, "CARPTRAC", "SUV", null),
             new DevelopmentUserSeed("maintenance.lautoka@crems.local", "Viliame Mataitoga", SystemRoles.MaintenanceOfficer, "CARPTRAC", "LAU", null),
             new DevelopmentUserSeed("maintenance.labasa@crems.local", "Arun Prasad", SystemRoles.MaintenanceOfficer, "CARPTRAC", "LAB", null),
-            new DevelopmentUserSeed("finance.suva@crems.local", "Ana Rokovada", SystemRoles.FinanceOfficer, "MOTORS", "SUV", null),
             new DevelopmentUserSeed("customer.arieta@crems.local", "Arieta Vula", SystemRoles.Customer, null, null, "CUS-000001"),
             new DevelopmentUserSeed("customer.rakesh@crems.local", "Rakesh Kumar", SystemRoles.Customer, null, null, "CUS-000004"),
-            new DevelopmentUserSeed("customer.pacificcivil@crems.local", "Pacific Civil Works", SystemRoles.Customer, null, null, "BUS-000001"),
-            new DevelopmentUserSeed("customer.coralcoast@crems.local", "Coral Coast Tours", SystemRoles.Customer, null, null, "BUS-000004"),
-            new DevelopmentUserSeed("customer.islandevents@crems.local", "Island Events & Logistics", SystemRoles.Customer, null, null, "BUS-000002"),
+            new DevelopmentUserSeed("customer.pacificcivil@crems.local", "Pacific Civil Works", SystemRoles.Customer, null, null, "CUS-000002"),
+            new DevelopmentUserSeed("customer.coralcoast@crems.local", "Coral Coast Tours", SystemRoles.Customer, null, null, "CUS-000007"),
+            new DevelopmentUserSeed("customer.islandevents@crems.local", "Island Events & Logistics", SystemRoles.Customer, null, null, "CUS-000003"),
         };
         foreach (var seed in developmentUsers)
         {
@@ -678,14 +687,14 @@ public static class DatabaseInitializer
         var bookingSeeds = new[]
         {
             new BookingSeed("BK-2026-0001", "CUS-000001", "VEH-SUV-1003", BookingStatus.Completed, -45, -40),
-            new BookingSeed("BK-2026-0002", "BUS-000001", "EQP-LAU-2002", BookingStatus.Completed, -32, -25),
-            new BookingSeed("BK-2026-0003", "BUS-000004", "VEH-NAD-1002", BookingStatus.Completed, -18, -14),
+            new BookingSeed("BK-2026-0002", "CUS-000002", "EQP-LAU-2002", BookingStatus.Completed, -32, -25),
+            new BookingSeed("BK-2026-0003", "CUS-000007", "VEH-NAD-1002", BookingStatus.Completed, -18, -14),
             new BookingSeed("BK-2026-0004", "CUS-000004", "VEH-NAD-1001", BookingStatus.ConvertedToRental, -2, 3),
-            new BookingSeed("BK-2026-0005", "BUS-000003", "EQP-LAB-2001", BookingStatus.ConvertedToRental, -5, -1),
+            new BookingSeed("BK-2026-0005", "CUS-000006", "EQP-LAB-2001", BookingStatus.ConvertedToRental, -5, -1),
             new BookingSeed("BK-2026-0006", "CUS-000005", "VEH-SUV-1001", BookingStatus.Confirmed, 2, 6),
-            new BookingSeed("BK-2026-0007", "BUS-000005", "VEH-SUV-1002", BookingStatus.Confirmed, 5, 9),
-            new BookingSeed("REQ-2026-0008", "CUS-000007", "VEH-LAU-1002", BookingStatus.Draft, 8, 11),
-            new BookingSeed("REQ-2026-0009", "BUS-000002", "EQP-SUV-2002", BookingStatus.Draft, 12, 16),
+            new BookingSeed("BK-2026-0007", "CUS-000008", "VEH-SUV-1002", BookingStatus.Confirmed, 5, 9),
+            new BookingSeed("REQ-2026-0008", "CUS-000009", "VEH-LAU-1002", BookingStatus.Draft, 8, 11),
+            new BookingSeed("REQ-2026-0009", "CUS-000003", "EQP-SUV-2002", BookingStatus.Draft, 12, 16),
         };
         var existingBookingNumbers = await db.Bookings.Select(booking => booking.BookingNumber)
             .ToListAsync(cancellationToken);
@@ -746,15 +755,15 @@ public static class DatabaseInitializer
             db.PricingRules.AddRange(
                 new PricingRule { Name = "Standard vehicle daily", AssetType = "Vehicle", Period = RatePeriod.Daily, Rate = 185m, IncludedUsage = 200m, ExcessUsageRate = 0.85m, MinimumDuration = 1 },
                 new PricingRule { Name = "Standard equipment weekly", AssetType = "Equipment", Period = RatePeriod.Weekly, Rate = 2100m, IncludedUsage = 45m, ExcessUsageRate = 35m, MinimumDuration = 1 },
-                new PricingRule { Name = "Pacific Civil contracted equipment", CustomerId = seededCustomers["BUS-000001"].Id, AssetType = "Equipment", Period = RatePeriod.Weekly, Rate = 1950m, IncludedUsage = 50m, ExcessUsageRate = 32m, MinimumDuration = 2 });
+                new PricingRule { Name = "Pacific Civil contracted equipment", CustomerId = seededCustomers["CUS-000002"].Id, AssetType = "Equipment", Period = RatePeriod.Weekly, Rate = 1950m, IncludedUsage = 50m, ExcessUsageRate = 32m, MinimumDuration = 2 });
             db.CorporateAccounts.AddRange(
-                new CorporateAccount { CustomerId = seededCustomers["BUS-000001"].Id, LegalName = "Pacific Civil Works Ltd", TaxIdentificationNumber = "TIN-71-45821", CreditLimit = 50000m, PaymentTermsDays = 30, PurchaseOrderRequired = true, BillingContactJson = "{\"name\":\"Accounts Payable\",\"email\":\"accounts@pacificcivil.example\"}", AuthorizedContactsJson = "[]", JobSitesJson = "[\"Vuda Project Yard\",\"Suva Civil Depot\"]", ContractPricingJson = "{}" },
-                new CorporateAccount { CustomerId = seededCustomers["BUS-000005"].Id, LegalName = "Viti Freight Services Ltd", TaxIdentificationNumber = "TIN-71-52816", CreditLimit = 35000m, PaymentTermsDays = 14, PurchaseOrderRequired = true, BillingContactJson = "{\"name\":\"Finance Team\",\"email\":\"finance@vitifreight.example\"}", AuthorizedContactsJson = "[]", JobSitesJson = "[\"Walu Bay Depot\"]", ContractPricingJson = "{}" });
+                new CorporateAccount { CustomerId = seededCustomers["CUS-000002"].Id, LegalName = "Pacific Civil Works Ltd", TaxIdentificationNumber = "TIN-71-45821", CreditLimit = 50000m, PaymentTermsDays = 30, PurchaseOrderRequired = true, BillingContactJson = "{\"name\":\"Accounts Payable\",\"email\":\"accounts@pacificcivil.example\"}", AuthorizedContactsJson = "[]", JobSitesJson = "[\"Vuda Project Yard\",\"Suva Civil Depot\"]", ContractPricingJson = "{}" },
+                new CorporateAccount { CustomerId = seededCustomers["CUS-000008"].Id, LegalName = "Viti Freight Services Ltd", TaxIdentificationNumber = "TIN-71-52816", CreditLimit = 35000m, PaymentTermsDays = 14, PurchaseOrderRequired = true, BillingContactJson = "{\"name\":\"Finance Team\",\"email\":\"finance@vitifreight.example\"}", AuthorizedContactsJson = "[]", JobSitesJson = "[\"Walu Bay Depot\"]", ContractPricingJson = "{}" });
             db.InventoryParts.AddRange(
                 new InventoryPart { PartNumber = "FLT-OIL-15W40", Name = "Heavy-duty engine oil 15W-40 (20L)", BranchId = branches["SUV"].Id, Supplier = "Carpenters Parts", UnitCost = 186m, QuantityOnHand = 8, QuantityAllocated = 2, ReorderLevel = 4 },
                 new InventoryPart { PartNumber = "FLT-FILTER-OIL", Name = "Fleet oil filter", BranchId = branches["SUV"].Id, Supplier = "Carpenters Parts", UnitCost = 38m, QuantityOnHand = 5, QuantityAllocated = 2, ReorderLevel = 5 },
                 new InventoryPart { PartNumber = "EQP-BAT-12V", Name = "Heavy equipment battery 12V", BranchId = branches["NAD"].Id, Supplier = "Industrial Battery Fiji", UnitCost = 465m, QuantityOnHand = 1, ReorderLevel = 2 });
-            db.CustomerCases.Add(new CustomerCase { CaseNumber = "CASE-2026-0001", CustomerId = seededCustomers["BUS-000003"].Id, BranchId = branches["LAB"].Id, Type = CaseType.Breakdown, Status = CaseStatus.InProgress, Priority = CasePriority.High, Subject = "Compactor pull-start failure at job site", Description = "Customer reported that the unit will not start after normal pre-start checks.", DueAt = DateTimeOffset.UtcNow.AddHours(4) });
+            db.CustomerCases.Add(new CustomerCase { CaseNumber = "CASE-2026-0001", CustomerId = seededCustomers["CUS-000006"].Id, BranchId = branches["LAB"].Id, Type = CaseType.Breakdown, Status = CaseStatus.InProgress, Priority = CasePriority.High, Subject = "Compactor pull-start failure at job site", Description = "Customer reported that the unit will not start after normal pre-start checks.", DueAt = DateTimeOffset.UtcNow.AddHours(4) });
             db.ManagementTasks.AddRange(
                 new ManagementTask { BranchId = branches["LAB"].Id, Category = TaskCategory.OverdueRental, Priority = TaskPriority.Critical, Title = "Contact customer about overdue rental BK-2026-0005", DueAt = DateTimeOffset.UtcNow.AddHours(1) },
                 new ManagementTask { BranchId = branches["NAD"].Id, Category = TaskCategory.LowStock, Priority = TaskPriority.High, Title = "Reorder heavy equipment batteries", DueAt = DateTimeOffset.UtcNow.AddDays(1) },
@@ -1031,15 +1040,21 @@ public static class DatabaseInitializer
             [SystemRoles.BranchManager] = [SystemPermissions.CustomersManageAccess, SystemPermissions.RentalsApprove, SystemPermissions.MaintenanceComplete, SystemPermissions.ReportsFinancial, SystemPermissions.BranchCalendarManage, SystemPermissions.AssetsView, SystemPermissions.AssetsCreate, SystemPermissions.AssetsEdit, SystemPermissions.AssetsTransfer, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter, SystemPermissions.AssetsRetire, SystemPermissions.AssetsViewFinancials],
             [SystemRoles.RentalOfficer] = [SystemPermissions.CustomersManageAccess, SystemPermissions.AssetsView, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter],
             [SystemRoles.MaintenanceOfficer] = [SystemPermissions.MaintenanceComplete, SystemPermissions.AssetsView, SystemPermissions.AssetsEdit, SystemPermissions.AssetsInspect, SystemPermissions.AssetsRecordMeter],
-            [SystemRoles.FinanceOfficer] = [SystemPermissions.ReportsFinancial, SystemPermissions.AssetsView, SystemPermissions.AssetsViewFinancials],
         };
+        var managedRoles = grants.Keys.ToArray();
+        var existingPermissions = await db.RolePermissions
+            .Where(x => managedRoles.Contains(x.RoleName))
+            .ToListAsync(token);
+        var existingKeys = existingPermissions
+            .Select(x => $"{x.RoleName}\n{x.Permission}")
+            .ToHashSet(StringComparer.Ordinal);
         foreach (var grant in grants)
             foreach (var permission in grant.Value)
-                if (!await db.RolePermissions.AnyAsync(x => x.RoleName == grant.Key && x.Permission == permission, token))
+                if (existingKeys.Add($"{grant.Key}\n{permission}"))
                     db.RolePermissions.Add(new RolePermission { RoleName = grant.Key, Permission = permission });
-        var obsoleteBranchManagerGrant = await db.RolePermissions
+        var obsoleteBranchManagerGrant = existingPermissions
             .Where(x => x.RoleName == SystemRoles.BranchManager && x.Permission == SystemPermissions.BranchesConfigure)
-            .ToListAsync(token);
+            .ToList();
         db.RolePermissions.RemoveRange(obsoleteBranchManagerGrant);
         await db.SaveChangesAsync(token);
     }
@@ -1074,6 +1089,43 @@ public static class DatabaseInitializer
             }
         }
 
+        await db.SaveChangesAsync(token);
+    }
+
+    private static async Task RemoveLegacyFinanceAccessAsync(
+        ApplicationDbContext db,
+        RoleManager<IdentityRole<Guid>> roleManager,
+        UserManager<ApplicationUser> userManager,
+        CancellationToken token)
+    {
+        const string legacyRole = "FinanceOfficer";
+        db.RolePermissions.RemoveRange(await db.RolePermissions.Where(permission => permission.RoleName == legacyRole).ToListAsync(token));
+        var role = await roleManager.FindByNameAsync(legacyRole);
+        if (role is null) { await db.SaveChangesAsync(token); return; }
+
+        var userIds = await db.UserRoles.Where(link => link.RoleId == role.Id).Select(link => link.UserId).ToListAsync(token);
+        var financeUsers = await db.Users.Where(user => userIds.Contains(user.Id)).ToListAsync(token);
+        foreach (var user in financeUsers)
+        {
+            var result = await userManager.DeleteAsync(user);
+            EnsureSucceeded(result, $"remove legacy finance account {user.Email}");
+        }
+        EnsureSucceeded(await roleManager.DeleteAsync(role), "remove the legacy Finance Officer role");
+        await db.SaveChangesAsync(token);
+    }
+
+    private static async Task NormalizeCustomersAsync(ApplicationDbContext db, CancellationToken token)
+    {
+        var customers = await db.Customers.OrderBy(customer => customer.CreatedAt).ThenBy(customer => customer.Id).ToListAsync(token);
+        if (customers.Count == 0) return;
+
+        for (var index = 0; index < customers.Count; index++)
+        {
+            customers[index].CustomerNumber = $"TMP-{customers[index].Id:N}";
+            customers[index].Type = CustomerType.Individual;
+        }
+        await db.SaveChangesAsync(token);
+        for (var index = 0; index < customers.Count; index++) customers[index].CustomerNumber = $"CUS-{index + 1:D6}";
         await db.SaveChangesAsync(token);
     }
 

@@ -19,7 +19,7 @@ namespace CREMS.Api.Controllers;
 [Route("api/customers")]
 [Authorize(Policy = SystemPolicies.ManageRentals)]
 public sealed class CustomersController(ApplicationDbContext db, CurrentStaffScope staffScope,
-    UserManager<ApplicationUser> userManager, IEmailQueue emailQueue) : ControllerBase
+    UserManager<ApplicationUser> userManager, IEmailQueue emailQueue, IWebHostEnvironment environment) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<CustomerResponse>>> GetAll(CancellationToken cancellationToken)
@@ -34,11 +34,17 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         var customers = await query
             .OrderBy(customer => customer.Name)
             .Select(customer => new CustomerResponse(
-                customer.Id, customer.CustomerNumber, customer.Type, customer.Name,
+                customer.Id, customer.CustomerNumber, customer.Name,
                 customer.Email, customer.Phone, customer.Address, customer.IdentificationNumber,
                 customer.IsBlocked, customer.IsActive,
                 db.Users.Any(user => user.CustomerId == customer.Id),
-                db.Users.Where(user => user.CustomerId == customer.Id).Select(user => user.EmailConfirmed).FirstOrDefault()))
+                db.Users.Where(user => user.CustomerId == customer.Id).Select(user => user.EmailConfirmed).FirstOrDefault(),
+                db.DocumentRecords.Where(document => document.EntityType == nameof(Customer) &&
+                    document.EntityId == customer.Id && document.Type == "DriverLicence")
+                    .OrderByDescending(document => document.CreatedAt).Select(document => (Guid?)document.Id).FirstOrDefault(),
+                db.DocumentRecords.Where(document => document.EntityType == nameof(Customer) &&
+                    document.EntityId == customer.Id && document.Type == "DriverLicence")
+                    .OrderByDescending(document => document.CreatedAt).Select(document => document.FileName).FirstOrDefault()))
             .ToListAsync(cancellationToken);
         return Ok(customers);
     }
@@ -60,7 +66,7 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         var customer = new Customer
         {
             CustomerNumber = customerNumber,
-            Type = request.Type,
+            Type = CustomerType.Individual,
             Name = request.Name.Trim(),
             Email = Normalize(request.Email)?.ToLowerInvariant(),
             Phone = Normalize(request.Phone),
@@ -98,7 +104,7 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         }
 
         customer.CustomerNumber = customerNumber;
-        customer.Type = request.Type;
+        customer.Type = CustomerType.Individual;
         customer.Name = request.Name.Trim();
         customer.Email = Normalize(request.Email)?.ToLowerInvariant();
         customer.Phone = Normalize(request.Phone);
@@ -188,7 +194,7 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         var cases = await db.CustomerCases.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator || x.BranchId == scope.BranchId)).OrderByDescending(x => x.CreatedAt)
             .Select(x => new { x.Id, x.CaseNumber, x.Type, x.Priority, x.Subject, x.Status, x.CreatedAt }).Take(100).ToListAsync(token);
         var account = await db.Users.AsNoTracking().Where(x => x.CustomerId == id).Select(x => new { x.Id, x.Email, x.EmailConfirmed, x.IsActive, x.LastLoginAt, x.LastActivityAt, x.LockoutEnd }).FirstOrDefaultAsync(token);
-        return Ok(new { customer = new { customer.Id, customer.CustomerNumber, customer.Name, customer.Type, customer.Email, customer.Phone, customer.IsActive, customer.IsBlocked }, account, bookings, invoices, cases,
+        return Ok(new { customer = new { customer.Id, customer.CustomerNumber, customer.Name, customer.Email, customer.Phone, customer.IsActive, customer.IsBlocked }, account, bookings, invoices, cases,
             summary = new { bookings = bookings.Count, invoices = invoices.Count, totalBilled = invoices.Sum(x => x.Total), outstanding = invoices.Sum(x => x.BalanceDue), openCases = cases.Count(x => x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed) } });
     }
 
@@ -196,7 +202,9 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
     [Authorize(Policy = SystemPermissions.CustomersManageAccess)]
     public async Task<ActionResult> ResetCustomerPassword(Guid id, CancellationToken token)
     {
-        var actorId = userManager.GetUserId(User); if (!Guid.TryParse(actorId, out var actor) || !await db.SecurityEvents.AnyAsync(x => x.UserId == actor && x.Type == SecurityEventType.MfaSucceeded && x.Succeeded && x.OccurredAt > DateTimeOffset.UtcNow.AddMinutes(-15), token)) return StatusCode(StatusCodes.Status403Forbidden, new { message = "Recent MFA verification is required." });
+        var actorId = userManager.GetUserId(User); if (!Guid.TryParse(actorId, out var actor)) return Forbid();
+        var mfaRequired = await db.Users.Where(user => user.Id == actor).Select(user => user.MfaRequired).FirstOrDefaultAsync(token);
+        if (mfaRequired && !await db.SecurityEvents.AnyAsync(x => x.UserId == actor && x.Type == SecurityEventType.MfaSucceeded && x.Succeeded && x.OccurredAt > DateTimeOffset.UtcNow.AddMinutes(-15), token)) return StatusCode(StatusCodes.Status403Forbidden, new { message = "Recent MFA verification is required." });
         var user = await userManager.Users.FirstOrDefaultAsync(x => x.CustomerId == id, token); if (user is null) return NotFound(new { message = "This customer has no online account." });
         var customer = await db.Customers.FindAsync([id], token); if (customer?.Email is null) return BadRequest(new { message = "The customer has no email address." });
         var resetToken = await userManager.GeneratePasswordResetTokenAsync(user); var temporary = $"Crems!{RandomNumberGenerator.GetInt32(100000, 999999)}Aa"; var result = await userManager.ResetPasswordAsync(user, resetToken, temporary); if (!result.Succeeded) return BadRequest(result.Errors);
@@ -228,19 +236,90 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
 
     private SecurityEvent Security(ApplicationUser user, SecurityEventType type, string detail) => new() { UserId = user.Id, Email = user.Email, Type = type, Succeeded = true, Detail = detail, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(), UserAgent = Request.Headers.UserAgent.ToString() };
 
+    [HttpPost("{id:guid}/driver-licence")]
+    [RequestSizeLimit(5_500_000)]
+    public async Task<ActionResult> UploadDriverLicence(Guid id, [FromForm] IFormFile file, CancellationToken token)
+    {
+        var customer = await db.Customers.FindAsync([id], token);
+        if (customer is null) return NotFound();
+        if (!await CanAccessCustomer(id, token)) return Forbid();
+        var validation = ValidateDocument(file);
+        if (validation is not null) return BadRequest(new { message = validation });
+
+        await using var content = new MemoryStream();
+        await file.CopyToAsync(content, token);
+        var bytes = content.ToArray();
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!HasValidSignature(extension, bytes)) return BadRequest(new { message = "The file content does not match its extension." });
+
+        var root = Path.Combine(environment.ContentRootPath, "App_Data", "customer-documents", id.ToString("N"));
+        Directory.CreateDirectory(root);
+        var storageName = $"{Guid.NewGuid():N}{extension}";
+        await System.IO.File.WriteAllBytesAsync(Path.Combine(root, storageName), bytes, token);
+        var previous = await db.DocumentRecords.Where(document => document.EntityType == nameof(Customer) &&
+            document.EntityId == id && document.Type == "DriverLicence").ToListAsync(token);
+        foreach (var old in previous)
+        {
+            var oldPath = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "App_Data", "customer-documents", old.StoragePath));
+            if (System.IO.File.Exists(oldPath)) System.IO.File.Delete(oldPath);
+        }
+        db.DocumentRecords.RemoveRange(previous);
+        var record = new DocumentRecord { DocumentNumber = $"DOC-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
+            EntityType = nameof(Customer), EntityId = id, Type = "DriverLicence", FileName = Path.GetFileName(file.FileName),
+            StoragePath = Path.Combine(id.ToString("N"), storageName), ContentHash = Convert.ToHexString(SHA256.HashData(bytes)) };
+        db.DocumentRecords.Add(record);
+        await db.SaveChangesAsync(token);
+        return Ok(new { record.Id, record.FileName });
+    }
+
+    [HttpGet("{id:guid}/driver-licence/{documentId:guid}")]
+    public async Task<ActionResult> DownloadDriverLicence(Guid id, Guid documentId, CancellationToken token)
+    {
+        if (!await CanAccessCustomer(id, token)) return Forbid();
+        var record = await db.DocumentRecords.AsNoTracking().FirstOrDefaultAsync(document => document.Id == documentId &&
+            document.EntityType == nameof(Customer) && document.EntityId == id && document.Type == "DriverLicence", token);
+        if (record is null) return NotFound();
+        var storageRoot = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "App_Data", "customer-documents"));
+        var path = Path.GetFullPath(Path.Combine(storageRoot, record.StoragePath));
+        if (!path.StartsWith(storageRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !System.IO.File.Exists(path)) return NotFound();
+        var contentType = Path.GetExtension(path).ToLowerInvariant() switch { ".pdf" => "application/pdf", ".png" => "image/png", _ => "image/jpeg" };
+        return PhysicalFile(path, contentType, record.FileName);
+    }
+
+    private async Task<bool> CanAccessCustomer(Guid id, CancellationToken token)
+    {
+        var scope = await staffScope.GetAsync(User);
+        return scope is not null && (scope.IsAdministrator || await db.Bookings.AnyAsync(booking =>
+            booking.CustomerId == id && booking.BranchId == scope.BranchId, token));
+    }
+
+    private static string? ValidateDocument(IFormFile file)
+    {
+        if (file.Length is <= 0 or > 5_242_880) return "Choose a PDF, JPEG or PNG file no larger than 5 MB.";
+        return Path.GetExtension(file.FileName).ToLowerInvariant() is ".pdf" or ".jpg" or ".jpeg" or ".png"
+            ? null : "Only PDF, JPEG and PNG files are accepted.";
+    }
+
+    private static bool HasValidSignature(string extension, byte[] bytes) => extension switch
+    {
+        ".pdf" => bytes.Length >= 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46,
+        ".jpg" or ".jpeg" => bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF,
+        ".png" => bytes.Length >= 8 && bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }),
+        _ => false,
+    };
+
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static CustomerResponse ToResponse(Customer customer) => new(
-        customer.Id, customer.CustomerNumber, customer.Type, customer.Name,
+        customer.Id, customer.CustomerNumber, customer.Name,
         customer.Email, customer.Phone, customer.Address, customer.IdentificationNumber,
-        customer.IsBlocked, customer.IsActive, false, false);
+        customer.IsBlocked, customer.IsActive, false, false, null, null);
     private static string Hash(string code, byte[] salt) => Convert.ToHexString(Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(code), salt, 100_000, HashAlgorithmName.SHA256, 32));
 }
 
 public sealed record SaveCustomerRequest(
-    [Required, MaxLength(50)] string CustomerNumber,
-    CustomerType Type,
+    [Required, RegularExpression("^CUS-[0-9]{6}$", ErrorMessage = "Use the customer number format CUS-000001."), MaxLength(50)] string CustomerNumber,
     [Required, MaxLength(150)] string Name,
     [EmailAddress, MaxLength(254)] string? Email,
     [MaxLength(50)] string? Phone,
@@ -249,6 +328,7 @@ public sealed record SaveCustomerRequest(
 
 public sealed record SetCustomerStatusRequest(bool IsActive, bool IsBlocked);
 public sealed record CustomerResponse(
-    Guid Id, string CustomerNumber, CustomerType Type, string Name,
+    Guid Id, string CustomerNumber, string Name,
     string? Email, string? Phone, string? Address, string? IdentificationNumber,
-    bool IsBlocked, bool IsActive, bool HasOnlineAccount, bool EmailConfirmed);
+    bool IsBlocked, bool IsActive, bool HasOnlineAccount, bool EmailConfirmed,
+    Guid? DriverLicenceDocumentId, string? DriverLicenceFileName);

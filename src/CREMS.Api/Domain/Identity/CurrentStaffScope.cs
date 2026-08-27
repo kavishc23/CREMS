@@ -1,19 +1,25 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.Identity;
 using CREMS.Api.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace CREMS.Api.Domain.Identity;
 
-public sealed class CurrentStaffScope(UserManager<ApplicationUser> userManager, ApplicationDbContext db)
+public sealed class CurrentStaffScope(ApplicationDbContext db)
 {
     public async Task<StaffDataScope?> GetAsync(ClaimsPrincipal principal)
     {
-        var user = await userManager.GetUserAsync(principal);
+        var id = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(id, out var userId)) return null;
+        var user = await db.Users.AsNoTracking()
+            .Where(x => x.Id == userId)
+            .Select(x => new { x.Id, x.IsActive, x.DivisionId, x.BranchId, x.FullName })
+            .SingleOrDefaultAsync();
         if (user is null || !user.IsActive) return null;
 
-        var isAdministrator = await userManager.IsInRoleAsync(user, SystemRoles.SuperAdministrator) ||
-                              await userManager.IsInRoleAsync(user, SystemRoles.Administrator);
+        // Identity already validated and placed roles in the authenticated cookie.
+        // Reading those claims avoids two AspNetUserRoles queries on every API call.
+        var isAdministrator = principal.IsInRole(SystemRoles.SuperAdministrator) ||
+                              principal.IsInRole(SystemRoles.Administrator);
         var now = DateTimeOffset.UtcNow;
         var scopes = await db.UserAccessScopes.AsNoTracking().Where(x => x.UserId == user.Id && x.IsActive && x.EffectiveFrom <= now && (x.ExpiresAt == null || x.ExpiresAt > now)).ToListAsync();
         var divisions = scopes.Where(x => x.DivisionId.HasValue).Select(x => x.DivisionId!.Value).ToHashSet();

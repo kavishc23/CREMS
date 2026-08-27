@@ -22,7 +22,8 @@ public sealed class UsersController(UserManager<ApplicationUser> userManager, Ap
         foreach (var user in users)
         {
             var roles = await userManager.GetRolesAsync(user);
-            if (!roles.Contains(SystemRoles.Customer)) response.Add(ToResponse(user, roles));
+            var staffRoles = roles.Where(SystemRoles.Staff.Contains).ToArray();
+            if (!roles.Contains(SystemRoles.Customer) && staffRoles.Length > 0) response.Add(ToResponse(user, staffRoles));
         }
         return Ok(response);
     }
@@ -114,7 +115,13 @@ public sealed class UsersController(UserManager<ApplicationUser> userManager, Ap
     }
     private async Task<bool> CanManage(ApplicationUser target) =>
         User.IsInRole(SystemRoles.SuperAdministrator) || !await userManager.IsInRoleAsync(target, SystemRoles.SuperAdministrator);
-    private async Task<bool> HasRecentMfa(CancellationToken token) { var id = userManager.GetUserId(User); return Guid.TryParse(id, out var userId) && await db.SecurityEvents.AnyAsync(x => x.UserId == userId && x.Type == SecurityEventType.MfaSucceeded && x.Succeeded && x.OccurredAt > DateTimeOffset.UtcNow.AddMinutes(-15), token); }
+    private async Task<bool> HasRecentMfa(CancellationToken token)
+    {
+        var id = userManager.GetUserId(User);
+        if (!Guid.TryParse(id, out var userId)) return false;
+        var mfaRequired = await db.Users.Where(user => user.Id == userId).Select(user => user.MfaRequired).FirstOrDefaultAsync(token);
+        return !mfaRequired || await db.SecurityEvents.AnyAsync(x => x.UserId == userId && x.Type == SecurityEventType.MfaSucceeded && x.Succeeded && x.OccurredAt > DateTimeOffset.UtcNow.AddMinutes(-15), token);
+    }
     private async Task<bool> IsValidBranch(Guid? id) => id.HasValue && await db.Branches.AnyAsync(x => x.Id == id && x.IsActive);
     private async Task<bool> IsValidDivision(Guid? id) => id.HasValue && await db.Divisions.AnyAsync(x => x.Id == id && x.IsActive);
     private async Task<bool> IsDivisionAtBranch(Guid? divisionId, Guid? branchId) => divisionId.HasValue && branchId.HasValue && await db.BranchDivisions.AnyAsync(x => x.DivisionId == divisionId && x.BranchId == branchId && x.IsActive);

@@ -70,7 +70,12 @@ public sealed class AccessManagementController(ApplicationDbContext db, UserMana
     private Guid CurrentId() => Guid.Parse(users.GetUserId(User)!);
     private async Task<bool> CanManage(ApplicationUser target) => User.IsInRole(SystemRoles.SuperAdministrator) || !await users.IsInRoleAsync(target, SystemRoles.SuperAdministrator);
     private SecurityEvent Event(Guid userId, SecurityEventType type, string detail) => new() { UserId = userId, Type = type, Succeeded = true, Detail = detail, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(), UserAgent = Request.Headers.UserAgent.ToString() };
-    private async Task<bool> HasRecentMfa(CancellationToken token) => await db.SecurityEvents.AnyAsync(x => x.UserId == CurrentId() && x.Type == SecurityEventType.MfaSucceeded && x.Succeeded && x.OccurredAt > DateTimeOffset.UtcNow.AddMinutes(-15), token);
+    private async Task<bool> HasRecentMfa(CancellationToken token)
+    {
+        var currentId = CurrentId();
+        var mfaRequired = await db.Users.Where(user => user.Id == currentId).Select(user => user.MfaRequired).FirstOrDefaultAsync(token);
+        return !mfaRequired || await db.SecurityEvents.AnyAsync(x => x.UserId == currentId && x.Type == SecurityEventType.MfaSucceeded && x.Succeeded && x.OccurredAt > DateTimeOffset.UtcNow.AddMinutes(-15), token);
+    }
 }
 
 public sealed record ScopeItem(AccessScopeType Type, Guid? DivisionId, Guid? BranchId, DateTimeOffset? EffectiveFrom, DateTimeOffset? ExpiresAt);

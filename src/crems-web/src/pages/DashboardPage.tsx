@@ -41,7 +41,6 @@ const roleViews: Record<string, RoleView> = {
   [roles.branchManager]: { eyebrow: 'Branch management', title: 'Your branch at a glance', metricKeys: ['activeRentals', 'overdueRentals', 'underMaintenance'] },
   [roles.rentalOfficer]: { eyebrow: 'Rental desk', title: 'Today’s rental work', metricKeys: ['pendingRequests', 'upcomingBookings', 'overdueRentals'] },
   [roles.maintenanceOfficer]: { eyebrow: 'Workshop', title: 'Maintenance work today', metricKeys: ['underMaintenance', 'servicesDueSoon', 'availableAssets'] },
-  [roles.financeOfficer]: { eyebrow: 'Finance', title: 'Financial control workspace', metricKeys: ['activeRentals', 'totalAssets', 'overdueRentals'] },
 }
 
 function formatToday() {
@@ -50,7 +49,7 @@ function formatToday() {
 
 export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPageProps) {
   const primaryRole = getPrimaryRole(userRoles)
-  const canViewOperations = new Set<string>([roles.superAdministrator,roles.administrator,roles.branchManager,roles.financeOfficer]).has(primaryRole)
+  const canViewOperations = new Set<string>([roles.superAdministrator,roles.administrator,roles.branchManager]).has(primaryRole)
   const [summary, setSummary] = useState<DashboardSummary>(emptySummary)
   const [operations,setOperations]=useState<OperationsSummary|null>(null)
   const [loading, setLoading] = useState(true)
