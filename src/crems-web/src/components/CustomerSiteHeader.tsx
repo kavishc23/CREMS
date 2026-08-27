@@ -9,7 +9,7 @@ import {
   AppBar, Box, Button, Collapse, Container, Divider, Drawer, IconButton, Menu, MenuItem, Stack, Toolbar, Typography,
 } from '@mui/material'
 
-export type CustomerSiteSection = 'top' | 'services' | 'rentals' | 'how-it-works' | 'faq' | 'contact'
+export type CustomerSiteSection = 'top' | 'search' | 'services' | 'rentals' | 'how-it-works' | 'faq' | 'contact'
 
 type CustomerSiteHeaderProps = {
   accountActive?: boolean
@@ -49,7 +49,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
 
   const accountLabel = authenticated ? accountName ?? 'My account' : 'Sign in'
   const desktopNavigation = <Stack direction="row" spacing={.5} alignItems="center">
-    <Button variant="contained" color="secondary" onClick={() => navigate('rentals')} sx={{ color: '#111' }}>Book a rental</Button>
+    <Button variant="contained" color="secondary" onClick={() => navigate('search')} sx={{ color: '#111' }}>Book a rental</Button>
     {links.map(link => <Button key={link.section} color="inherit" onClick={() => navigate(link.section)} sx={{ color: 'rgba(255,255,255,.82)', px: 1.25 }}>{link.label}</Button>)}
     <Button
       variant="contained"
@@ -91,6 +91,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
         </Stack>
         <Divider sx={{ mb: 2 }} />
         <Stack spacing={.5} alignItems="stretch">
+          <Button variant="contained" color="secondary" onClick={() => navigate('search')} sx={{ justifyContent: 'flex-start', color: '#111' }}>Book a rental</Button>
           {links.map(link => <Button key={link.section} onClick={() => navigate(link.section)} sx={{ justifyContent: 'flex-start', color: 'text.primary', py: 1.2 }}>{link.label}</Button>)}
           <Divider sx={{ my: 1 }} />
           <Button variant="contained" color="secondary" startIcon={<AccountCircleOutlined />} onClick={() => onAccount()} sx={{ justifyContent: 'flex-start', color: '#111' }}>{accountLabel}</Button>
