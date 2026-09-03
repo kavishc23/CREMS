@@ -6,6 +6,45 @@ namespace CREMS.Api.Services;
 
 public static class ApprovalWorkflowService
 {
+    public sealed record BookingApprovalContext(Guid BranchId, Guid? DivisionId, decimal Amount, bool IsEquipment, bool HasPersonnel, bool HasOvertime);
+    public sealed record BookingApprovalMatch(Guid WorkflowId, string WorkflowName, string Reason, IReadOnlyList<ApprovalWorkflowStage> Stages);
+
+    public static async Task<BookingApprovalMatch?> MatchBookingAsync(ApplicationDbContext db, BookingApprovalContext context, CancellationToken token)
+    {
+        var candidates = await db.ApprovalWorkflows.AsNoTracking().Include(x => x.Stages)
+            .Where(x => x.IsActive && x.Type == ApprovalType.Booking &&
+                (x.BranchId == null || x.BranchId == context.BranchId) &&
+                (x.DivisionId == null || x.DivisionId == context.DivisionId))
+            .ToListAsync(token);
+
+        var matches = candidates.Where(x =>
+            x.IsDefaultForBookings ||
+            (x.MinimumAmount.HasValue && context.Amount >= x.MinimumAmount.Value) ||
+            (x.TriggerForEquipment && context.IsEquipment) ||
+            (x.TriggerForPersonnel && context.HasPersonnel) ||
+            (x.TriggerForOvertime && context.HasOvertime));
+        var workflow = matches.OrderByDescending(x => x.BranchId.HasValue)
+            .ThenByDescending(x => x.DivisionId.HasValue).ThenByDescending(x => x.Priority)
+            .ThenByDescending(x => x.MinimumAmount ?? 0).FirstOrDefault();
+        if (workflow is null) return null;
+
+        var reasons = new List<string>();
+        if (workflow.IsDefaultForBookings) reasons.Add("configured for every booking");
+        if (workflow.MinimumAmount.HasValue && context.Amount >= workflow.MinimumAmount.Value) reasons.Add($"value is FJD {context.Amount:N2}");
+        if (workflow.TriggerForEquipment && context.IsEquipment) reasons.Add("equipment hire");
+        if (workflow.TriggerForPersonnel && context.HasPersonnel) reasons.Add("operator or personnel included");
+        if (workflow.TriggerForOvertime && context.HasOvertime) reasons.Add("overtime included");
+        return new BookingApprovalMatch(workflow.Id, workflow.Name, string.Join(", ", reasons), workflow.Stages.OrderBy(x => x.Sequence).ToList());
+    }
+
+    public static void ConfigureFromMatch(ApprovalRequest request, BookingApprovalMatch match)
+    {
+        request.WorkflowId = match.WorkflowId;
+        request.TotalStages = match.Stages.Count;
+        foreach (var stage in match.Stages)
+            request.StageDecisions.Add(new ApprovalStageDecision { StageNumber = stage.Sequence, StageName = stage.Name, AssignedRole = stage.AssignedRole, AssignedUserId = stage.AssignedUserId });
+    }
+
     public static async Task ConfigureAsync(ApplicationDbContext db, ApprovalRequest request, Guid? divisionId, CancellationToken token)
     {
         var candidates = await db.ApprovalWorkflows.AsNoTracking().Include(x => x.Stages)

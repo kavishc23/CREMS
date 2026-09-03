@@ -14,7 +14,7 @@ namespace CREMS.Api.Controllers;
 [ApiController]
 [Route("api/bookings")]
 [Authorize(Policy = SystemPolicies.ManageRentals)]
-public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScope staffScope, IAuthorizationService authorization) : ControllerBase
+public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
     [HttpGet("work-queue")]
     public async Task<ActionResult<BookingWorkQueueResponse>> GetWorkQueue(
@@ -103,10 +103,14 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             .OrderByDescending(x => x.OccurredAt).Take(50).Select(x => new { x.Id, x.Action, x.Summary, x.UserName, x.OccurredAt }).ToListAsync(cancellationToken);
         var documents = await db.DocumentRecords.AsNoTracking().Where(x => x.EntityType == nameof(Booking) && x.EntityId == id)
             .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.FileName, x.Type, x.StoragePath, x.CreatedAt }).ToListAsync(cancellationToken);
+        var customerRequests = await db.CustomerCases.AsNoTracking().Where(x => x.CustomerId == booking.CustomerId && x.Subject.Contains(booking.BookingNumber))
+            .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.CaseNumber, type = x.Type.ToString(), priority = x.Priority.ToString(), status = x.Status.ToString(), x.Subject, x.Description, x.CreatedAt, x.DueAt }).ToListAsync(cancellationToken);
         var item = booking.Items.FirstOrDefault();
         var days = item is null ? 0 : Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays));
         var hire = item is null ? 0 : days * item.DailyRate; var subtotal = Math.Max(0, hire - booking.DiscountAmount + booking.AdditionalCharges);
         var paid = booking.Payments.Where(x => x.Status == PaymentStatus.Recorded).Sum(x => x.Amount);
+        var approvalContext = BuildApprovalContext(booking, subtotal * (1 + booking.TaxRate / 100m));
+        var approvalRule = await ApprovalWorkflowService.MatchBookingAsync(db, approvalContext, cancellationToken);
         return Ok(new {
             booking.Id, booking.BookingNumber, status = booking.Status.ToString(), booking.CreatedAt, booking.Notes,
             customer = new { booking.CustomerId, booking.Customer!.CustomerNumber, booking.Customer.Name, type = booking.Customer.Type.ToString(), booking.Customer.Email, booking.Customer.Phone, booking.Customer.Address, booking.Customer.IdentificationNumber, booking.Customer.IsBlocked },
@@ -116,7 +120,8 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             readiness = new { confirmed = booking.Status == BookingStatus.Confirmed, assetAllocated = item != null, customerEligible = !booking.Customer.IsBlocked && booking.Customer.IsActive, identificationVerified = booking.Inspections.Any(x => x.Type == InspectionType.Handover && x.IdentificationVerified), licenceVerified = booking.Inspections.Any(x => x.Type == InspectionType.Handover && x.DriverLicenceVerified), paymentSatisfied = paid >= booking.DepositRequired, preHireInspectionComplete = booking.Inspections.Any(x => x.Type == InspectionType.Handover), agreementSigned = booking.RentalAgreement != null },
             agreement = booking.RentalAgreement is null ? null : new { booking.RentalAgreement.AgreementNumber, status = booking.RentalAgreement.Status.ToString(), booking.RentalAgreement.CustomerSignedAt, booking.RentalAgreement.ApprovedByName, booking.RentalAgreement.LastEmailedAt, addendumCount = booking.RentalAgreement.Addendums.Count },
             quotation = quote is null ? null : new { quote.Id, quote.QuoteNumber, status = quote.Status.ToString(), quote.ValidUntil, quote.Subtotal, quote.Discount, quote.Tax, quote.Total, quote.Version, quote.LineItemsJson, quote.LastEmailedTo, quote.LastEmailedAt },
-            invoice = booking.Invoice is null ? null : new { booking.Invoice.InvoiceNumber, status = booking.Invoice.Status.ToString(), booking.Invoice.Total, booking.Invoice.AmountPaid, booking.Invoice.BalanceDue }, approvals, documents, activity
+            invoice = booking.Invoice is null ? null : new { booking.Invoice.InvoiceNumber, status = booking.Invoice.Status.ToString(), booking.Invoice.Total, booking.Invoice.AmountPaid, booking.Invoice.BalanceDue },
+            approvalRule = approvalRule is null ? null : new { approvalRule.WorkflowName, approvalRule.Reason, stages = approvalRule.Stages.Select(x => new { x.Sequence, x.Name, x.AssignedRole, x.EscalateAfterHours }) }, approvals, customerRequests, documents, activity
         });
     }
 
@@ -256,7 +261,8 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var booking = await db.Bookings
             .Include(item => item.Customer)
             .Include(item => item.Branch)
-            .Include(item => item.Items).ThenInclude(item => item.Asset).Include(item => item.Charges)
+            .Include(item => item.Items).ThenInclude(item => item.Asset).ThenInclude(item => item!.ServiceOffering)
+            .Include(item => item.Charges)
             .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
@@ -271,7 +277,6 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
 
         if (request.Status == BookingStatus.Confirmed)
         {
-            if (!(await authorization.AuthorizeAsync(User, SystemPermissions.RentalsApprove)).Succeeded) return Forbid();
             var firstItem = booking.Items.FirstOrDefault();
             if (firstItem is not null)
             {
@@ -288,6 +293,32 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             if (booking.Items.Count == 0 || booking.Items.Any(x => x.Asset is null || !x.Asset.IsActive ||
                 x.Asset.Status is AssetStatus.Maintenance or AssetStatus.OutOfService or AssetStatus.Retired))
             { ModelState.AddModelError(nameof(booking.Items), "Every asset must be active and operationally available before confirmation."); return ValidationProblem(ModelState); }
+
+            var duration = booking.Items.Sum(x => Math.Max(1, (decimal)Math.Ceiling((x.EndAt - x.StartAt).TotalDays)) * x.DailyRate);
+            var subtotal = Math.Max(0, duration - booking.DiscountAmount + booking.AdditionalCharges);
+            var approvalMatch = await ApprovalWorkflowService.MatchBookingAsync(db, BuildApprovalContext(booking, subtotal * (1 + booking.TaxRate / 100m)), cancellationToken);
+            if (approvalMatch is not null)
+            {
+                var existing = await db.ApprovalRequests.Include(x => x.StageDecisions)
+                    .Where(x => x.EntityType == nameof(Booking) && x.EntityId == booking.Id && x.WorkflowId == approvalMatch.WorkflowId)
+                    .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken);
+                if (existing?.Status == ApprovalStatus.Pending)
+                    return Accepted(new { outcome = "AwaitingApproval", approvalRequestId = existing.Id, existing.RequestNumber, approvalMatch.WorkflowName, approvalMatch.Reason });
+                if (existing?.Status != ApprovalStatus.Approved)
+                {
+                    var approval = new ApprovalRequest {
+                        RequestNumber = $"APR-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                        BranchId = booking.BranchId, Type = ApprovalType.Booking, EntityType = nameof(Booking), EntityId = booking.Id,
+                        Amount = subtotal * (1 + booking.TaxRate / 100m), Reason = $"{booking.BookingNumber}: {approvalMatch.Reason}", RequestedByUserId = scope.UserId
+                    };
+                    ApprovalWorkflowService.ConfigureFromMatch(approval, approvalMatch);
+                    db.ApprovalRequests.Add(approval);
+                    AuditWriter.Record(db, scope, "Booking submitted for approval", nameof(Booking), booking.Id,
+                        $"{booking.BookingNumber} routed through {approvalMatch.WorkflowName}.", booking.BranchId);
+                    await db.SaveChangesAsync(cancellationToken);
+                    return Accepted(new { outcome = "AwaitingApproval", approvalRequestId = approval.Id, approval.RequestNumber, approvalMatch.WorkflowName, approvalMatch.Reason });
+                }
+            }
             booking.ApprovedByUserId = scope.UserId;
             booking.ApprovedAt = DateTimeOffset.UtcNow;
 
@@ -341,6 +372,16 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var date = DateOnly.FromDateTime(local.Date); var time = TimeOnly.FromDateTime(local.DateTime); var exception = await db.BranchCalendarExceptions.AsNoTracking().FirstOrDefaultAsync(x => x.BranchId == branchId && x.Date == date, token);
         if (exception is not null) return !exception.IsClosed && (!exception.OpensAt.HasValue || time >= exception.OpensAt) && (!exception.ClosesAt.HasValue || time <= exception.ClosesAt);
         var period = await db.BranchOperatingPeriods.AsNoTracking().FirstOrDefaultAsync(x => x.BranchId == branchId && x.DayOfWeek == local.DayOfWeek, token); if (period is null) return true; if (period.IsClosed || time < period.OpensAt || time > period.ClosesAt) return false; var cutoff = pickup ? period.PickupCutoff : period.ReturnCutoff; return !cutoff.HasValue || time <= cutoff;
+    }
+
+    private static ApprovalWorkflowService.BookingApprovalContext BuildApprovalContext(Booking booking, decimal amount)
+    {
+        var equipment = booking.Items.Any(x => x.Asset?.Type == AssetType.Equipment);
+        var personnel = booking.Items.Any(x => x.Asset?.ServiceOffering?.PersonnelRequirement != PersonnelRequirement.None) ||
+            booking.Charges.Any(x => x.Category is ChargeCategory.Operator or ChargeCategory.Driver or ChargeCategory.Labour);
+        var overtime = booking.Charges.Any(x => x.Description.Contains("overtime", StringComparison.OrdinalIgnoreCase)) ||
+            (booking.AdditionalChargesDescription?.Contains("overtime", StringComparison.OrdinalIgnoreCase) ?? false);
+        return new ApprovalWorkflowService.BookingApprovalContext(booking.BranchId, booking.Items.Select(x => x.Asset?.DivisionId).FirstOrDefault(), amount, equipment, personnel, overtime);
     }
 
     [HttpPut("{id:guid}/charges")]

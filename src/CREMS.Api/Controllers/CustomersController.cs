@@ -35,7 +35,7 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
             .OrderBy(customer => customer.Name)
             .Select(customer => new CustomerResponse(
                 customer.Id, customer.CustomerNumber, customer.Name,
-                customer.Email, customer.Phone, customer.Address, customer.IdentificationNumber,
+                customer.Email, customer.Phone, customer.Address, customer.IdentificationNumber, customer.HirePreferences,
                 customer.IsBlocked, customer.IsActive,
                 db.Users.Any(user => user.CustomerId == customer.Id),
                 db.Users.Where(user => user.CustomerId == customer.Id).Select(user => user.EmailConfirmed).FirstOrDefault(),
@@ -194,7 +194,7 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         var cases = await db.CustomerCases.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator || x.BranchId == scope.BranchId)).OrderByDescending(x => x.CreatedAt)
             .Select(x => new { x.Id, x.CaseNumber, x.Type, x.Priority, x.Subject, x.Status, x.CreatedAt }).Take(100).ToListAsync(token);
         var account = await db.Users.AsNoTracking().Where(x => x.CustomerId == id).Select(x => new { x.Id, x.Email, x.EmailConfirmed, x.IsActive, x.LastLoginAt, x.LastActivityAt, x.LockoutEnd }).FirstOrDefaultAsync(token);
-        return Ok(new { customer = new { customer.Id, customer.CustomerNumber, customer.Name, customer.Email, customer.Phone, customer.IsActive, customer.IsBlocked }, account, bookings, invoices, cases,
+        return Ok(new { customer = new { customer.Id, customer.CustomerNumber, customer.Name, customer.Email, customer.Phone, customer.HirePreferences, customer.IsActive, customer.IsBlocked }, account, bookings, invoices, cases,
             summary = new { bookings = bookings.Count, invoices = invoices.Count, totalBilled = invoices.Sum(x => x.Total), outstanding = invoices.Sum(x => x.BalanceDue), openCases = cases.Count(x => x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed) } });
     }
 
@@ -313,7 +313,7 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
 
     private static CustomerResponse ToResponse(Customer customer) => new(
         customer.Id, customer.CustomerNumber, customer.Name,
-        customer.Email, customer.Phone, customer.Address, customer.IdentificationNumber,
+        customer.Email, customer.Phone, customer.Address, customer.IdentificationNumber, customer.HirePreferences,
         customer.IsBlocked, customer.IsActive, false, false, null, null);
     private static string Hash(string code, byte[] salt) => Convert.ToHexString(Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(code), salt, 100_000, HashAlgorithmName.SHA256, 32));
 }
@@ -329,6 +329,6 @@ public sealed record SaveCustomerRequest(
 public sealed record SetCustomerStatusRequest(bool IsActive, bool IsBlocked);
 public sealed record CustomerResponse(
     Guid Id, string CustomerNumber, string Name,
-    string? Email, string? Phone, string? Address, string? IdentificationNumber,
+    string? Email, string? Phone, string? Address, string? IdentificationNumber, IReadOnlyList<CustomerHirePreference> HirePreferences,
     bool IsBlocked, bool IsActive, bool HasOnlineAccount, bool EmailConfirmed,
     Guid? DriverLicenceDocumentId, string? DriverLicenceFileName);

@@ -16,7 +16,11 @@ namespace CREMS.Api.Controllers;
 public sealed class ApprovalWorkflowsController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult> Get(CancellationToken token) => Ok(await db.ApprovalWorkflows.AsNoTracking().Include(x => x.Stages).OrderBy(x => x.Type).ThenBy(x => x.Name).ToListAsync(token));
+    public async Task<ActionResult> Get(CancellationToken token)
+    {
+        var workflows = await db.ApprovalWorkflows.AsNoTracking().Include(x => x.Stages).OrderBy(x => x.Type).ThenBy(x => x.Name).ToListAsync(token);
+        return Ok(workflows.Select(ToResponse));
+    }
 
     [HttpPost]
     public async Task<ActionResult> Create(SaveApprovalWorkflowRequest request, CancellationToken token)
@@ -24,10 +28,10 @@ public sealed class ApprovalWorkflowsController(ApplicationDbContext db, Current
         if (request.Stages.Count is < 1 or > 5 || request.Stages.Select(x => x.Sequence).Distinct().Count() != request.Stages.Count)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["stages"] = ["Configure between one and five uniquely ordered approval phases."] }));
         var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid();
-        var workflow = new ApprovalWorkflow { Name = request.Name.Trim(), Type = request.Type, EntityType = Clean(request.EntityType), BranchId = request.BranchId, DivisionId = request.DivisionId, IsActive = request.IsActive,
+        var workflow = new ApprovalWorkflow { Name = request.Name.Trim(), Type = request.Type, EntityType = Clean(request.EntityType), BranchId = request.BranchId, DivisionId = request.DivisionId, MinimumAmount = request.MinimumAmount, TriggerForEquipment = request.TriggerForEquipment, TriggerForPersonnel = request.TriggerForPersonnel, TriggerForOvertime = request.TriggerForOvertime, IsDefaultForBookings = request.IsDefaultForBookings, Priority = request.Priority, IsActive = request.IsActive,
             Stages = request.Stages.OrderBy(x => x.Sequence).Select(MapStage).ToList() };
         db.ApprovalWorkflows.Add(workflow); AuditWriter.Record(db, scope, "Approval workflow created", nameof(ApprovalWorkflow), workflow.Id, $"{workflow.Name} created with {workflow.Stages.Count} phases.", request.BranchId);
-        await db.SaveChangesAsync(token); return Ok(workflow);
+        await db.SaveChangesAsync(token); return Ok(ToResponse(workflow));
     }
 
     [HttpPut("{id:guid}")]
@@ -36,9 +40,9 @@ public sealed class ApprovalWorkflowsController(ApplicationDbContext db, Current
         var workflow = await db.ApprovalWorkflows.Include(x => x.Stages).FirstOrDefaultAsync(x => x.Id == id, token); if (workflow is null) return NotFound();
         if (request.Stages.Count is < 1 or > 5 || request.Stages.Select(x => x.Sequence).Distinct().Count() != request.Stages.Count) return BadRequest();
         var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid();
-        db.ApprovalWorkflowStages.RemoveRange(workflow.Stages); workflow.Name = request.Name.Trim(); workflow.Type = request.Type; workflow.EntityType = Clean(request.EntityType); workflow.BranchId = request.BranchId; workflow.DivisionId = request.DivisionId; workflow.IsActive = request.IsActive;
+        db.ApprovalWorkflowStages.RemoveRange(workflow.Stages); workflow.Name = request.Name.Trim(); workflow.Type = request.Type; workflow.EntityType = Clean(request.EntityType); workflow.BranchId = request.BranchId; workflow.DivisionId = request.DivisionId; workflow.MinimumAmount = request.MinimumAmount; workflow.TriggerForEquipment = request.TriggerForEquipment; workflow.TriggerForPersonnel = request.TriggerForPersonnel; workflow.TriggerForOvertime = request.TriggerForOvertime; workflow.IsDefaultForBookings = request.IsDefaultForBookings; workflow.Priority = request.Priority; workflow.IsActive = request.IsActive;
         workflow.Stages = request.Stages.OrderBy(x => x.Sequence).Select(MapStage).ToList(); workflow.UpdatedAt = DateTimeOffset.UtcNow;
-        AuditWriter.Record(db, scope, "Approval workflow updated", nameof(ApprovalWorkflow), workflow.Id, $"{workflow.Name} now has {workflow.Stages.Count} phases.", request.BranchId); await db.SaveChangesAsync(token); return Ok(workflow);
+        AuditWriter.Record(db, scope, "Approval workflow updated", nameof(ApprovalWorkflow), workflow.Id, $"{workflow.Name} now has {workflow.Stages.Count} phases.", request.BranchId); await db.SaveChangesAsync(token); return Ok(ToResponse(workflow));
     }
     [HttpGet("delegations")]
     public async Task<ActionResult> Delegations(CancellationToken token) => Ok(await db.ApprovalDelegations.AsNoTracking().OrderByDescending(x => x.StartsAt).ToListAsync(token));
@@ -52,9 +56,10 @@ public sealed class ApprovalWorkflowsController(ApplicationDbContext db, Current
     }
 
     private static ApprovalWorkflowStage MapStage(ApprovalWorkflowStageRequest x) => new() { Sequence = x.Sequence, Name = x.Name.Trim(), AssignedRole = Clean(x.AssignedRole), AssignedUserId = x.AssignedUserId, EscalateAfterHours = x.EscalateAfterHours, EscalationRole = Clean(x.EscalationRole) };
+    private static object ToResponse(ApprovalWorkflow x) => new { x.Id, x.Name, x.Type, x.EntityType, x.BranchId, x.DivisionId, x.MinimumAmount, x.TriggerForEquipment, x.TriggerForPersonnel, x.TriggerForOvertime, x.IsDefaultForBookings, x.Priority, x.IsActive, x.CreatedAt, x.UpdatedAt, stages = x.Stages.OrderBy(s => s.Sequence).Select(s => new { s.Id, s.Sequence, s.Name, s.AssignedRole, s.AssignedUserId, s.EscalateAfterHours, s.EscalationRole }) };
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
 public sealed record ApprovalWorkflowStageRequest([Range(1, 5)] int Sequence, [Required] string Name, string? AssignedRole, Guid? AssignedUserId, [Range(1, 720)] int EscalateAfterHours = 24, string? EscalationRole = null);
-public sealed record SaveApprovalWorkflowRequest([Required] string Name, ApprovalType Type, string? EntityType, Guid? BranchId, Guid? DivisionId, bool IsActive, IReadOnlyList<ApprovalWorkflowStageRequest> Stages);
+public sealed record SaveApprovalWorkflowRequest([Required] string Name, ApprovalType Type, string? EntityType, Guid? BranchId, Guid? DivisionId, bool IsActive, IReadOnlyList<ApprovalWorkflowStageRequest> Stages, decimal? MinimumAmount = null, bool TriggerForEquipment = false, bool TriggerForPersonnel = false, bool TriggerForOvertime = false, bool IsDefaultForBookings = false, [Range(0, 1000)] int Priority = 0);
 public sealed record ApprovalDelegationRequest(Guid FromUserId, Guid ToUserId, Guid? DivisionId, DateTimeOffset StartsAt, DateTimeOffset EndsAt);

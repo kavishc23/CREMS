@@ -133,6 +133,12 @@ public sealed class ApprovalWorkflow : Entity
     public string? EntityType { get; set; }
     public Guid? BranchId { get; set; }
     public Guid? DivisionId { get; set; }
+    public decimal? MinimumAmount { get; set; }
+    public bool TriggerForEquipment { get; set; }
+    public bool TriggerForPersonnel { get; set; }
+    public bool TriggerForOvertime { get; set; }
+    public bool IsDefaultForBookings { get; set; }
+    public int Priority { get; set; }
     public bool IsActive { get; set; } = true;
     public ICollection<ApprovalWorkflowStage> Stages { get; set; } = [];
 }
@@ -250,7 +256,7 @@ public enum DispatchType { CustomerPickup, Delivery, CustomerReturn, Collection 
 public enum DispatchStatus { Scheduled, Assigned, EnRoute, Arrived, Completed, Failed, Cancelled }
 public enum TransferStatus { Requested, Approved, InTransit, Received, Inspected, Rejected, Cancelled }
 public enum RatePeriod { Hourly, Daily, Weekly, Monthly }
-public enum ApprovalType { Discount, DepositWaiver, Refund, DamageWaiver, CreditLimit, AssetTransfer, PurchaseOrder, MajorRepair, WriteOff, AssetDisposal }
+public enum ApprovalType { Discount, DepositWaiver, Refund, DamageWaiver, CreditLimit, AssetTransfer, PurchaseOrder, MajorRepair, WriteOff, AssetDisposal, Booking }
 public enum ApprovalStatus { Pending, Approved, Rejected, Cancelled }
 public enum PurchaseOrderStatus { Draft, PendingApproval, Approved, Ordered, PartiallyReceived, Received, Cancelled }
 public enum CaseType { Enquiry, Complaint, Dispute, RefundRequest, Breakdown, General }

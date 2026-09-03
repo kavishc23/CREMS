@@ -1,12 +1,10 @@
-import { useState, type MouseEvent } from 'react'
+import { useState } from 'react'
 import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
-import ExpandLess from '@mui/icons-material/ExpandLess'
-import ExpandMore from '@mui/icons-material/ExpandMore'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
 import MenuOutlined from '@mui/icons-material/MenuOutlined'
 import {
-  AppBar, Box, Button, Collapse, Container, Divider, Drawer, IconButton, Menu, MenuItem, Stack, Toolbar, Typography,
+  AppBar, Box, Button, Container, Divider, Drawer, IconButton, Stack, Toolbar, Typography,
 } from '@mui/material'
 
 export type CustomerSiteSection = 'top' | 'search' | 'services' | 'rentals' | 'how-it-works' | 'faq' | 'contact'
@@ -16,46 +14,37 @@ type CustomerSiteHeaderProps = {
   authenticated?: boolean
   accountName?: string
   onAccount: () => void
-  onAccountSection?: (section: 'overview' | 'bookings' | 'quotes' | 'documents' | 'receipts' | 'account') => void
+  onAccountSection?: (section: 'overview' | 'bookings') => void
   onNavigate: (section: CustomerSiteSection) => void
   onSignOut?: () => void | Promise<void>
 }
 
-const links: { section: CustomerSiteSection; label: string }[] = [
-  { section: 'rentals', label: 'Browse rentals' },
-  { section: 'contact', label: 'Help & contact' },
-]
+const links: { section: CustomerSiteSection; label: string }[] = [{ section: 'contact', label: 'Help & contact' }]
 
 export function CustomerSiteHeader({ accountActive = false, authenticated = false, accountName, onAccount, onAccountSection, onNavigate, onSignOut }: CustomerSiteHeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [accountMenuAnchor, setAccountMenuAnchor] = useState<HTMLElement | null>(null)
-  const [manageBookingsOpen, setManageBookingsOpen] = useState(false)
 
   function navigate(section: CustomerSiteSection) {
     setMobileOpen(false)
     onNavigate(section)
   }
 
-  function openAccount(event?: MouseEvent<HTMLElement>) {
+  function openAccount() {
     setMobileOpen(false)
-    if (authenticated && onAccountSection && event) { setManageBookingsOpen(false); setAccountMenuAnchor(event.currentTarget) }
+    if (authenticated && onAccountSection) onAccountSection('overview')
     else onAccount()
-  }
-
-  function selectAccountSection(section: 'overview' | 'bookings' | 'quotes' | 'documents' | 'receipts' | 'account') {
-    setAccountMenuAnchor(null)
-    onAccountSection?.(section)
   }
 
   const accountLabel = authenticated ? accountName ?? 'My account' : 'Sign in'
   const desktopNavigation = <Stack direction="row" spacing={.5} alignItems="center">
     <Button variant="contained" color="secondary" onClick={() => navigate('search')} sx={{ color: '#111' }}>Book a rental</Button>
+    {authenticated && <Button color="inherit" onClick={() => onAccountSection?.('bookings')} sx={{ color: 'rgba(255,255,255,.82)', px: 1.25 }}>Manage bookings</Button>}
     {links.map(link => <Button key={link.section} color="inherit" onClick={() => navigate(link.section)} sx={{ color: 'rgba(255,255,255,.82)', px: 1.25 }}>{link.label}</Button>)}
     <Button
       variant="contained"
       color="secondary"
       startIcon={<AccountCircleOutlined />}
-      onClick={openAccount}
+      onClick={() => openAccount()}
       aria-current={accountActive ? 'page' : undefined}
       sx={{ ml: 1, color: '#111', boxShadow: accountActive ? '0 0 0 2px #fff' : 'none' }}
     >{accountLabel}</Button>
@@ -92,24 +81,13 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
         <Divider sx={{ mb: 2 }} />
         <Stack spacing={.5} alignItems="stretch">
           <Button variant="contained" color="secondary" onClick={() => navigate('search')} sx={{ justifyContent: 'flex-start', color: '#111' }}>Book a rental</Button>
+          {authenticated && <Button onClick={() => { setMobileOpen(false); onAccountSection?.('bookings') }} sx={{ justifyContent: 'flex-start', color: 'text.primary', py: 1.2 }}>Manage bookings</Button>}
           {links.map(link => <Button key={link.section} onClick={() => navigate(link.section)} sx={{ justifyContent: 'flex-start', color: 'text.primary', py: 1.2 }}>{link.label}</Button>)}
           <Divider sx={{ my: 1 }} />
-          <Button variant="contained" color="secondary" startIcon={<AccountCircleOutlined />} onClick={() => onAccount()} sx={{ justifyContent: 'flex-start', color: '#111' }}>{accountLabel}</Button>
+          <Button variant="contained" color="secondary" startIcon={<AccountCircleOutlined />} onClick={() => openAccount()} sx={{ justifyContent: 'flex-start', color: '#111' }}>{accountLabel}</Button>
           {authenticated && onSignOut && <Button color="inherit" startIcon={<LogoutOutlined />} onClick={() => { setMobileOpen(false); void onSignOut() }} sx={{ justifyContent: 'flex-start' }}>Sign out</Button>}
         </Stack>
       </Box>
     </Drawer>
-    <Menu anchorEl={accountMenuAnchor} open={Boolean(accountMenuAnchor)} onClose={() => setAccountMenuAnchor(null)} slotProps={{ paper: { sx: { minWidth: 230, mt: 1 } } }}>
-      <MenuItem onClick={() => selectAccountSection('overview')}>Account home</MenuItem>
-      <MenuItem onClick={() => setManageBookingsOpen(open => !open)}>Manage bookings {manageBookingsOpen ? <ExpandLess sx={{ ml: 'auto' }} /> : <ExpandMore sx={{ ml: 'auto' }} />}</MenuItem>
-      <Collapse in={manageBookingsOpen}><Box sx={{ py: .5, bgcolor: 'action.hover' }}>
-        <MenuItem sx={{ pl: 4 }} onClick={() => selectAccountSection('bookings')}>My rentals</MenuItem>
-        <MenuItem sx={{ pl: 4 }} onClick={() => selectAccountSection('quotes')}>Quotations</MenuItem>
-        <MenuItem sx={{ pl: 4 }} onClick={() => selectAccountSection('documents')}>Documents</MenuItem>
-        <MenuItem sx={{ pl: 4 }} onClick={() => selectAccountSection('receipts')}>Receipts</MenuItem>
-      </Box></Collapse>
-      <Divider />
-      <MenuItem onClick={() => selectAccountSection('account')}>Profile preferences</MenuItem>
-    </Menu>
   </>
 }

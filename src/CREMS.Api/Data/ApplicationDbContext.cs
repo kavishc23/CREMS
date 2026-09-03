@@ -8,12 +8,19 @@ using CREMS.Api.Domain.Operations;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace CREMS.Api.Data;
 
 public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
     : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>(options)
 {
+    private static readonly JsonSerializerOptions HirePreferenceJsonOptions = new()
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
     public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<Division> Divisions => Set<Division>();
     public DbSet<ServiceOffering> ServiceOfferings => Set<ServiceOffering>();
@@ -170,7 +177,16 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         {
             entity.HasIndex(x => x.CustomerNumber).IsUnique();
             entity.Property(x => x.CustomerNumber).HasMaxLength(50);
-            entity.Property(x => x.HirePreference).HasConversion<string>().HasMaxLength(30);
+            entity.Property(x => x.HirePreferences)
+                .HasColumnName("HirePreference")
+                .HasConversion(
+                    preferences => JsonSerializer.Serialize(preferences, HirePreferenceJsonOptions),
+                    stored => ParseHirePreferences(stored))
+                .Metadata.SetValueComparer(new ValueComparer<List<CustomerHirePreference>>(
+                    (left, right) => left != null && right != null && left.SequenceEqual(right),
+                    preferences => preferences.Aggregate(0, (hash, preference) => HashCode.Combine(hash, preference)),
+                    preferences => preferences.ToList()));
+            entity.Property(x => x.HirePreferences).HasMaxLength(128);
             entity.Property(x => x.Email).HasMaxLength(254);
         });
 
@@ -357,6 +373,17 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         });
     }
 
+    private static List<CustomerHirePreference> ParseHirePreferences(string stored)
+    {
+        if (string.IsNullOrWhiteSpace(stored) || stored == "NoPreference") return [];
+        if (stored.StartsWith('['))
+        {
+            try { return JsonSerializer.Deserialize<List<CustomerHirePreference>>(stored, HirePreferenceJsonOptions) ?? []; }
+            catch (JsonException) { return JsonSerializer.Deserialize<List<CustomerHirePreference>>(stored) ?? []; }
+        }
+        return Enum.TryParse<CustomerHirePreference>(stored, out var preference) ? [preference] : [];
+    }
+
     private static void ConfigureCorporateOperations(ModelBuilder builder)
     {
         builder.Entity<SalesQuote>(entity => { entity.HasIndex(x => x.QuoteNumber).IsUnique(); entity.HasOne<Division>().WithMany().HasForeignKey(x => x.DivisionId).OnDelete(DeleteBehavior.Restrict); Money(entity, nameof(SalesQuote.Subtotal), nameof(SalesQuote.Discount), nameof(SalesQuote.Tax), nameof(SalesQuote.Total)); });
@@ -365,7 +392,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         builder.Entity<AssetTransfer>(entity => { entity.HasIndex(x => x.TransferNumber).IsUnique(); Money(entity, nameof(AssetTransfer.DepartureMeter), nameof(AssetTransfer.ArrivalMeter), nameof(AssetTransfer.TransferCost)); });
         builder.Entity<PricingRule>(entity => Money(entity, nameof(PricingRule.Rate), nameof(PricingRule.IncludedUsage), nameof(PricingRule.ExcessUsageRate), nameof(PricingRule.WeekendMultiplier), nameof(PricingRule.HolidayMultiplier), nameof(PricingRule.OvertimeMultiplier)));
         builder.Entity<ApprovalRequest>(entity => { entity.HasIndex(x => x.RequestNumber).IsUnique(); entity.Property(x => x.CurrentStage).HasDefaultValue(1); entity.Property(x => x.TotalStages).HasDefaultValue(1); Money(entity, nameof(ApprovalRequest.Amount)); entity.HasOne<ApprovalWorkflow>().WithMany().HasForeignKey(x => x.WorkflowId).OnDelete(DeleteBehavior.Restrict); });
-        builder.Entity<ApprovalWorkflow>(entity => { entity.HasIndex(x => new { x.Type, x.BranchId, x.DivisionId, x.IsActive }); });
+        builder.Entity<ApprovalWorkflow>(entity => { entity.HasIndex(x => new { x.Type, x.BranchId, x.DivisionId, x.IsActive }); Money(entity, nameof(ApprovalWorkflow.MinimumAmount)); });
         builder.Entity<ApprovalWorkflowStage>(entity => { entity.HasIndex(x => new { x.WorkflowId, x.Sequence }).IsUnique(); entity.HasOne(x => x.Workflow).WithMany(x => x.Stages).HasForeignKey(x => x.WorkflowId).OnDelete(DeleteBehavior.Cascade); });
         builder.Entity<ApprovalStageDecision>(entity => { entity.HasIndex(x => new { x.ApprovalRequestId, x.StageNumber }).IsUnique(); entity.HasOne(x => x.ApprovalRequest).WithMany(x => x.StageDecisions).HasForeignKey(x => x.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade); });
         builder.Entity<InventoryPart>(entity => { entity.HasIndex(x => new { x.BranchId, x.PartNumber }).IsUnique(); Money(entity, nameof(InventoryPart.UnitCost)); });

@@ -269,11 +269,14 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var availableCharges = await db.ChargeDefinitions.AsNoTracking().Where(x => x.IsActive && x.IsCustomerVisible && x.Category != ChargeCategory.BaseHire &&
             x.DivisionId == asset.DivisionId && (!x.ServiceOfferingId.HasValue || x.ServiceOfferingId == asset.ServiceOfferingId))
             .ToListAsync(cancellationToken);
+        var personnelRequested = asset.PersonnelRequirement == PersonnelRequirement.Required || request.PersonnelRequested;
+        if (personnelRequested && !availableCharges.Any(x => x.Category is ChargeCategory.Operator or ChargeCategory.Driver))
+            return Conflict(new { message = "Professional personnel is required or selected, but no operator or driver rate is configured for this service. Please contact the branch." });
         var selectedExtras = (request.Extras ?? []).Where(x => x.Quantity > 0 && x.Quantity <= 1000)
             .GroupBy(x => x.ChargeDefinitionId).ToDictionary(x => x.Key, x => x.First().Quantity);
         var charges = availableCharges.Where(x => x.IsRequired || selectedExtras.ContainsKey(x.Id) ||
                 request.Fulfilment == "Delivery" && x.Category == ChargeCategory.Transport ||
-                request.PersonnelRequested && x.Category is ChargeCategory.Operator or ChargeCategory.Driver)
+                personnelRequested && x.Category is ChargeCategory.Operator or ChargeCategory.Driver)
             .Select(x => new
             {
                 Definition = x,
@@ -310,7 +313,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             db.CustomerCases.Add(new CustomerCase { CaseNumber = $"CASE-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
                 CustomerId = activeCustomer.Id, BranchId = asset.BranchId, Type = CaseType.Enquiry,
                 Priority = CasePriority.Normal, Subject = $"Online quotation request — {quote.QuoteNumber}",
-                Description = BuildRequestNotes(request), DueAt = DateTimeOffset.UtcNow.AddHours(8) });
+                Description = BuildRequestNotes(request, personnelRequested), DueAt = DateTimeOffset.UtcNow.AddHours(8) });
             await db.SaveChangesAsync(cancellationToken);
             QueueCustomerConfirmation(signedInUser, quote.QuoteNumber, asset.Name, request.StartDate, request.EndDate,
                 "Quotation request received", "Our team will review availability, transport, personnel and final charges. You can follow the quotation in your customer account.");
@@ -325,7 +328,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             Customer = activeCustomer,
             BranchId = asset.BranchId,
             Status = BookingStatus.Draft,
-            Notes = BuildRequestNotes(request),
+            Notes = BuildRequestNotes(request, personnelRequested),
             TaxRate = taxRate,
             DepositRequired = asset.ServiceOffering?.DefaultDepositAmount ?? 0,
             Items =
@@ -370,7 +373,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             $"{heading}. Reference {reference}. {assetName}, {startDate:dd MMM yyyy} to {endDate:dd MMM yyyy}.", "BookingConfirmation");
     }
 
-    private static string BuildRequestNotes(PublicBookingRequest request)
+    private static string BuildRequestNotes(PublicBookingRequest request, bool personnelRequested)
     {
         var details = new List<string>
         {
@@ -386,7 +389,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             details.Add($"Site contact/access: {request.SiteContact.Trim()}");
         if (!string.IsNullOrWhiteSpace(request.PurchaseOrderNumber))
             details.Add($"Purchase order: {request.PurchaseOrderNumber.Trim()}");
-        if (request.PersonnelRequested)
+        if (personnelRequested)
             details.Add($"Customer requested trained personnel{(request.PersonnelHours.HasValue ? $" for approximately {request.PersonnelHours} hours" : "")}.");
         if (!string.IsNullOrWhiteSpace(request.DriverName))
             details.Add($"Nominated driver: {request.DriverName.Trim()}.");

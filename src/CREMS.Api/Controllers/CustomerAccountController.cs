@@ -3,6 +3,7 @@ using CREMS.Api.Data;
 using CREMS.Api.Domain.Customers;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Corporate;
+using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Rentals;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -44,7 +45,7 @@ public sealed class CustomerAccountController(
             Phone = request.Phone.Trim(),
             Address = Clean(request.Address),
             IdentificationNumber = Clean(request.IdentificationNumber),
-            HirePreference = request.HirePreference,
+            HirePreferences = request.HirePreferences.Distinct().ToList(),
             IsActive = true,
         };
         var user = new ApplicationUser
@@ -96,7 +97,7 @@ public sealed class CustomerAccountController(
         if (customer is null || !customer.IsActive || customer.IsBlocked) return Forbid();
         return Ok(new { user.Id, user.Email, user.FullName, user.CustomerId, customer.CustomerNumber,
             CustomerName = customer.Name, customer.Phone, customer.Address, customer.IdentificationNumber,
-            customer.HirePreference, user.EmailConfirmed });
+            customer.HirePreferences, user.EmailConfirmed });
     }
 
     [HttpGet("bookings")]
@@ -147,14 +148,16 @@ public sealed class CustomerAccountController(
 
         var identificationVerified = booking.Inspections.Any(x => x.IdentificationVerified) ||
             documents.Any(x => x.Type.Contains("ident", StringComparison.OrdinalIgnoreCase));
-        var licenceRequired = booking.Items.Any(x => x.Asset!.Type == Domain.Assets.AssetType.Vehicle);
+        var professionalDriverProvided = booking.Charges.Any(x => x.Category == ChargeCategory.Driver);
+        var licenceRequired = booking.Items.Any(x => x.Asset!.Type == Domain.Assets.AssetType.Vehicle) && !professionalDriverProvided;
         var licenceVerified = !licenceRequired || booking.Inspections.Any(x => x.DriverLicenceVerified) ||
             documents.Any(x => x.Type.Contains("licence", StringComparison.OrdinalIgnoreCase) || x.Type.Contains("license", StringComparison.OrdinalIgnoreCase));
         var depositPaid = booking.DepositRequired <= 0 || booking.Payments
             .Where(x => x.Status == PaymentStatus.Recorded && x.Type == PaymentType.Deposit).Sum(x => x.Amount) >= booking.DepositRequired;
         var agreementReady = booking.RentalAgreement is not null && booking.RentalAgreement.Status != AgreementStatus.Draft;
         var preHireComplete = booking.Inspections.Any(x => x.Type == InspectionType.Handover);
-        var personnelRequired = booking.Items.Any(x => x.Asset!.PersonnelRequirement != Domain.Common.PersonnelRequirement.None);
+        var personnelRequired = booking.Items.Any(x => x.Asset!.PersonnelRequirement == Domain.Common.PersonnelRequirement.Required) ||
+            booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator);
         var personnelReady = !personnelRequired || await db.BookingPersonnelAssignments.AsNoTracking()
             .AnyAsync(x => x.BookingId == booking.Id && x.Status != Domain.Operations.AssignmentStatus.Cancelled, token);
         var deliveryRequested = dispatches.Any(x => x.Type == DispatchType.Delivery);
@@ -412,10 +415,10 @@ public sealed class CustomerAccountController(
         customer.Phone = request.Phone.Trim();
         customer.Address = Clean(request.Address);
         customer.IdentificationNumber = Clean(request.IdentificationNumber);
-        customer.HirePreference = request.HirePreference;
+        customer.HirePreferences = request.HirePreferences.Distinct().ToList();
         await userManager.UpdateAsync(user);
         await db.SaveChangesAsync(token);
-        return Ok(new { user.FullName, customer.Phone, customer.Address, customer.IdentificationNumber, customer.HirePreference });
+        return Ok(new { user.FullName, customer.Phone, customer.Address, customer.IdentificationNumber, customer.HirePreferences });
     }
 
     [HttpPut("bookings/{bookingId:guid}/dates")]
@@ -487,8 +490,12 @@ public sealed class CustomerAccountController(
         var assetIds = booking.Items.Select(x => x.AssetId).ToList();
         var conflict = await db.BookingItems.AnyAsync(x => x.BookingId != booking.Id && assetIds.Contains(x.AssetId) && x.StartAt < request.RequestedEndAt && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
         if (conflict) return Conflict(new { message = "The asset has another booking after your return date. Contact the branch for alternatives." });
-        db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Enquiry, Priority = booking.Status == BookingStatus.ConvertedToRental ? CasePriority.High : CasePriority.Normal, Subject = $"Extension request — {booking.BookingNumber}", Description = $"Requested new return: {request.RequestedEndAt:u}. {Clean(request.Reason)}", DueAt = DateTimeOffset.UtcNow.AddHours(4) });
-        await db.SaveChangesAsync(token); return Accepted(new { status = "Extension requested" });
+        var subject = $"Extension request — {booking.BookingNumber}";
+        if (await db.CustomerCases.AnyAsync(x => x.CustomerId == user.CustomerId && x.Subject == subject && x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed, token))
+            return Conflict(new { message = "An extension request for this booking is already awaiting branch review." });
+        var extensionCase = new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Enquiry, Priority = booking.Status == BookingStatus.ConvertedToRental ? CasePriority.High : CasePriority.Normal, Subject = subject, Description = $"Current return: {currentEnd:u}. Requested new return: {request.RequestedEndAt:u}. Reason: {Clean(request.Reason) ?? "Not supplied"}", DueAt = DateTimeOffset.UtcNow.AddHours(4) };
+        db.CustomerCases.Add(extensionCase);
+        await db.SaveChangesAsync(token); return Accepted(new { status = "Extension requested", extensionCase.CaseNumber, currentEnd, request.RequestedEndAt });
     }
 
     [HttpPost("bookings/{bookingId:guid}/incident")]
@@ -612,7 +619,7 @@ public sealed record CustomerQuoteDecisionRequest(bool Accepted, [MaxLength(1000
 public sealed record CustomerProfileRequest([Required, MaxLength(150)] string FullName,
     [Required, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,
     [MaxLength(100)] string? IdentificationNumber,
-    CustomerHirePreference HirePreference);
+    [Required, MaxLength(3)] CustomerHirePreference[] HirePreferences);
 public sealed record CustomerBookingDatesRequest(DateTimeOffset StartAt, DateTimeOffset EndAt);
 public sealed record ActivateCustomerAccountRequest([Required, EmailAddress] string Email,
     [Required, RegularExpression("^[0-9]{6}$")] string Code, [Required, MinLength(10)] string Password);
@@ -623,5 +630,5 @@ public sealed record RegisterCustomerRequest(
     [Required, MaxLength(50)] string Phone,
     [MaxLength(500)] string? Address,
     [MaxLength(100)] string? IdentificationNumber,
-    CustomerHirePreference HirePreference,
+    [Required, MaxLength(3)] CustomerHirePreference[] HirePreferences,
     [Required, MinLength(10)] string Password);

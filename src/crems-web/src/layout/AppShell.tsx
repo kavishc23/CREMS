@@ -100,15 +100,15 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
   const currentPageLabel = navigation.find((item) => item.id === activePage)?.label ?? 'Home'
 
   const drawer = (
-    <Box sx={{ height: '100%', bgcolor: '#090909', color: 'white' }}>
-      <Toolbar sx={{ px: collapsed && desktop ? 2 : 2.5, minHeight: 76, justifyContent: collapsed && desktop ? 'center' : 'flex-start' }}>
+    <Box sx={{ height: '100dvh', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#090909', color: 'white' }}>
+      <Toolbar sx={{ px: collapsed && desktop ? 2 : 2.5, minHeight: 76, flex: '0 0 auto', justifyContent: collapsed && desktop ? 'center' : 'flex-start' }}>
         <Box component="img" src="/brand/carpenters-logo.png" alt="Carpenters Fiji" sx={{ width: 44, height: 44, objectFit: 'cover', mr: collapsed && desktop ? 0 : 1.5 }} />
         <Box sx={{ display: collapsed && desktop ? 'none' : 'block' }}>
           <Typography variant="h6" fontWeight={700} lineHeight={1.1}>CREMS</Typography>
           <Typography variant="caption" sx={{ color: 'secondary.main' }}>Carpenters Fiji</Typography>
         </Box>
       </Toolbar>
-      <List sx={{ px: 1.5, pt: 1, pb: 2 }}>
+      <List sx={{ px: 1.5, pt: 1, pb: 4, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', '&::-webkit-scrollbar': { width: 7 }, '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,.24)', borderRadius: 8 }, '&::-webkit-scrollbar-track': { bgcolor: 'transparent' } }}>
         {(!collapsed || !desktop) && <Box sx={{ mx: .75, mb: 1.25, p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)' }}><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: .8 }}>Working in</Typography><Typography variant="body2" fontWeight={750} noWrap>{divisionName || 'Carpenters Fiji Group'}</Typography><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.62)' }}>{branchName || 'All branches'}</Typography></Box>}
         {sections.map((section) => {
           const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id) && isPageEnabledForDemo(item.id))
@@ -201,9 +201,10 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
           '& .MuiDrawer-paper': {
             width: activeDrawerWidth,
+            height: '100dvh',
             border: 0,
             boxSizing: 'border-box',
-            overflowX: 'hidden',
+            overflow: 'hidden',
             transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
           },
         }}

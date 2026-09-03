@@ -43,11 +43,13 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status != BookingStatus.Confirmed)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["The booking must be confirmed before its rental agreement is signed."] }));
-        if (!request.IdentificationVerified || !request.DriverLicenceVerified || !request.PaymentVerified)
-            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["verification"] = ["Identification, driver licence and payment verification are required before pickup."] }));
+        var customerWillDrive = booking.Items.Any(x => x.Asset?.Type == Domain.Assets.AssetType.Vehicle) &&
+            !booking.Charges.Any(x => x.Category == ChargeCategory.Driver);
+        if (!request.IdentificationVerified || customerWillDrive && !request.DriverLicenceVerified || !request.PaymentVerified)
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["verification"] = [customerWillDrive ? "Identification, driver licence and payment verification are required before pickup." : "Customer identification and payment verification are required before pickup."] }));
         if (!request.CustomerAcceptedTerms || !request.AgentApproved || string.IsNullOrWhiteSpace(request.CustomerSignatureName) || string.IsNullOrWhiteSpace(request.CustomerSignatureDataUrl))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["signature"] = ["Customer acceptance, a drawn customer signature and agent approval are required."] }));
-        if (string.IsNullOrWhiteSpace(request.LicenceNumber) || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow))
+        if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["licence"] = ["A valid, unexpired driver licence is required."] }));
         if (await db.RentalAgreements.AnyAsync(item => item.BookingId == bookingId, cancellationToken))
             return Conflict(new { message = "This booking already has an approved rental agreement." });
@@ -78,12 +80,13 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             CompletedByUserId = scope.UserId,
             CompletedByName = scope.UserName, CompletedAt = now,
         });
-        booking.AuthorizedDrivers.Add(new AuthorizedDriver
-        {
-            BookingId = booking.Id, FullName = request.CustomerSignatureName.Trim(), LicenceNumber = request.LicenceNumber.Trim(),
-            LicenceClass = Normalize(request.LicenceClass), LicenceExpiry = request.LicenceExpiry,
-            IsPrimary = true, Verified = true,
-        });
+        if (customerWillDrive)
+            booking.AuthorizedDrivers.Add(new AuthorizedDriver
+            {
+                BookingId = booking.Id, FullName = request.CustomerSignatureName.Trim(), LicenceNumber = request.LicenceNumber.Trim(),
+                LicenceClass = Normalize(request.LicenceClass), LicenceExpiry = request.LicenceExpiry,
+                IsPrimary = true, Verified = true,
+            });
         if (request.AmountCollected > 0)
             booking.Payments.Add(new RentalPayment
             {
@@ -123,7 +126,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
     }
 
     private async Task<Booking?> LoadBooking(Guid id, CancellationToken cancellationToken) => await db.Bookings
-        .Include(item => item.Customer).Include(item => item.Branch).Include(item => item.Items).ThenInclude(item => item.Asset)
+        .Include(item => item.Customer).Include(item => item.Branch).Include(item => item.Items).ThenInclude(item => item.Asset).Include(item => item.Charges)
         .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
 
     private static object BuildDraft(Booking booking)

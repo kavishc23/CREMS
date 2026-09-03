@@ -50,6 +50,7 @@ public static class DatabaseInitializer
             await SeedDevelopmentDataAsync(db, userManager, app.Environment.ContentRootPath, cancellationToken);
         }
         await NormalizeCustomersAsync(db, cancellationToken);
+        await EnsureDefaultBookingApprovalRuleAsync(db, cancellationToken);
 
         var email = app.Configuration["BootstrapAdmin:Email"];
         var password = app.Configuration["BootstrapAdmin:Password"];
@@ -83,6 +84,34 @@ public static class DatabaseInitializer
             var roleResult = await userManager.AddToRoleAsync(administrator, SystemRoles.SuperAdministrator);
             EnsureSucceeded(roleResult, "assign the Super Administrator role");
         }
+    }
+
+    private static async Task EnsureDefaultBookingApprovalRuleAsync(ApplicationDbContext db, CancellationToken token)
+    {
+        if (await db.ApprovalWorkflows.AnyAsync(x => x.Type == ApprovalType.Booking, token)) return;
+        db.ApprovalWorkflows.Add(new ApprovalWorkflow
+        {
+            Name = "Equipment, personnel and overtime approval",
+            Type = ApprovalType.Booking,
+            EntityType = nameof(Booking),
+            TriggerForEquipment = true,
+            TriggerForPersonnel = true,
+            TriggerForOvertime = true,
+            Priority = 100,
+            IsActive = true,
+            Stages =
+            [
+                new ApprovalWorkflowStage
+                {
+                    Sequence = 1,
+                    Name = "Branch manager approval",
+                    AssignedRole = SystemRoles.BranchManager,
+                    EscalateAfterHours = 24,
+                    EscalationRole = SystemRoles.Administrator,
+                },
+            ],
+        });
+        await db.SaveChangesAsync(token);
     }
 
     private static async Task SeedDevelopmentDataAsync(
@@ -561,8 +590,8 @@ public static class DatabaseInitializer
         var legacyCustomerNumbers = new Dictionary<string, string>
         {
             ["DEMO-CUS-001"] = "CUS-000001", ["DEMO-CUS-002"] = "CUS-000002",
-            ["DEMO-CUS-003"] = "CUS-000003", ["DEMO-BUS-001"] = "BUS-000001",
-            ["DEMO-BUS-002"] = "BUS-000002",
+            ["DEMO-CUS-003"] = "CUS-000003", ["DEMO-BUS-001"] = "LEGACY-CUS-000001",
+            ["DEMO-BUS-002"] = "LEGACY-CUS-000002",
         };
         var legacyCustomers = await db.Customers
             .Where(customer => legacyCustomerNumbers.Keys.Contains(customer.CustomerNumber))

@@ -11,14 +11,13 @@ public sealed class Customer : Entity
     public string? Phone { get; set; }
     public string? Address { get; set; }
     public string? IdentificationNumber { get; set; }
-    public CustomerHirePreference HirePreference { get; set; } = CustomerHirePreference.NoPreference;
+    public List<CustomerHirePreference> HirePreferences { get; set; } = [];
     public bool IsBlocked { get; set; }
     public bool IsActive { get; set; } = true;
 }
 
 public enum CustomerHirePreference
 {
-    NoPreference,
     Vehicles,
     Equipment,
     WasteAndSiteHire,

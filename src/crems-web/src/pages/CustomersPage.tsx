@@ -20,6 +20,8 @@ type Customer = {
   id: string; customerNumber: string; name: string
   email: string | null; phone: string | null; address: string | null
   identificationNumber: string | null; isBlocked: boolean; isActive: boolean
+  hirePreferences: HirePreference[]
+  hirePreference?: HirePreference | 'NoPreference'
   hasOnlineAccount: boolean; emailConfirmed: boolean
   driverLicenceDocumentId: string | null; driverLicenceFileName: string | null
 }
@@ -28,12 +30,18 @@ type CustomerForm = {
   phone: string; address: string; identificationNumber: string
 }
 type CustomerActivity = {
-  customer: { id: string; customerNumber: string; name: string; email: string | null; phone: string | null }
+  customer: { id: string; customerNumber: string; name: string; email: string | null; phone: string | null; hirePreferences: HirePreference[] }
   account: { emailConfirmed: boolean; isActive: boolean; lastLoginAt: string | null; lastActivityAt: string | null; lockoutEnd: string | null } | null
   summary: { bookings: number; invoices: number; totalBilled: number; outstanding: number; openCases: number }
   bookings: { id: string; bookingNumber: string; status: string; createdAt: string; branchName: string; assetCount: number }[]
   invoices: { id: string; invoiceNumber: string; status: string; total: number; balanceDue: number; issuedAt: string }[]
   cases: { id: string; caseNumber: string; type: string; priority: string; subject: string; status: string; createdAt: string }[]
+}
+type HirePreference = 'Vehicles' | 'Equipment' | 'WasteAndSiteHire'
+const preferenceLabel: Record<HirePreference, string> = { Vehicles: 'Vehicles', Equipment: 'Equipment', WasteAndSiteHire: 'Waste & site hire' }
+function customerPreferences(customer: Pick<Customer, 'hirePreferences' | 'hirePreference'>): HirePreference[] {
+  if (Array.isArray(customer.hirePreferences)) return customer.hirePreferences
+  return customer.hirePreference && customer.hirePreference !== 'NoPreference' ? [customer.hirePreference] : []
 }
 const emptyForm: CustomerForm = {
   customerNumber: '', name: '', email: '', phone: '', address: '', identificationNumber: '',
@@ -181,7 +189,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
           {visibleCustomers.map((customer) => <TableRow key={customer.id} hover>
             <TableCell><Typography fontWeight={700}>{customer.name}</Typography><Typography variant="body2" color="text.secondary">{customer.customerNumber}</Typography></TableCell>
             <TableCell><Typography variant="body2">{customer.email || '—'}</Typography><Typography variant="body2" color="text.secondary">{customer.phone || '—'}</Typography></TableCell>
-            <TableCell><Typography variant="body2">{customer.identificationNumber || '—'}</Typography>{customer.driverLicenceDocumentId && <Button size="small" sx={{ px: 0, minWidth: 0 }} onClick={() => void viewLicence(customer)}>View licence</Button>}</TableCell>
+            <TableCell><Typography variant="body2">{customer.identificationNumber || '—'}</Typography>{customer.driverLicenceDocumentId && <Button size="small" sx={{ px: 0, minWidth: 0 }} onClick={() => void viewLicence(customer)}>View licence</Button>}<Stack direction="row" gap={.5} flexWrap="wrap" mt={.5}>{customerPreferences(customer).map(value => <Chip key={value} size="small" label={preferenceLabel[value]} />)}{customerPreferences(customer).length === 0 && <Typography variant="caption" color="text.secondary">All rentals</Typography>}</Stack></TableCell>
             <TableCell><Stack direction="row" gap={0.75} flexWrap="wrap">
               <Chip size="small" label={customer.isActive ? 'Active' : 'Inactive'} color={customer.isActive ? 'success' : 'default'} variant="outlined" />
               {customer.isBlocked && <Chip size="small" label="Blocked" color="error" variant="outlined" />}
@@ -215,7 +223,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
           <Stack direction={{ xs: 'column', md: 'row' }} gap={1.5} flexWrap="wrap">
             <Chip label={`${activity.summary.bookings} bookings`} /><Chip label={`${activity.summary.invoices} invoices`} /><Chip label={`$${activity.summary.totalBilled.toFixed(2)} billed`} /><Chip color={activity.summary.outstanding > 0 ? 'warning' : 'success'} label={`$${activity.summary.outstanding.toFixed(2)} outstanding`} /><Chip color={activity.summary.openCases > 0 ? 'warning' : 'default'} label={`${activity.summary.openCases} open cases`} />
           </Stack>
-          <Card variant="outlined"><CardContent><Typography fontWeight={800}>Online account</Typography><Typography variant="body2" color="text.secondary">{activity.account ? `${activity.account.emailConfirmed ? 'Verified' : 'Activation pending'} · Last activity: ${activity.account.lastActivityAt ? new Date(activity.account.lastActivityAt).toLocaleString('en-FJ') : 'Never'}` : 'No online customer account has been created.'}</Typography></CardContent></Card>
+          <Card variant="outlined"><CardContent><Typography fontWeight={800}>Online account</Typography><Typography variant="body2" color="text.secondary">{activity.account ? `${activity.account.emailConfirmed ? 'Verified' : 'Activation pending'} · Last activity: ${activity.account.lastActivityAt ? new Date(activity.account.lastActivityAt).toLocaleString('en-FJ') : 'Never'}` : 'No online customer account has been created.'}</Typography><Typography variant="body2" mt={1}>Rental preferences: {activity.customer.hirePreferences?.length ? activity.customer.hirePreferences.map(value => preferenceLabel[value]).join(', ') : 'All rentals'}</Typography></CardContent></Card>
           {activity.account && <Card variant="outlined"><CardContent><Typography fontWeight={800} mb={1.5}>Customer security controls</Typography><Stack direction="row" gap={1} flexWrap="wrap"><Button disabled={saving} onClick={() => void customerSecurity('reset-password')}>Reset password</Button><Button disabled={saving} onClick={() => void customerSecurity('revoke-sessions')}>Revoke sessions</Button><Button disabled={saving} onClick={() => void customerSecurity(activity.account?.lockoutEnd ? 'unlock' : 'lock')}>{activity.account.lockoutEnd ? 'Unlock portal' : 'Lock portal'}</Button>{!activity.account.emailConfirmed && <Button disabled={saving} onClick={() => void customerSecurity('verify-email')}>Verify email</Button>}<Button color={activity.account.isActive ? 'error' : 'success'} disabled={saving} onClick={() => void customerSecurity(activity.account?.isActive ? 'disable' : 'enable')}>{activity.account.isActive ? 'Disable portal' : 'Enable portal'}</Button></Stack><Typography variant="caption" color="text.secondary">Portal access is separate from the customer’s rental eligibility and business status.</Typography></CardContent></Card>}
           <Box><Typography variant="h6" fontWeight={800} mb={1}>Rental history</Typography><TableContainer component={Card} variant="outlined"><Table size="small"><TableHead><TableRow><TableCell>Reference</TableCell><TableCell>Branch</TableCell><TableCell>Status</TableCell><TableCell>Assets</TableCell><TableCell>Created</TableCell></TableRow></TableHead><TableBody>{activity.bookings.map(item => <TableRow key={item.id}><TableCell>{item.bookingNumber}</TableCell><TableCell>{item.branchName}</TableCell><TableCell>{item.status}</TableCell><TableCell>{item.assetCount}</TableCell><TableCell>{new Date(item.createdAt).toLocaleDateString('en-FJ')}</TableCell></TableRow>)}{activity.bookings.length === 0 && <TableRow><TableCell colSpan={5}>No bookings recorded.</TableCell></TableRow>}</TableBody></Table></TableContainer></Box>
           <Box><Typography variant="h6" fontWeight={800} mb={1}>Invoices</Typography><TableContainer component={Card} variant="outlined"><Table size="small"><TableHead><TableRow><TableCell>Invoice</TableCell><TableCell>Status</TableCell><TableCell>Total</TableCell><TableCell>Outstanding</TableCell></TableRow></TableHead><TableBody>{activity.invoices.map(item => <TableRow key={item.id}><TableCell>{item.invoiceNumber}</TableCell><TableCell>{item.status}</TableCell><TableCell>${item.total.toFixed(2)}</TableCell><TableCell>${item.balanceDue.toFixed(2)}</TableCell></TableRow>)}{activity.invoices.length === 0 && <TableRow><TableCell colSpan={4}>No invoices recorded.</TableCell></TableRow>}</TableBody></Table></TableContainer></Box>

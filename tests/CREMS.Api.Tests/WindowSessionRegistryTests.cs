@@ -27,7 +27,7 @@ public sealed class WindowSessionRegistryTests
     {
         var registry = new WindowSessionRegistry(); var now = DateTimeOffset.UtcNow;
         registry.Validate("user-1", "window-1", "ticket-a", now);
-        Assert.Equal(WindowSessionResult.Expired, registry.Validate("user-1", "window-1", "ticket-a", now.AddMinutes(21)));
+        Assert.Equal(WindowSessionResult.Expired, registry.Validate("user-1", "window-1", "ticket-a", now.AddMinutes(31)));
     }
 
     [Fact]

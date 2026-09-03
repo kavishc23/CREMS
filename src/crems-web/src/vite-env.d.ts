@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_CREMS_DEMO_STAGE?: 'week2' | 'week3' | 'full'
+  readonly VITE_CREMS_DEMO_STAGE?: 'demo' | 'full'
 }
 
 interface ImportMeta {
