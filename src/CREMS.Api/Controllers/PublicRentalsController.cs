@@ -269,7 +269,10 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var availableCharges = await db.ChargeDefinitions.AsNoTracking().Where(x => x.IsActive && x.IsCustomerVisible && x.Category != ChargeCategory.BaseHire &&
             x.DivisionId == asset.DivisionId && (!x.ServiceOfferingId.HasValue || x.ServiceOfferingId == asset.ServiceOfferingId))
             .ToListAsync(cancellationToken);
-        var personnelRequested = asset.PersonnelRequirement == PersonnelRequirement.Required || request.PersonnelRequested;
+        var assetDescription = $"{asset.Category} {asset.Name}";
+        var heavyEquipment = asset.Type == AssetType.Equipment && new[] { "heavy", "excavator", "crane", "backhoe", "loader" }
+            .Any(value => assetDescription.Contains(value, StringComparison.OrdinalIgnoreCase));
+        var personnelRequested = asset.PersonnelRequirement == PersonnelRequirement.Required || heavyEquipment || request.PersonnelRequested;
         if (personnelRequested && !availableCharges.Any(x => x.Category is ChargeCategory.Operator or ChargeCategory.Driver))
             return Conflict(new { message = "Professional personnel is required or selected, but no operator or driver rate is configured for this service. Please contact the branch." });
         var selectedExtras = (request.Extras ?? []).Where(x => x.Quantity > 0 && x.Quantity <= 1000)
