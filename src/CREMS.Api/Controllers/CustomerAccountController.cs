@@ -239,15 +239,18 @@ public sealed class CustomerAccountController(
             .OrderByDescending(x => x.CreatedAt).ToListAsync(token);
         var branchIds = quotes.Select(x => x.BranchId).Distinct().ToList();
         var divisionIds = quotes.Where(x => x.DivisionId.HasValue).Select(x => x.DivisionId!.Value).Distinct().ToList();
+        var bookingIds = quotes.Where(x => x.ConvertedBookingId.HasValue).Select(x => x.ConvertedBookingId!.Value).Distinct().ToList();
         var branches = await db.Branches.AsNoTracking().Where(x => branchIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, token);
         var divisions = await db.Divisions.AsNoTracking().Where(x => divisionIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, token);
+        var deposits = await db.Bookings.AsNoTracking().Where(x => bookingIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.DepositRequired, token);
         return Ok(quotes.Select(x => new
         {
             x.Id, x.QuoteNumber, x.Status, x.ValidUntil, x.JobSite, x.PurchaseOrderNumber,
             x.Subtotal, x.Discount, x.Tax, x.Total, x.Version, x.CreatedAt, x.UpdatedAt,
             BranchName = branches.GetValueOrDefault(x.BranchId),
             DivisionName = x.DivisionId.HasValue ? divisions.GetValueOrDefault(x.DivisionId.Value) : null,
-            Lines = ParseJson(x.LineItemsJson), x.ConvertedBookingId,
+            Lines = ParseQuoteLines(x.LineItemsJson), x.ConvertedBookingId,
+            DepositRequired = x.ConvertedBookingId.HasValue ? deposits.GetValueOrDefault(x.ConvertedBookingId.Value) : 0,
         }));
     }
 
@@ -273,8 +276,19 @@ public sealed class CustomerAccountController(
         quote.Status = next;
         quote.LostReason = request.Accepted ? null : Clean(request.Note);
         quote.UpdatedAt = DateTimeOffset.UtcNow;
+        Booking? convertedBooking = null;
+        if (request.Accepted && quote.ConvertedBookingId.HasValue)
+        {
+            convertedBooking = await db.Bookings.FirstOrDefaultAsync(x => x.Id == quote.ConvertedBookingId.Value, token);
+            if (convertedBooking is not null)
+            {
+                convertedBooking.BookingNumber = $"BK-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
+                convertedBooking.Notes = Append(convertedBooking.Notes, $"Customer accepted quotation {quote.QuoteNumber}.");
+                convertedBooking.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+        }
         await db.SaveChangesAsync(token);
-        return Ok(new { quote.Id, quote.QuoteNumber, quote.Status, quote.UpdatedAt });
+        return Ok(new { quote.Id, quote.QuoteNumber, quote.Status, quote.UpdatedAt, BookingNumber = convertedBooking?.BookingNumber });
     }
 
     [HttpGet("corporate-account")]
@@ -472,7 +486,8 @@ public sealed class CustomerAccountController(
         if (booking.Status == BookingStatus.Draft)
         { booking.Status = BookingStatus.Cancelled; booking.Notes = Append(booking.Notes, $"Customer cancelled online: {Clean(request.Reason) ?? "No reason supplied"}"); await db.SaveChangesAsync(token); return Ok(new { status = "Cancelled" }); }
         if (booking.Status != BookingStatus.Confirmed) return BadRequest(new { message = "Only pending or confirmed future bookings can be cancelled online." });
-        if (!await db.CustomerCases.AnyAsync(x => x.CustomerId == user.CustomerId && x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed && x.Subject.Contains(booking.BookingNumber), token))
+        var subject = $"Cancellation request — {booking.BookingNumber}";
+        if (!await db.CustomerCases.AnyAsync(x => x.CustomerId == user.CustomerId && x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed && x.Subject == subject, token))
             db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.General, Priority = CasePriority.Normal, Subject = $"Cancellation request — {booking.BookingNumber}", Description = Clean(request.Reason) ?? "Customer requested cancellation through the portal.", DueAt = DateTimeOffset.UtcNow.AddHours(4) });
         await db.SaveChangesAsync(token); return Accepted(new { status = "Cancellation requested" });
     }
@@ -576,6 +591,25 @@ public sealed class CustomerAccountController(
         catch (JsonException) { return null; }
     }
 
+    private static IReadOnlyList<CustomerQuoteLine> ParseQuoteLines(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.EnumerateArray().Select(line =>
+            {
+                JsonElement Value(string name) => line.TryGetProperty(name, out var value) || line.TryGetProperty(char.ToUpperInvariant(name[0]) + name[1..], out value) ? value : default;
+                var quantity = Value("quantity"); var rate = Value("rate"); var unit = Value("unit");
+                return new CustomerQuoteLine(Value("description").GetString() ?? "Charge",
+                    quantity.ValueKind == JsonValueKind.Number ? quantity.GetDecimal() : 0,
+                    rate.ValueKind == JsonValueKind.Number ? rate.GetDecimal() : 0,
+                    unit.ValueKind == JsonValueKind.String ? unit.GetString() ?? "Unit" : unit.ValueKind == JsonValueKind.Number ? unit.GetRawText() : "Unit");
+            }).ToList();
+        }
+        catch (JsonException) { return []; }
+    }
+
     private static IReadOnlyList<string> ParseStringArray(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return [];
@@ -616,6 +650,7 @@ public sealed record CustomerBookingChangeRequest([MaxLength(1000)] string? Reas
 public sealed record CustomerExtensionRequest(DateTimeOffset RequestedEndAt, [MaxLength(1000)] string? Reason);
 public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required, MaxLength(2000)] string Description, [MaxLength(500)] string? Location, [MaxLength(100)] string? PoliceReference);
 public sealed record CustomerQuoteDecisionRequest(bool Accepted, [MaxLength(1000)] string? Note);
+public sealed record CustomerQuoteLine(string Description, decimal Quantity, decimal Rate, string Unit);
 public sealed record CustomerProfileRequest([Required, MaxLength(150)] string FullName,
     [Required, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,
     [MaxLength(100)] string? IdentificationNumber,

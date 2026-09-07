@@ -295,8 +295,23 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var taxRate = asset.Division?.DefaultTaxRate ?? 15m;
         var tax = decimal.Round((baseSubtotal + chargeSubtotal) * taxRate / 100m, 2);
         var total = baseSubtotal + chargeSubtotal + tax;
-        var requiresQuote = activeCustomer.Type == CustomerType.Business || asset.Type == AssetType.Equipment ||
+        var requiresQuote = request.RequestQuotation || activeCustomer.Type == CustomerType.Business || asset.Type == AssetType.Equipment ||
             asset.ServiceOffering?.RequiresQuote == true || asset.PersonnelRequirement != PersonnelRequirement.None;
+
+        var booking = new Booking
+        {
+            BookingNumber = $"REQ-{Guid.NewGuid():N}"[..16].ToUpperInvariant(), Customer = activeCustomer,
+            BranchId = asset.BranchId, Status = BookingStatus.Draft,
+            Notes = BuildRequestNotes(request, personnelRequested) + (requiresQuote ? "\nRequest type: Quotation." : "\nRequest type: Booking."),
+            TaxRate = taxRate, DepositRequired = asset.ServiceOffering?.DefaultDepositAmount ?? 0,
+            Items = [new BookingItem { AssetId = asset.Id, StartAt = start, EndAt = end, DailyRate = asset.DailyRate }],
+        };
+        foreach (var charge in charges)
+            booking.Charges.Add(new BookingCharge { AssetId = asset.Id, ChargeDefinitionId = charge.Definition.Id,
+                Description = charge.Definition.Name, Category = charge.Definition.Category, Unit = charge.Definition.Unit,
+                Quantity = charge.Quantity, UnitRate = charge.Definition.DefaultSellingRate,
+                UnitCost = charge.Definition.DefaultCostRate, IsTaxable = charge.Definition.IsTaxable });
+        db.Bookings.Add(booking);
 
         if (requiresQuote)
         {
@@ -310,7 +325,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 Status = QuoteStatus.Draft, ValidUntil = DateTimeOffset.UtcNow.AddDays(14),
                 JobSite = Normalize(request.DeliveryAddress), PurchaseOrderNumber = Normalize(request.PurchaseOrderNumber),
                 Subtotal = baseSubtotal + chargeSubtotal, Tax = tax, Total = total,
-                LineItemsJson = JsonSerializer.Serialize(lineItems),
+                LineItemsJson = JsonSerializer.Serialize(lineItems), ConvertedBookingId = booking.Id,
             };
             db.SalesQuotes.Add(quote);
             db.CustomerCases.Add(new CustomerCase { CaseNumber = $"CASE-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
@@ -325,32 +340,6 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 request.StartDate, request.EndDate, "Quotation", "Quotation request received"));
         }
 
-        var booking = new Booking
-        {
-            BookingNumber = $"REQ-{Guid.NewGuid():N}"[..16].ToUpperInvariant(),
-            Customer = activeCustomer,
-            BranchId = asset.BranchId,
-            Status = BookingStatus.Draft,
-            Notes = BuildRequestNotes(request, personnelRequested),
-            TaxRate = taxRate,
-            DepositRequired = asset.ServiceOffering?.DefaultDepositAmount ?? 0,
-            Items =
-            [
-                new BookingItem
-                {
-                    AssetId = asset.Id,
-                    StartAt = start,
-                    EndAt = end,
-                    DailyRate = asset.DailyRate,
-                }
-            ],
-        };
-        foreach (var charge in charges)
-            booking.Charges.Add(new BookingCharge { AssetId = asset.Id, ChargeDefinitionId = charge.Definition.Id,
-                Description = charge.Definition.Name, Category = charge.Definition.Category, Unit = charge.Definition.Unit,
-                Quantity = charge.Quantity, UnitRate = charge.Definition.DefaultSellingRate,
-                UnitCost = charge.Definition.DefaultCostRate, IsTaxable = charge.Definition.IsTaxable });
-        db.Bookings.Add(booking);
         await db.SaveChangesAsync(cancellationToken);
 
         if (request.Fulfilment == "Delivery")
@@ -505,6 +494,7 @@ public sealed record PublicBookingRequest(
     decimal? PersonnelHours,
     [MaxLength(150)] string? DriverName,
     [MaxLength(100)] string? DriverLicence,
+    bool RequestQuotation,
     IReadOnlyList<PublicBookingExtraRequest>? Extras);
 public sealed record PublicBookingExtraRequest(Guid ChargeDefinitionId, decimal Quantity);
 public sealed record PublicBookingResponse(

@@ -95,12 +95,18 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         var item = await db.ApprovalRequests.Include(x => x.StageDecisions).FirstOrDefaultAsync(x => x.Id == id, token); if (item is null) return NotFound();
         var scope = await ScopeFor(item.BranchId); if (scope is null || !await ApprovalScope(scope).AnyAsync(x => x.Id == id, token)) return Forbid();
         if (item.Status != ApprovalStatus.Pending) return Validation("status", "Only a pending request can be decided.");
-        if (item.RequestedByUserId == scope.UserId) return Validation("approver", "The requester cannot approve or reject their own request.");
         var requiredPermission = item.Type == ApprovalType.Refund ? SystemPermissions.PaymentsRefund : SystemPermissions.RentalsApprove;
         if (!(await authorization.AuthorizeAsync(User, requiredPermission)).Succeeded) return Forbid();
         var stage = item.StageDecisions.FirstOrDefault(x => x.StageNumber == item.CurrentStage);
         if (stage is null) { stage = new ApprovalStageDecision { ApprovalRequestId = item.Id, StageNumber = item.CurrentStage, StageName = "Manager approval", AssignedRole = SystemRoles.BranchManager }; item.StageDecisions.Add(stage); }
-        if (!scope.IsAdministrator && stage.AssignedUserId.HasValue && stage.AssignedUserId != scope.UserId) return Forbid();
+        var designatedRentalManager = item.EntityType is nameof(Booking) or nameof(SalesQuote) &&
+            stage.AssignedRole == SystemRoles.BranchManager && User.IsInRole(SystemRoles.BranchManager);
+        if (item.RequestedByUserId == scope.UserId && !designatedRentalManager)
+            return Validation("approver", "The requester cannot approve or reject their own request.");
+        // Booking and quotation approvals are operationally assigned to the manager
+        // of the request branch. Do not let an obsolete named-user assignment block
+        // another active manager who has the same branch and role scope.
+        if (!scope.IsAdministrator && !designatedRentalManager && stage.AssignedUserId.HasValue && stage.AssignedUserId != scope.UserId) return Forbid();
         if (!scope.IsAdministrator && !string.IsNullOrWhiteSpace(stage.AssignedRole) && !User.IsInRole(stage.AssignedRole)) return Forbid();
         stage.Status = request.Approved ? ApprovalStatus.Approved : ApprovalStatus.Rejected; stage.DecidedByUserId = scope.UserId; stage.DecisionNote = Clean(request.Note); stage.DecidedAt = DateTimeOffset.UtcNow;
         if (!request.Approved) { item.Status = ApprovalStatus.Rejected; item.DecidedAt = stage.DecidedAt; item.DecidedByUserId = scope.UserId; item.DecisionNote = stage.DecisionNote; }
@@ -205,8 +211,13 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
     private IQueryable<T> Scoped<T>(IQueryable<T> query, StaffDataScope scope, System.Linq.Expressions.Expression<Func<T, Guid>> branch) => scope.IsAdministrator ? query : query.Where(BuildEqual(branch, scope.BranchId!.Value));
     private IQueryable<T> ScopedNullable<T>(IQueryable<T> query, StaffDataScope scope, System.Linq.Expressions.Expression<Func<T, Guid?>> branch) => scope.IsAdministrator ? query : query.Where(BuildEqual(branch, (Guid?)scope.BranchId));
     private IQueryable<AssetTransfer> TransferScope(StaffDataScope scope) => scope.IsAdministrator ? db.AssetTransfers.AsNoTracking() : db.AssetTransfers.AsNoTracking().Where(x => x.FromBranchId == scope.BranchId || x.ToBranchId == scope.BranchId);
-    private IQueryable<SalesQuote> QuoteScope(StaffDataScope scope) => scope.IsAdministrator ? db.SalesQuotes.AsNoTracking() : db.SalesQuotes.AsNoTracking().Where(x => x.BranchId == scope.BranchId && x.DivisionId == scope.DivisionId);
-    private IQueryable<ApprovalRequest> ApprovalScope(StaffDataScope scope) => scope.IsAdministrator ? db.ApprovalRequests.AsNoTracking() : db.ApprovalRequests.AsNoTracking().Where(x => x.BranchId == scope.BranchId && (x.EntityType != nameof(SalesQuote) || db.SalesQuotes.Any(q => q.Id == x.EntityId && q.DivisionId == scope.DivisionId)));
+    private IQueryable<SalesQuote> QuoteScope(StaffDataScope scope) => scope.IsAdministrator
+        ? db.SalesQuotes.AsNoTracking()
+        : db.SalesQuotes.AsNoTracking().Where(x => scope.BranchIds.Contains(x.BranchId) && x.DivisionId.HasValue && scope.DivisionIds.Contains(x.DivisionId.Value));
+    private IQueryable<ApprovalRequest> ApprovalScope(StaffDataScope scope) => scope.IsAdministrator
+        ? db.ApprovalRequests.AsNoTracking()
+        : db.ApprovalRequests.AsNoTracking().Where(x => scope.BranchIds.Contains(x.BranchId) &&
+            (x.EntityType != nameof(SalesQuote) || db.SalesQuotes.Any(q => q.Id == x.EntityId && q.DivisionId.HasValue && scope.DivisionIds.Contains(q.DivisionId.Value))));
     private static System.Linq.Expressions.Expression<Func<T, bool>> BuildEqual<T, TValue>(System.Linq.Expressions.Expression<Func<T, TValue>> selector, TValue value) { var body = System.Linq.Expressions.Expression.Equal(selector.Body, System.Linq.Expressions.Expression.Constant(value, typeof(TValue))); return System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(body, selector.Parameters); }
     private async Task SaveAudit(StaffDataScope scope, string action, Guid id, string summary, Guid? branch, CancellationToken token) { AuditWriter.Record(db, scope, action, "CorporateOperation", id, summary, branch); await db.SaveChangesAsync(token); }
     private static string Number(string prefix) => $"{prefix}-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";

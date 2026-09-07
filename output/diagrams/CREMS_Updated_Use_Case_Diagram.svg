@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200">
+  <defs>
+    <style>
+      .title{font:800 34px Arial,sans-serif;fill:#fff}.sub{font:500 18px Arial,sans-serif;fill:#ddd}
+      .actor{font:700 16px Arial,sans-serif;fill:#171717;text-anchor:middle}.uc{font:600 15px Arial,sans-serif;fill:#171717;text-anchor:middle}
+      .group{font:700 17px Arial,sans-serif;fill:#171717}.line{stroke:#555;stroke-width:2;fill:none}.rel{stroke:#555;stroke-width:2;stroke-dasharray:8 6;fill:none;marker-end:url(#arrow)}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#555"/></marker>
+    <g id="person" stroke="#171717" stroke-width="4" fill="none"><circle cx="0" cy="-42" r="17"/><path d="M0-25V28M-32-5H32M0 28L-28 70M0 28L28 70"/></g>
+  </defs>
+
+  <rect width="1800" height="1200" fill="#f7f7f3"/>
+  <rect x="0" y="0" width="1800" height="105" fill="#151515"/>
+  <rect x="0" y="105" width="1800" height="8" fill="#ffea00"/>
+  <text x="900" y="48" class="title" text-anchor="middle">CREMS USE CASE DIAGRAM</text>
+  <text x="900" y="80" class="sub" text-anchor="middle">Current rental, quotation, asset and maintenance workflows</text>
+
+  <rect x="260" y="145" width="1280" height="990" rx="24" fill="#fff" stroke="#191919" stroke-width="3"/>
+  <rect x="260" y="145" width="1280" height="52" rx="22" fill="#ffea00"/>
+  <text x="900" y="179" class="group" text-anchor="middle">Car and Rental Equipment Management System (CREMS)</text>
+
+  <!-- Associations are placed behind use cases. -->
+  <g class="line">
+    <path d="M170 260L430 245M170 260L430 320"/>
+    <path d="M170 510L430 405M170 510L430 485M170 510L430 565M170 510L430 645M170 510L430 725"/>
+    <path d="M1630 285L1370 245M1630 285L1370 325M1630 285L1370 405M1630 285L1370 485M1630 285L1370 565M1630 285L1370 645"/>
+    <path d="M1630 545L1370 725M1630 545L1370 805M1630 545L1370 885"/>
+    <path d="M1630 785L1370 565M1630 785L1370 645M1630 785L1370 965M1630 785L1370 1045"/>
+    <path d="M1630 1030L1370 885M1630 1030L1370 965M1630 1030L1370 1045"/>
+  </g>
+
+  <!-- Left/customer use cases -->
+  <g fill="#fffdeb" stroke="#8c7d00" stroke-width="2">
+    <ellipse cx="560" cy="245" rx="150" ry="34"/><ellipse cx="560" cy="325" rx="150" ry="34"/>
+    <ellipse cx="560" cy="405" rx="150" ry="34"/><ellipse cx="560" cy="485" rx="150" ry="34"/>
+    <ellipse cx="560" cy="565" rx="150" ry="34"/><ellipse cx="560" cy="645" rx="150" ry="34"/>
+    <ellipse cx="560" cy="725" rx="150" ry="34"/>
+  </g>
+  <g class="uc">
+    <text x="560" y="250">Browse rentals &amp; availability</text>
+    <text x="560" y="330">Register / sign in</text>
+    <text x="560" y="410">Manage profile &amp; licence</text>
+    <text x="560" y="490">Submit booking request</text>
+    <text x="560" y="570">Request &amp; review quotation</text>
+    <text x="560" y="650">Track / manage booking</text>
+    <text x="560" y="720"><tspan x="560">View quotation, agreement,</tspan><tspan x="560" dy="18">invoice &amp; receipt</tspan></text>
+  </g>
+
+  <!-- Staff/operational use cases -->
+  <g fill="#f2f8ed" stroke="#287a32" stroke-width="2">
+    <ellipse cx="1190" cy="245" rx="180" ry="34"/><ellipse cx="1190" cy="325" rx="180" ry="34"/>
+    <ellipse cx="1190" cy="405" rx="180" ry="34"/><ellipse cx="1190" cy="485" rx="180" ry="34"/>
+    <ellipse cx="1190" cy="565" rx="180" ry="34"/><ellipse cx="1190" cy="645" rx="180" ry="34"/>
+    <ellipse cx="1190" cy="725" rx="180" ry="34"/><ellipse cx="1190" cy="805" rx="180" ry="34"/>
+    <ellipse cx="1190" cy="885" rx="180" ry="34"/><ellipse cx="1190" cy="965" rx="180" ry="34"/>
+    <ellipse cx="1190" cy="1045" rx="180" ry="34"/>
+  </g>
+  <g class="uc">
+    <text x="1190" y="250">Manage customers &amp; documents</text>
+    <text x="1190" y="330">Review request &amp; availability</text>
+    <text x="1190" y="410">Prepare / send quotation</text>
+    <text x="1190" y="490">Confirm standard rental</text>
+    <text x="1190" y="570">Allocate asset &amp; prepare pickup</text>
+    <text x="1190" y="650">Pickup, return &amp; inspections</text>
+    <text x="1190" y="730">Maintain assets &amp; record costs</text>
+    <text x="1190" y="810">Review damage / return to service</text>
+    <text x="1190" y="890">Approve high-value / equipment hire</text>
+    <text x="1190" y="970">Manage staff, roles &amp; branches</text>
+    <text x="1190" y="1040"><tspan x="1190">Configure divisions, services,</tspan><tspan x="1190" dy="18">pricing &amp; approval workflows</tspan></text>
+  </g>
+
+  <!-- UML relationships -->
+  <g class="rel">
+    <path d="M710 485C820 485 875 405 1010 405"/><path d="M710 565C825 565 900 405 1010 405"/>
+    <path d="M710 645C820 645 900 725 1010 725"/><path d="M1010 405C930 440 930 560 1010 565"/>
+    <path d="M1010 885C920 860 920 455 1010 405"/>
+  </g>
+  <g font-family="Arial,sans-serif" font-size="14" fill="#444">
+    <text x="835" y="462">«include»</text><text x="845" y="538">«include»</text>
+    <text x="845" y="695">«include»</text><text x="930" y="492">«extend»</text><text x="905" y="755">«extend»</text>
+  </g>
+
+  <!-- Actors -->
+  <g><use href="#person" x="135" y="235"/><text x="135" y="328" class="actor">PUBLIC VISITOR</text></g>
+  <g><use href="#person" x="135" y="485"/><text x="135" y="578" class="actor">CUSTOMER</text></g>
+  <g><use href="#person" x="1665" y="260"/><text x="1665" y="353" class="actor">RENTAL OFFICER</text></g>
+  <g><use href="#person" x="1665" y="520"/><text x="1665" y="613" class="actor">MAINTENANCE OFFICER</text></g>
+  <g><use href="#person" x="1665" y="760"/><text x="1665" y="853" class="actor">BRANCH MANAGER</text></g>
+  <g><use href="#person" x="1665" y="1005"/><text x="1665" y="1098" class="actor">ADMIN / SUPER ADMIN</text></g>
+
+  <rect x="350" y="1092" width="875" height="28" rx="14" fill="#f3f3f3"/>
+  <text x="788" y="1111" font-family="Arial,sans-serif" font-size="13" fill="#555" text-anchor="middle">Driver/operator and Finance Officer are business resources, not CREMS login actors.</text>
+</svg>

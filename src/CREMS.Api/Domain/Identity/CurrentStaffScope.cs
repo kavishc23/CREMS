@@ -6,7 +6,12 @@ namespace CREMS.Api.Domain.Identity;
 
 public sealed class CurrentStaffScope(ApplicationDbContext db)
 {
+    private Task<StaffDataScope?>? cachedScope;
+
     public async Task<StaffDataScope?> GetAsync(ClaimsPrincipal principal)
+        => await (cachedScope ??= LoadAsync(principal));
+
+    private async Task<StaffDataScope?> LoadAsync(ClaimsPrincipal principal)
     {
         var id = principal.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(id, out var userId)) return null;

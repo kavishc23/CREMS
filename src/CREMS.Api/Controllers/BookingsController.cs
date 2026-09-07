@@ -39,7 +39,9 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
 
         var draftWithApproval = db.ApprovalRequests.AsNoTracking()
             .Where(x => x.EntityType == nameof(Booking) && x.Status == ApprovalStatus.Pending).Select(x => x.EntityId);
-        var quotedBookings = db.SalesQuotes.AsNoTracking().Where(x => x.ConvertedBookingId != null).Select(x => x.ConvertedBookingId!.Value);
+        var quotedBookings = db.SalesQuotes.AsNoTracking().Where(x => x.ConvertedBookingId != null &&
+            (x.Status == QuoteStatus.Draft || x.Status == QuoteStatus.Sent || x.Status == QuoteStatus.Negotiating))
+            .Select(x => x.ConvertedBookingId!.Value);
         var quotationRequired = baseQuery.Where(x => x.Status == BookingStatus.Draft && !draftWithApproval.Contains(x.Id) &&
             (quotedBookings.Contains(x.Id) || x.Customer!.Type == CREMS.Api.Domain.Customers.CustomerType.Business || x.Items.Any(i => i.Asset!.Type == AssetType.Equipment)));
 
@@ -62,7 +64,8 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var total = await selected.CountAsync(cancellationToken);
         var rows = await selected.OrderByDescending(x => x.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(x => new BookingWorkQueueRow(
-                x.Id, x.BookingNumber, x.CreatedAt, x.Status.ToString(), x.CustomerId, x.Customer!.Name,
+                x.Id, db.SalesQuotes.Where(q => q.ConvertedBookingId == x.Id).Select(q => q.QuoteNumber).FirstOrDefault() ?? x.BookingNumber,
+                x.CreatedAt, x.Status.ToString(), x.CustomerId, x.Customer!.Name,
                 x.Customer.Email, x.Customer.Phone, x.Customer.IsBlocked, x.Customer.Type.ToString(),
                 x.BranchId, x.Branch!.Name,
                 x.Items.Select(i => i.Asset!.Division != null ? i.Asset.Division.Name : "Unassigned division").FirstOrDefault() ?? "Unassigned division",
@@ -87,7 +90,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
     [HttpGet("{id:guid}/workspace")]
     public async Task<ActionResult> GetWorkspace(Guid id, CancellationToken cancellationToken)
     {
-        var booking = await db.Bookings.AsNoTracking().Include(x => x.Customer).Include(x => x.Branch)
+        var booking = await db.Bookings.AsNoTracking().AsSplitQuery().Include(x => x.Customer).Include(x => x.Branch)
             .Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division)
             .Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering)
             .Include(x => x.Charges).Include(x => x.Inspections).Include(x => x.Payments).Include(x => x.Invoice)
@@ -98,7 +101,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var quote = await db.SalesQuotes.AsNoTracking().FirstOrDefaultAsync(x => x.ConvertedBookingId == id, cancellationToken);
         var quoteId = quote?.Id;
         var approvals = await db.ApprovalRequests.AsNoTracking().Where(x => (x.EntityType == nameof(Booking) && x.EntityId == id) || (quoteId != null && x.EntityType == nameof(SalesQuote) && x.EntityId == quoteId))
-            .OrderByDescending(x => x.CreatedAt).Select(x => new { x.RequestNumber, status = x.Status.ToString(), x.Amount, x.Reason, x.CurrentStage, x.TotalStages, x.DecisionNote, x.CreatedAt, x.DecidedAt }).ToListAsync(cancellationToken);
+            .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.RequestNumber, status = x.Status.ToString(), x.Amount, x.Reason, x.CurrentStage, x.TotalStages, x.DecisionNote, x.CreatedAt, x.DecidedAt }).ToListAsync(cancellationToken);
         var activity = await db.AuditEvents.AsNoTracking().Where(x => x.EntityType == nameof(Booking) && x.EntityId == id)
             .OrderByDescending(x => x.OccurredAt).Take(50).Select(x => new { x.Id, x.Action, x.Summary, x.UserName, x.OccurredAt }).ToListAsync(cancellationToken);
         var documents = await db.DocumentRecords.AsNoTracking().Where(x => x.EntityType == nameof(Booking) && x.EntityId == id)
@@ -128,7 +131,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
     [HttpPost("{id:guid}/quotation")]
     public async Task<ActionResult> PrepareQuotation(Guid id, PrepareBookingQuotationRequest request, CancellationToken cancellationToken)
     {
-        var booking = await db.Bookings.Include(x => x.Customer).Include(x => x.Items).ThenInclude(x => x.Asset).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var booking = await db.Bookings.Include(x => x.Customer).Include(x => x.Items).ThenInclude(x => x.Asset).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
@@ -141,12 +144,13 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var quote = existing ?? new SalesQuote { QuoteNumber = $"QT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}", CustomerId = booking.CustomerId, BranchId = booking.BranchId, DivisionId = booking.Items.FirstOrDefault()?.Asset?.DivisionId, AssignedUserId = scope.UserId, ConvertedBookingId = booking.Id, ValidUntil = request.ValidUntil };
         if (existing is not null)
         {
-            db.QuoteRevisions.Add(new CREMS.Api.Domain.Operations.QuoteRevision { SalesQuoteId = quote.Id, Version = quote.Version, SnapshotJson = System.Text.Json.JsonSerializer.Serialize(new { quote.ValidUntil, quote.Subtotal, quote.Discount, quote.Tax, quote.Total, quote.LineItemsJson }), ChangeReason = string.IsNullOrWhiteSpace(request.RevisionReason) ? "Quotation updated" : request.RevisionReason.Trim(), ChangedByUserId = scope.UserId });
             quote.Version += 1;
         }
         else db.SalesQuotes.Add(quote);
         quote.ValidUntil = request.ValidUntil; quote.Discount = request.Discount; quote.Subtotal = totals.Subtotal; quote.Tax = totals.Tax; quote.Total = totals.Total; quote.LineItemsJson = System.Text.Json.JsonSerializer.Serialize(request.Lines); quote.Status = QuoteStatus.Draft; quote.UpdatedAt = DateTimeOffset.UtcNow;
-        booking.DiscountAmount = request.Discount; booking.TaxRate = request.TaxRate; booking.AdditionalCharges = Math.Max(0, totals.Subtotal - booking.Items.Sum(x => x.DailyRate * Math.Max(1, (decimal)Math.Ceiling((x.EndAt - x.StartAt).TotalDays)))); booking.UpdatedAt = DateTimeOffset.UtcNow;
+        booking.DiscountAmount = request.Discount; booking.TaxRate = request.TaxRate; booking.DepositRequired = Math.Max(0, request.Deposit);
+        booking.AdditionalCharges = Math.Max(0, totals.Subtotal - booking.Items.Sum(x => x.DailyRate * Math.Max(1, (decimal)Math.Ceiling((x.EndAt - x.StartAt).TotalDays)))); booking.UpdatedAt = DateTimeOffset.UtcNow;
+        booking.AdditionalChargesDescription = string.Join(", ", request.Lines.Where(x => x.Category != ChargeCategory.BaseHire).Select(x => x.Description));
         if (request.Discount > 0 && !await db.ApprovalRequests.AnyAsync(x => x.EntityType == nameof(SalesQuote) && x.EntityId == quote.Id && x.Status == ApprovalStatus.Pending, cancellationToken))
         {
             var approval = new ApprovalRequest { RequestNumber = $"APR-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}", BranchId = booking.BranchId, Type = ApprovalType.Discount, EntityType = nameof(SalesQuote), EntityId = quote.Id, Amount = request.Discount, Reason = $"Discount approval for {quote.QuoteNumber}", RequestedByUserId = scope.UserId };
@@ -154,6 +158,51 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         }
         AuditWriter.Record(db, scope, existing is null ? "Quotation prepared" : "Quotation revised", nameof(Booking), booking.Id, $"{quote.QuoteNumber} version {quote.Version} prepared for {booking.BookingNumber}.", booking.BranchId);
         await db.SaveChangesAsync(cancellationToken); return Ok(new { quote.Id, quote.QuoteNumber, quote.Version, quote.Subtotal, quote.Discount, quote.Tax, quote.Total, status = quote.Status.ToString() });
+    }
+
+    [HttpPost("{bookingId:guid}/customer-requests/{caseId:guid}/decision")]
+    public async Task<ActionResult> DecideCustomerRequest(Guid bookingId, Guid caseId, CustomerRequestDecision request, CancellationToken token)
+    {
+        var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset)
+            .FirstOrDefaultAsync(x => x.Id == bookingId, token);
+        if (booking is null) return NotFound();
+        var customerCase = await db.CustomerCases.FirstOrDefaultAsync(x => x.Id == caseId && x.CustomerId == booking.CustomerId, token);
+        if (customerCase is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
+        if (customerCase.Status is CaseStatus.Resolved or CaseStatus.Closed) return BadRequest(new { message = "This customer request has already been decided." });
+
+        if (request.Approved && customerCase.Subject.StartsWith("Extension request", StringComparison.OrdinalIgnoreCase))
+        {
+            const string marker = "Requested new return: ";
+            var startIndex = customerCase.Description.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            var endIndex = customerCase.Description.IndexOf(". Reason:", StringComparison.OrdinalIgnoreCase);
+            if (startIndex < 0 || endIndex <= startIndex || !DateTimeOffset.TryParse(customerCase.Description[(startIndex + marker.Length)..endIndex], out var requestedEnd))
+                return BadRequest(new { message = "The requested return date could not be read." });
+            var currentEnd = booking.Items.Max(x => x.EndAt);
+            var assetIds = booking.Items.Select(x => x.AssetId).ToList();
+            var conflict = await db.BookingItems.AnyAsync(x => x.BookingId != booking.Id && assetIds.Contains(x.AssetId) &&
+                x.StartAt < requestedEnd && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
+            if (conflict) return Conflict(new { message = "The extension conflicts with another confirmed rental." });
+            foreach (var item in booking.Items) item.EndAt = requestedEnd;
+            booking.Notes = $"{booking.Notes}\nExtension approved to {requestedEnd:u}.".Trim();
+        }
+        else if (request.Approved && customerCase.Subject.StartsWith("Cancellation request", StringComparison.OrdinalIgnoreCase))
+        {
+            if (booking.Status is not (BookingStatus.Draft or BookingStatus.Confirmed))
+                return BadRequest(new { message = "This rental can no longer be cancelled from the booking workspace." });
+            booking.Status = BookingStatus.Cancelled;
+            booking.Notes = $"{booking.Notes}\nCancellation approved by staff.".Trim();
+        }
+
+        customerCase.Status = request.Approved ? CaseStatus.Resolved : CaseStatus.Closed;
+        customerCase.Resolution = string.IsNullOrWhiteSpace(request.Note)
+            ? (request.Approved ? "Approved by branch staff." : "Declined by branch staff.") : request.Note.Trim();
+        booking.UpdatedAt = DateTimeOffset.UtcNow;
+        AuditWriter.Record(db, scope, request.Approved ? "Customer request approved" : "Customer request declined", nameof(Booking), booking.Id,
+            $"{customerCase.Subject}: {customerCase.Resolution}", booking.BranchId);
+        await db.SaveChangesAsync(token);
+        return Ok(new { customerCase.Status, bookingStatus = booking.Status.ToString() });
     }
 
     [HttpGet]
@@ -440,4 +489,5 @@ public sealed record BookingWorkQueueRow(Guid Id, string BookingNumber, DateTime
     string? AssetNumber, string? AssetName, string? Category, DateTimeOffset? StartAt, DateTimeOffset? EndAt,
     decimal EstimatedValue, decimal DepositRequired, DateTimeOffset? ApprovedAt, bool HasAgreement, string? Warning);
 public sealed record PrepareBookingQuotationLine(string Description, decimal Quantity, decimal Rate, decimal CostRate, ChargeUnit Unit = ChargeUnit.Unit, ChargeCategory Category = ChargeCategory.Other);
-public sealed record PrepareBookingQuotationRequest(DateTimeOffset ValidUntil, decimal Discount, decimal TaxRate, string? RevisionReason, IReadOnlyList<PrepareBookingQuotationLine> Lines);
+public sealed record PrepareBookingQuotationRequest(DateTimeOffset ValidUntil, decimal Deposit, decimal Discount, decimal TaxRate, string? RevisionReason, IReadOnlyList<PrepareBookingQuotationLine> Lines);
+public sealed record CustomerRequestDecision(bool Approved, string? Note);

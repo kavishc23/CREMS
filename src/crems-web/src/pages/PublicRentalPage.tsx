@@ -131,6 +131,7 @@ function loadPublicCatalogueBootstrap() {
 }
 
 export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, customerAuthenticated = false, customerName }: { onCustomerAccount: (section?: 'overview' | 'bookings') => void; onCustomerSignOut?: () => void | Promise<void>; customerAuthenticated?: boolean; customerName?: string }) {
+  const [trackingReference, setTrackingReference] = useState('')
   const [savedCatalogue] = useState(readCatalogueState)
   const [assets, setAssets] = useState<PublicAsset[]>([])
   const [catalogueAssets, setCatalogueAssets] = useState<PublicAsset[]>([])
@@ -160,6 +161,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [error, setError] = useState('')
   const [reference, setReference] = useState('')
   const [responseKind, setResponseKind] = useState<'Booking' | 'Quotation'>('Booking')
+  const [requestQuotation, setRequestQuotation] = useState(false)
   const [bookingStep, setBookingStep] = useState(0)
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [photoIndexes, setPhotoIndexes] = useState<Record<string, number>>({})
@@ -244,16 +246,16 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const extrasTotal = checkoutCharges.reduce((sum, charge) => sum + charge.defaultSellingRate * charge.quantity, 0)
   const estimatedTax = (baseHire + extrasTotal) * .15
   const estimatedTotal = baseHire + extrasTotal + estimatedTax
-  const quotationFlow = Boolean(selected && (selected.type === 'Equipment' || selected.requiresQuote || selected.personnelRequirement !== 'None' || booking.personnelRequested))
+  const quotationFlow = Boolean(requestQuotation || selected && (selected.type === 'Equipment' || selected.requiresQuote || selected.personnelRequirement !== 'None' || booking.personnelRequested))
   function scrollTo(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }) }
-  function openRequest(asset: PublicAsset, details: CheckoutDetail, customerDetails: BookingForm = emptyBooking) { setSelected(asset); setCheckoutDetail(details); setSelectedExtras(Object.fromEntries(details.charges.filter(x => x.isRequired).map(x => [x.id, 1]))); setBooking({ ...customerDetails, fulfilment: details.service?.requiresDelivery ? 'Delivery' : customerDetails.fulfilment, personnelRequested: requiresProfessionalPersonnel(asset) || customerDetails.personnelRequested }); setBookingStep(0); setTermsAccepted(false); setReference(''); setError('') }
+  function openRequest(asset: PublicAsset, details: CheckoutDetail, customerDetails: BookingForm = emptyBooking, quote = false) { setRequestQuotation(quote); setSelected(asset); setCheckoutDetail(details); setSelectedExtras(Object.fromEntries(details.charges.filter(x => x.isRequired).map(x => [x.id, 1]))); setBooking({ ...customerDetails, fulfilment: details.service?.requiresDelivery ? 'Delivery' : customerDetails.fulfilment, personnelRequested: requiresProfessionalPersonnel(asset) || customerDetails.personnelRequested }); setBookingStep(0); setTermsAccepted(false); setReference(''); setError('') }
   async function submitRequest(event: FormEvent) {
     event.preventDefault(); if (!selected) return
     setSubmitting(true); setError('')
     try {
       const response = await api.post<{ reference: string; requestType: string }>('/public/booking-requests', {
         assetId: selected.id, startDate, endDate, ...booking,
-        extras: checkoutCharges.map(charge => ({ chargeDefinitionId: charge.id, quantity: charge.quantity })),
+        requestQuotation: quotationFlow, extras: checkoutCharges.map(charge => ({ chargeDefinitionId: charge.id, quantity: charge.quantity })),
       })
       setReference(response.data.reference); setResponseKind(response.data.requestType as 'Booking' | 'Quotation')
     } catch (requestError: unknown) {
@@ -263,9 +265,9 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     } finally { setSubmitting(false) }
   }
 
-  async function requestBooking(asset: PublicAsset) {
+  async function requestBooking(asset: PublicAsset, quote = false) {
     if (!customerAuthenticated) {
-      sessionStorage.setItem('crems.pendingBooking', JSON.stringify({ assetId: asset.id, startDate, endDate }))
+      sessionStorage.setItem('crems.pendingBooking', JSON.stringify({ assetId: asset.id, startDate, endDate, quote }))
       onCustomerAccount()
       return
     }
@@ -274,7 +276,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       const details = (await api.get<CheckoutDetail>(`/public/assets/${asset.id}`, { params: { startDate, endDate } })).data
       openRequest(asset, details, { ...emptyBooking, fullName: account.fullName, customerType: 'Individual',
         companyName: '', email: account.email,
-        phone: account.phone ?? '', address: account.address ?? '' })
+        phone: account.phone ?? '', address: account.address ?? '' }, quote)
     } catch { setError('We could not prepare this checkout. Please refresh availability and try again.') }
   }
 
@@ -285,13 +287,13 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     sessionStorage.removeItem('crems.pendingBooking')
     void (async () => {
       try {
-        const pending = JSON.parse(raw) as { assetId: string; startDate: string; endDate: string }
+        const pending = JSON.parse(raw) as { assetId: string; startDate: string; endDate: string; quote?: boolean }
         const asset = catalogueAssets.find(item => item.id === pending.assetId)
         if (!asset) return
         const availability = (await api.get<{ isAvailable: boolean }>(`/public/assets/${asset.id}`, { params: { startDate: pending.startDate, endDate: pending.endDate } })).data
         setStartDate(pending.startDate); setEndDate(pending.endDate); setSearched(true)
         if (!availability.isAvailable) { setError('This rental is no longer available for the selected dates. Please choose another option.'); return }
-        await requestBooking({ ...asset, isAvailable: true })
+        await requestBooking({ ...asset, isAvailable: true }, pending.quote)
       } catch { setError('We could not restore your rental selection. Please check availability again.') }
     })()
     // Resume exactly once from the browser-window booking hand-off.
@@ -360,7 +362,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     return <Card key={asset.id} variant="outlined" sx={{ width: '100%', minWidth: 0, overflow: 'hidden', borderRadius: 3, bgcolor: '#fff', borderColor: '#deddd6', borderTop: '4px solid', borderTopColor: 'secondary.main' }}>
       <CardContent sx={{ p: 2, pb: 1 }}><Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}><Box><Typography fontWeight={850} lineHeight={1.2}>{asset.name}</Typography><Typography variant="caption" fontWeight={700} color="text.secondary">{asset.category ?? asset.serviceName ?? asset.type} · {asset.assetNumber}</Typography></Box><Chip label={!searched ? 'Preview' : asset.isAvailable ? 'Available' : 'Unavailable'} color={searched && asset.isAvailable ? 'success' : 'default'} size="small" /></Stack></CardContent>
       <Box sx={{ height: 150, position: 'relative', overflow: 'hidden', mx: 1.25, borderRadius: 2, bgcolor: '#f7f6ef' }}>{photos[photoIndex] ? <Box component="img" src={photos[photoIndex]} alt={`${asset.name}, photo ${photoIndex + 1} of ${photos.length}`} loading="lazy" sx={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', p: 1 }} /> : <Stack sx={{ height: '100%' }} alignItems="center" justifyContent="center"><ImageOutlined sx={{ fontSize: 40, color: 'grey.400' }} /><Typography variant="caption" color="text.secondary">Photo coming soon</Typography></Stack>}{photos.length > 1 && <><IconButton aria-label="Previous photo" onClick={() => changeCataloguePhoto(asset.id, photos.length, -1)} sx={{ position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)', bgcolor: 'rgba(255,255,255,.92)' }}><ChevronLeftOutlined /></IconButton><IconButton aria-label="Next photo" onClick={() => changeCataloguePhoto(asset.id, photos.length, 1)} sx={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', bgcolor: 'rgba(255,255,255,.92)' }}><ChevronRightOutlined /></IconButton></>}</Box>
-      <CardContent sx={{ p: 2 }}><Typography variant="caption" color="text.secondary">{asset.branchName}</Typography><Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mt={.5}><Typography fontWeight={900}>FJD {asset.dailyRate.toFixed(2)} <Typography component="span" variant="caption" color="text.secondary">/ day</Typography></Typography><Button size="small" variant="contained" disabled={!searched || !asset.isAvailable} onClick={() => void requestBooking(asset)}>{!searched ? 'Check dates' : !customerAuthenticated ? 'Continue' : asset.type === 'Equipment' || asset.requiresQuote || asset.personnelRequirement !== 'None' ? 'Get quote' : 'Book now'}</Button></Stack><Button size="small" sx={{ mt: .75, px: 0 }} onClick={() => setDetailAsset(asset)}>View details</Button></CardContent>
+      <CardContent sx={{ p: 2 }}><Typography variant="caption" color="text.secondary">{asset.branchName}</Typography><Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mt={.5}><Typography fontWeight={900}>FJD {asset.dailyRate.toFixed(2)} <Typography component="span" variant="caption" color="text.secondary">/ day</Typography></Typography><Stack direction="row" gap={.75}>{asset.type==='Vehicle'&&!asset.requiresQuote&&asset.personnelRequirement==='None'&&<Button size="small" variant="contained" disabled={!searched||!asset.isAvailable} onClick={()=>void requestBooking(asset,false)}>Book now</Button>}<Button size="small" variant={asset.type==='Vehicle'?'outlined':'contained'} disabled={!searched||!asset.isAvailable} onClick={()=>void requestBooking(asset,true)}>Get quote</Button></Stack></Stack><Button size="small" sx={{ mt: .75, px: 0 }} onClick={() => setDetailAsset(asset)}>View details</Button></CardContent>
     </Card>
   }
 
@@ -419,7 +421,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
             </Box>
             <CardContent sx={{ p: 2.5, pt: 2 }}>
               <Stack direction="row" alignItems="center" gap={.5}><LocationOnOutlined fontSize="small" color="action" /><Typography variant="body2" color="text.secondary">{asset.branchName} · {asset.divisionName || asset.type}</Typography></Stack>
-              <Divider sx={{ my: 1.75 }} /><Stack direction="row" justifyContent="space-between" alignItems="flex-end" gap={1}><Box><Typography variant="h5" fontWeight={900}>FJD {asset.dailyRate.toFixed(2)}<Typography component="span" variant="body2" color="text.secondary"> / day</Typography></Typography><Typography variant="caption" color="text.secondary">FJD {(asset.dailyRate * rentalDays).toFixed(2)} estimated for {rentalDays} {rentalDays === 1 ? 'day' : 'days'}</Typography></Box><Button variant="contained" disabled={!searched || !asset.isAvailable} endIcon={<ArrowForwardOutlined />} onClick={() => void requestBooking(asset)}>{!searched ? 'Check dates' : !customerAuthenticated ? 'Continue' : asset.type === 'Equipment' || asset.requiresQuote || asset.personnelRequirement !== 'None' ? 'Get quote' : 'Book now'}</Button></Stack>
+              <Divider sx={{ my: 1.75 }} /><Stack direction="row" justifyContent="space-between" alignItems="flex-end" gap={1}><Box><Typography variant="h5" fontWeight={900}>FJD {asset.dailyRate.toFixed(2)}<Typography component="span" variant="body2" color="text.secondary"> / day</Typography></Typography><Typography variant="caption" color="text.secondary">FJD {(asset.dailyRate * rentalDays).toFixed(2)} estimated for {rentalDays} {rentalDays === 1 ? 'day' : 'days'}</Typography></Box><Stack direction="row" gap={1}>{asset.type==='Vehicle'&&!asset.requiresQuote&&asset.personnelRequirement==='None'&&<Button variant="contained" disabled={!searched||!asset.isAvailable} onClick={()=>void requestBooking(asset,false)}>Book now</Button>}<Button variant={asset.type==='Vehicle'?'outlined':'contained'} disabled={!searched||!asset.isAvailable} endIcon={<ArrowForwardOutlined/>} onClick={()=>void requestBooking(asset,true)}>Get quote</Button></Stack></Stack>
               <Button size="small" sx={{ mt: 1.25, px: 0 }} onClick={() => setDetailAsset(asset)}>View full details and photos</Button>
             </CardContent>
           </Card></Grid>
@@ -438,7 +440,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       })}
     </Container>
 
-    <Box sx={{ bgcolor: 'secondary.main', py: { xs: 6, md: 7 } }}><Container maxWidth="md"><Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ md: 'center' }} justifyContent="space-between" gap={3}><Box><Typography variant="h4" fontWeight={800}>Ready to book or track a booking?</Typography><Typography mt={1} sx={{ opacity: .72 }}>Sign in to submit bookings securely and see every status update in one place.</Typography></Box><Button size="large" variant="contained" onClick={() => onCustomerAccount()} sx={{ bgcolor: '#111', color: 'white', minWidth: 190, '&:hover': { bgcolor: '#292929' } }}>{customerAuthenticated ? 'Open my bookings' : 'Customer login'}</Button></Stack></Container></Box>
+    <Box sx={{ bgcolor: 'secondary.main', py: { xs: 6, md: 7 } }}><Container maxWidth="lg"><Stack direction={{ xs: 'column', lg: 'row' }} alignItems={{ lg: 'center' }} justifyContent="space-between" gap={3}><Box><Typography variant="h4" fontWeight={800}>Ready to book or track a booking?</Typography><Typography mt={1} sx={{ opacity: .72 }}>Enter a booking or quotation reference to find it securely in your account.</Typography></Box><Box component="form" onSubmit={event=>{event.preventDefault();sessionStorage.setItem('crems.customerReferenceSearch',trackingReference.trim());onCustomerAccount('bookings')}} sx={{display:'flex',flexDirection:{xs:'column',sm:'row'},gap:1,width:{xs:'100%',lg:520}}}><TextField fullWidth placeholder="BK-2026-0001 or QUO-20260903-XXXXXX" value={trackingReference} onChange={event=>setTrackingReference(event.target.value)} sx={{bgcolor:'white',borderRadius:1}} InputProps={{startAdornment:<SearchOutlined sx={{mr:1,color:'text.secondary'}}/>}}/><Button type="submit" size="large" variant="contained" sx={{ bgcolor: '#111', color: 'white', minWidth: 150, '&:hover': { bgcolor: '#292929' } }}>{customerAuthenticated ? 'Find reference' : 'Sign in & find'}</Button></Box></Stack></Container></Box>
 
     <Box id="how-it-works" sx={{ bgcolor: '#111', color: 'white', py: 9 }}><Container maxWidth="lg"><Typography variant="h3" fontWeight={800} textAlign="center" sx={{ fontSize: { xs: '2rem', md: '3rem' } }}>Simple from search to pickup</Typography><Grid container spacing={3} mt={3}>
       {[['1', 'Choose a division', 'Select the Carpenters division that provides the vehicle, equipment or site service you need.'], ['2', 'Compare options', 'Check prices, branches and live availability without signing in.'], ['3', 'Sign in and book', 'Use your customer account to submit and track bookings securely.']].map(([number, title, text]) => <Grid key={number} size={{ xs: 12, md: 4 }}><Stack alignItems="center" textAlign="center"><Avatar sx={{ bgcolor: 'secondary.main', color: '#111', fontWeight: 800, width: 52, height: 52 }}>{number}</Avatar><Typography variant="h6" fontWeight={700} mt={2}>{title}</Typography><Typography color="rgba(255,255,255,.65)" mt={1}>{text}</Typography></Stack></Grid>)}
