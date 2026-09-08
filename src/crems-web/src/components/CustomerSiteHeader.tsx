@@ -52,7 +52,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
   </Stack>
 
   return <>
-    <AppBar position="sticky" elevation={0} sx={{ bgcolor: '#0b0b0b', color: 'white', borderBottom: '1px solid rgba(255,255,255,.12)' }}>
+    <AppBar position="fixed" elevation={0} sx={{ bgcolor: '#0b0b0b', color: 'white', borderBottom: '1px solid rgba(255,255,255,.12)' }}>
       <Container maxWidth="xl" disableGutters>
         <Toolbar sx={{ minHeight: { xs: 68, md: 76 }, px: { xs: 2, sm: 3 } }}>
           <Box component="button" onClick={() => navigate('top')} aria-label="Carpenters Rentals and Hire home" sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 0, border: 0, bgcolor: 'transparent', color: 'inherit', cursor: 'pointer', textAlign: 'left', minWidth: 0 }}>
@@ -68,6 +68,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
         </Toolbar>
       </Container>
     </AppBar>
+    <Toolbar sx={{ minHeight: { xs: 68, md: 76 } }} />
 
     <Drawer anchor="right" open={mobileOpen} onClose={() => setMobileOpen(false)}>
       <Box sx={{ width: { xs: 300, sm: 340 }, minHeight: '100%', p: 2.5 }}>
