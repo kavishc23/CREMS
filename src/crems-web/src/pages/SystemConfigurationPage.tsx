@@ -13,7 +13,7 @@ type Audit = { id: string; userName: string; action: string; summary: string; oc
 
 const settingNames: Record<string, string> = {
   'rentals.vatRate': 'VAT rate',
-  'rentals.defaultDeposit': 'Default security deposit',
+  'rentals.defaultDeposit': 'Default refundable bond',
   'rentals.defaultCurrency': 'Currency',
   'bookings.holdMinutes': 'Reservation hold time (minutes)',
   'notifications.emailFrom': 'Sender email address',
@@ -46,7 +46,7 @@ export function SystemConfigurationPage() {
     {error && <Alert severity="error" sx={{ mx: { xs: 2, sm: 3, lg: 4 }, mb: 2 }}>{error}</Alert>}
     <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="scrollable" sx={{ px: { xs: 2, sm: 3, lg: 4 }, borderBottom: 1, borderColor: 'divider' }}><Tab label="Overview" /><Tab label="Rental defaults" /><Tab label="Rates & charges" /><Tab label="Notifications" /><Tab label="System health & audit" /><Tab label="Approval rules" /></Tabs>
     {tab === 0 && <Box sx={{ p: { xs: 2, sm: 3, lg: 4 } }}><Grid container spacing={2}>{[
-      ['Rental defaults', 'Tax, currency, deposits and booking hold rules.'], ['Rates & charges', 'Reusable customer rates and internal cost definitions.'], ['Notifications', 'Customer email wording and delivery configuration.'], ['System health', 'Database, messaging, version and administrator activity.'], ['Approval rules', 'Route higher-risk bookings through sequential approval stages.'],
+      ['Rental defaults', 'Tax, currency, refundable bonds and booking hold rules.'], ['Rates & charges', 'Reusable customer rates and internal cost definitions.'], ['Notifications', 'Customer email wording and delivery configuration.'], ['System health', 'Database, messaging, version and administrator activity.'], ['Approval rules', 'Route higher-risk bookings through sequential approval stages.'],
     ].map(([title, detail], index) => <Grid key={title} size={{ xs: 12, md: 6 }}><Card variant="outlined" sx={{ height: '100%', cursor: 'pointer' }} onClick={() => setTab(index + 1)}><CardContent><Typography variant="h6" fontWeight={800}>{title}</Typography><Typography color="text.secondary" mt={.5}>{detail}</Typography><Button sx={{ mt: 2 }}>Open</Button></CardContent></Card></Grid>)}</Grid></Box>}
     {tab === 1 && <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1100 }}><Typography variant="h5" fontWeight={800}>Rental defaults</Typography><Typography color="text.secondary" mt={.5} mb={3}>Group-wide starting values. Division, branch and contract rules may override these defaults.</Typography><Stack spacing={2}>{settings.map((item, index) => <Card key={item.id} variant="outlined"><CardContent><Stack direction={{ xs: 'column', sm: 'row' }} gap={2} alignItems={{ sm: 'center' }}><Box sx={{ flex: 1 }}><Typography fontWeight={700}>{settingNames[item.key] ?? item.description ?? item.key}</Typography><Typography variant="body2" color="text.secondary">{item.description}</Typography></Box><TextField size="small" label="Value" type={item.isSecret ? 'password' : 'text'} value={item.value} onChange={event => setSettings(current => current.map((entry, i) => i === index ? { ...entry, value: event.target.value } : entry))} /><Button variant="outlined" disabled={saving} onClick={() => void saveSetting(item)}>Save</Button></Stack></CardContent></Card>)}</Stack></Box>}
     {tab === 2 && <ChargeDefinitionsPage />}

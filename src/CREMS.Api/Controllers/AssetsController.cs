@@ -62,7 +62,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
                 asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
                 asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType,
                 asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-                asset.DailyRate, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.CurrentLocation, asset.PhotoUrlsJson))
+                asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.CurrentLocation, asset.PhotoUrlsJson))
             .ToListAsync(cancellationToken);
         return Ok(assets);
     }
@@ -131,6 +131,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             AcquisitionDate = request.AcquisitionDate, AcquisitionCost = request.AcquisitionCost, CurrentBookValue = request.CurrentBookValue,
             OwnershipType = Normalize(request.OwnershipType), InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber), InsuranceExpiry = request.InsuranceExpiry, WarrantyExpiry = request.WarrantyExpiry,
             DailyRate = request.DailyRate,
+            DefaultBondAmount = request.DefaultBondAmount,
             NextServiceDate = request.NextServiceDate,
             CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name,
             PhotoUrlsJson = request.PhotoUrlsJson ?? "[]",
@@ -190,6 +191,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.AcquisitionDate = request.AcquisitionDate; asset.AcquisitionCost = request.AcquisitionCost; asset.CurrentBookValue = request.CurrentBookValue; asset.OwnershipType = Normalize(request.OwnershipType);
         asset.InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber); asset.InsuranceExpiry = request.InsuranceExpiry; asset.WarrantyExpiry = request.WarrantyExpiry;
         asset.DailyRate = request.DailyRate;
+        asset.DefaultBondAmount = request.DefaultBondAmount;
         asset.NextServiceDate = request.NextServiceDate;
         asset.CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name;
         asset.PhotoUrlsJson = request.PhotoUrlsJson ?? "[]";
@@ -344,7 +346,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.BranchId, branchName, asset.RegistrationNumber, asset.SerialNumber,
         asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear, asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
         asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType, asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-        asset.DailyRate, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.CurrentLocation, asset.PhotoUrlsJson);
+        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.CurrentLocation, asset.PhotoUrlsJson);
 }
 
 public sealed record SaveAssetRequest(
@@ -372,6 +374,7 @@ public sealed record SaveAssetRequest(
     DateOnly? InsuranceExpiry,
     DateOnly? WarrantyExpiry,
     [Range(0, 1_000_000)] decimal DailyRate,
+    [Range(0, 1_000_000)] decimal DefaultBondAmount,
     DateOnly? NextServiceDate,
     Guid? ServiceOfferingId = null,
     Guid? AssetCategoryId = null,
@@ -385,5 +388,5 @@ public sealed record AssetResponse(
     Guid BranchId, string BranchName, string? RegistrationNumber, string? SerialNumber,
     string? Category, string? Manufacturer, string? Model, int? ModelYear, string? VinOrChassisNumber, string? EngineNumber, string? MeterUnit, decimal? CurrentMeterReading,
     DateOnly? AcquisitionDate, decimal AcquisitionCost, decimal? CurrentBookValue, string? OwnershipType, string? InsurancePolicyNumber, DateOnly? InsuranceExpiry, DateOnly? WarrantyExpiry,
-    decimal DailyRate, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, string? CurrentLocation, string PhotoUrlsJson);
+    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, string? CurrentLocation, string PhotoUrlsJson);
 public sealed record SaveAssetCostRequest(Guid? BookingId, AssetCostCategory Category, [Required, MaxLength(300)] string Description, [Range(0.01, 100000000)] decimal Amount, DateOnly OccurredOn, string? Supplier, string? ReferenceNumber);

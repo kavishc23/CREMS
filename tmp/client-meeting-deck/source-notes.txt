@@ -1,8 +1,0 @@
-Deck purpose: Confirm CREMS pilot scope, technology stack and 12-week delivery plan with the Carpenters Fiji client.
-
-Sources used:
-- Client/project team scope supplied in the Codex conversation on 10 August 2026.
-- Existing CREMS project implementation and project-plan materials in /Users/kavishchandra/Documents/CS400.
-- Local Carpenters-branded and catalogue images from src/crems-web/public.
-
-No external web research or externally sourced media was used in this deck.

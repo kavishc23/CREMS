@@ -152,8 +152,7 @@ public sealed class CustomerAccountController(
         var licenceRequired = booking.Items.Any(x => x.Asset!.Type == Domain.Assets.AssetType.Vehicle) && !professionalDriverProvided;
         var licenceVerified = !licenceRequired || booking.Inspections.Any(x => x.DriverLicenceVerified) ||
             documents.Any(x => x.Type.Contains("licence", StringComparison.OrdinalIgnoreCase) || x.Type.Contains("license", StringComparison.OrdinalIgnoreCase));
-        var depositPaid = booking.DepositRequired <= 0 || booking.Payments
-            .Where(x => x.Status == PaymentStatus.Recorded && x.Type == PaymentType.Deposit).Sum(x => x.Amount) >= booking.DepositRequired;
+        var bondPaid = booking.DepositRequired <= 0 || booking.BondAmountHeld >= booking.DepositRequired;
         var agreementReady = booking.RentalAgreement is not null && booking.RentalAgreement.Status != AgreementStatus.Draft;
         var preHireComplete = booking.Inspections.Any(x => x.Type == InspectionType.Handover);
         var personnelRequired = booking.Items.Any(x => x.Asset!.PersonnelRequirement == Domain.Common.PersonnelRequirement.Required) ||
@@ -190,6 +189,9 @@ public sealed class CustomerAccountController(
             Pricing = new { BaseSubtotal = baseSubtotal, booking.DiscountAmount, Charges = visibleCharges,
                 ChargeTotal = chargeTotal, booking.TaxRate, TaxAmount = tax, Total = taxable + tax,
                 booking.DepositRequired },
+            Bond = new { Required = booking.DepositRequired, Held = booking.BondAmountHeld,
+                Deduction = booking.BondDeductionAmount, booking.BondDeductionReason,
+                Refund = booking.BondRefundAmount, Status = booking.BondStatus.ToString(), booking.BondSettledAt },
             Agreement = booking.RentalAgreement is null ? null : new
             {
                 booking.RentalAgreement.AgreementNumber, booking.RentalAgreement.Status,
@@ -217,7 +219,7 @@ public sealed class CustomerAccountController(
             {
                 Identification = new { Complete = identificationVerified, Label = "Identification verified" },
                 DriverLicence = new { Complete = licenceVerified, Required = licenceRequired, Label = "Driver licence verified" },
-                Deposit = new { Complete = depositPaid, RequiredAmount = booking.DepositRequired, Label = "Deposit or payment completed" },
+                Bond = new { Complete = bondPaid, RequiredAmount = booking.DepositRequired, Label = "Refundable bond received" },
                 Agreement = new { Complete = agreementReady, Label = "Agreement ready for pickup" },
                 PreHireInspection = new { Complete = preHireComplete, Label = "Pre-hire inspection completed" },
                 Personnel = new { Complete = personnelReady, Required = personnelRequired, Label = "Operator or driver confirmed" },

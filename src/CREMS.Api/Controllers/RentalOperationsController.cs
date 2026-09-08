@@ -57,7 +57,8 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
                 x.Branch!.Name, x.Items.Select(i => i.Asset!.AssetNumber).FirstOrDefault(), x.Items.Select(i => i.Asset!.Name).FirstOrDefault(),
                 x.Items.Select(i => (DateTimeOffset?)i.StartAt).FirstOrDefault(), x.Items.Select(i => (DateTimeOffset?)i.EndAt).FirstOrDefault(),
                 x.RentalAgreement != null, x.RentalAgreement != null ? x.RentalAgreement.Status.ToString() : "Not prepared",
-                x.Payments.Where(p => p.Status == PaymentStatus.Recorded).Sum(p => (decimal?)p.Amount) ?? 0, x.DepositRequired,
+                x.Payments.Where(p => p.Status == PaymentStatus.Recorded && (p.Type == PaymentType.RentalCharge || p.Type == PaymentType.AdditionalCharge)).Sum(p => (decimal?)p.Amount) ?? 0, x.DepositRequired,
+                x.BondStatus.ToString(), x.BondAmountHeld, x.BondDeductionAmount, x.BondRefundAmount,
                 x.Inspections.Any(i => i.Type == InspectionType.Handover), x.Inspections.Any(i => i.Type == InspectionType.Return),
                 x.Items.Any(i => i.EndAt < now) ? "Return is overdue" : x.Customer.IsBlocked ? "Customer account is blocked" : null))
             .ToListAsync(cancellationToken);
@@ -91,7 +92,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["driver"] = ["At least one authorized driver with a current verified licence is required."] }));
         var recordedPayments = await db.RentalPayments.Where(item => item.BookingId == bookingId && item.Status == PaymentStatus.Recorded).SumAsync(item => (decimal?)item.Amount, cancellationToken) ?? 0;
         if (!request.PaymentVerified || recordedPayments < booking.DepositRequired)
-            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["payment"] = [$"The required deposit of FJD {booking.DepositRequired:0.00} must be recorded and verified before handover."] }));
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["payment"] = [$"The required refundable bond of FJD {booking.DepositRequired:0.00} must be recorded and verified before handover."] }));
         if (!request.IdentificationVerified || !request.DriverLicenceVerified || string.IsNullOrWhiteSpace(request.SignatureName))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Identification, driver licence and customer signature are required."] }));
 
@@ -108,19 +109,36 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
     [HttpPost("{bookingId:guid}/return")]
     public async Task<ActionResult> Return(Guid bookingId, ReturnInspectionRequest request, CancellationToken cancellationToken)
     {
-        var booking = await db.Bookings.Include(item => item.Items).ThenInclude(item => item.Asset)
-            .Include(item => item.Inspections).FirstOrDefaultAsync(item => item.Id == bookingId, cancellationToken);
+        var booking = await db.Bookings.Include(item => item.Customer).Include(item => item.Items).ThenInclude(item => item.Asset)
+            .Include(item => item.Inspections).Include(item => item.Payments).FirstOrDefaultAsync(item => item.Id == bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status != BookingStatus.ConvertedToRental)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["Only an active rental can be returned."] }));
+        if (request.BondDeductionAmount < 0 || request.BondDeductionAmount > booking.BondAmountHeld)
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["bond"] = ["The bond deduction must be between zero and the amount held."] }));
+        if (request.BondDeductionAmount > 0 && string.IsNullOrWhiteSpace(request.BondDeductionReason))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["bondReason"] = ["Give a clear reason for every bond deduction."] }));
 
         booking.Inspections.Add(CreateInspection(booking.Id, InspectionType.Return, request, scope));
         booking.AdditionalCharges = request.AdditionalCharges + request.LateFee + request.ExcessUsageCharge + request.RefuellingCharge + request.CleaningCharge + request.DamageCharge;
         booking.AdditionalChargesDescription = Normalize(request.AdditionalChargesDescription);
         booking.Status = BookingStatus.Completed;
         booking.UpdatedAt = DateTimeOffset.UtcNow;
+        booking.BondDeductionAmount = request.BondDeductionAmount;
+        booking.BondDeductionReason = Normalize(request.BondDeductionReason);
+        booking.BondRefundAmount = Math.Max(0, booking.BondAmountHeld - booking.BondDeductionAmount);
+        booking.BondSettledAt = DateTimeOffset.UtcNow;
+        booking.BondStatus = booking.BondAmountHeld <= 0 ? BondStatus.NotRequired
+            : booking.BondRefundAmount == booking.BondAmountHeld ? BondStatus.Refunded
+            : booking.BondRefundAmount > 0 ? BondStatus.PartiallyRefunded : BondStatus.Retained;
+        if (booking.BondRefundAmount > 0)
+            booking.Payments.Add(new RentalPayment { BookingId = booking.Id, Type = PaymentType.BondRefund,
+                Method = request.BondRefundMethod, Amount = booking.BondRefundAmount,
+                ReceiptNumber = $"BRF-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
+                Note = booking.BondDeductionAmount > 0 ? $"Bond refund after deduction: {booking.BondDeductionReason}" : "Full refundable bond returned.",
+                RecordedByUserId = scope.UserId, RecordedByName = scope.UserName });
         var hasDamage = !string.IsNullOrWhiteSpace(request.DamageNotes);
         foreach (var item in booking.Items.Where(item => item.Asset is not null))
         {
@@ -133,7 +151,8 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var rentalSubtotal = booking.Items.Sum(item => item.DailyRate * Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)));
         var invoiceSubtotal = Math.Max(0, rentalSubtotal - booking.DiscountAmount + booking.AdditionalCharges);
         var invoiceTax = invoiceSubtotal * booking.TaxRate / 100m;
-        var paid = await db.RentalPayments.Where(x => x.BookingId == bookingId && x.Status == PaymentStatus.Recorded).SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
+        var paid = await db.RentalPayments.Where(x => x.BookingId == bookingId && x.Status == PaymentStatus.Recorded &&
+            (x.Type == PaymentType.RentalCharge || x.Type == PaymentType.AdditionalCharge)).SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
         var invoice = new RentalInvoice
         {
             BookingId = booking.Id, InvoiceNumber = $"INV-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
@@ -171,6 +190,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)));
         var taxable = Math.Max(0, subtotal - booking.DiscountAmount + booking.AdditionalCharges);
         return new { booking.Id, booking.BookingNumber, booking.Status, booking.DepositRequired,
+            bond = new { required = booking.DepositRequired, held = booking.BondAmountHeld, deduction = booking.BondDeductionAmount, booking.BondDeductionReason, refund = booking.BondRefundAmount, status = booking.BondStatus.ToString(), booking.BondSettledAt },
             booking.DiscountAmount, booking.TaxRate, booking.AdditionalCharges, booking.AdditionalChargesDescription,
             Subtotal = subtotal, TaxAmount = taxable * booking.TaxRate / 100m, Total = taxable * (1 + booking.TaxRate / 100m),
             Inspections = booking.Inspections.OrderBy(item => item.CompletedAt).Select(item => new { item.Id, item.Type,
@@ -209,7 +229,10 @@ public sealed record ReturnInspectionRequest(
     [Range(0, 1000000)] decimal ExcessUsageCharge,
     [Range(0, 1000000)] decimal RefuellingCharge,
     [Range(0, 1000000)] decimal CleaningCharge,
-    [Range(0, 1000000)] decimal DamageCharge) : InspectionRequest(
+    [Range(0, 1000000)] decimal DamageCharge,
+    [Range(0, 1000000)] decimal BondDeductionAmount,
+    string? BondDeductionReason,
+    PaymentMethod BondRefundMethod) : InspectionRequest(
         IdentificationVerified, DriverLicenceVerified, MeterReading, FuelLevelPercent,
         ConditionNotes, DamageNotes, SignatureName);
 public sealed record RentalQueueCounts(int PickupToday, int OnHire, int DueToday, int Overdue, int ReturnInProgress, int RecentlyCompleted);
@@ -217,4 +240,5 @@ public sealed record RentalWorkQueueResponse(IReadOnlyList<RentalWorkQueueRow> I
 public sealed record RentalWorkQueueRow(Guid Id, string BookingNumber, string Status, string CustomerName, string? CustomerPhone,
     string BranchName, string? AssetNumber, string? AssetName, DateTimeOffset? StartAt, DateTimeOffset? EndAt,
     bool HasAgreement, string AgreementStatus, decimal AmountPaid, decimal DepositRequired,
+    string BondStatus, decimal BondAmountHeld, decimal BondDeductionAmount, decimal BondRefundAmount,
     bool PreHireInspectionComplete, bool ReturnInspectionComplete, string? Warning);

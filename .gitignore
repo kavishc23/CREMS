@@ -7,6 +7,9 @@
 **/node_modules/
 **/dist/
 **/*.tsbuildinfo
+tmp/
+src/crems-web/output/
+output/**/wbs_qa/
 src/crems-web/vite.config.js
 src/crems-web/vite.config.d.ts
 **/.env

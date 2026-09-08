@@ -39,6 +39,7 @@ public sealed class Asset : Entity
     public ICollection<AssetAttributeValue> AttributeValues { get; set; } = [];
     public PersonnelRequirement PersonnelRequirement { get; set; }
     public decimal DailyRate { get; set; }
+    public decimal DefaultBondAmount { get; set; }
     public DateOnly? NextServiceDate { get; set; }
     public bool IsActive { get; set; } = true;
 }

@@ -111,7 +111,8 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var item = booking.Items.FirstOrDefault();
         var days = item is null ? 0 : Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays));
         var hire = item is null ? 0 : days * item.DailyRate; var subtotal = Math.Max(0, hire - booking.DiscountAmount + booking.AdditionalCharges);
-        var paid = booking.Payments.Where(x => x.Status == PaymentStatus.Recorded).Sum(x => x.Amount);
+        var paid = booking.Payments.Where(x => x.Status == PaymentStatus.Recorded &&
+            (x.Type == PaymentType.RentalCharge || x.Type == PaymentType.AdditionalCharge)).Sum(x => x.Amount);
         var approvalContext = BuildApprovalContext(booking, subtotal * (1 + booking.TaxRate / 100m));
         var approvalRule = await ApprovalWorkflowService.MatchBookingAsync(db, approvalContext, cancellationToken);
         return Ok(new {
@@ -120,7 +121,8 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             branch = new { booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone },
             item = item is null ? null : new { item.Id, item.AssetId, item.Asset!.AssetNumber, item.Asset.Name, item.Asset.Category, assetStatus = item.Asset.Status.ToString(), personnelRequirement = item.Asset.PersonnelRequirement.ToString(), item.Asset.DivisionId, division = item.Asset.Division?.Name, item.Asset.ServiceOfferingId, service = item.Asset.ServiceOffering?.Name, item.StartAt, item.EndAt, item.DailyRate, item.Asset.CurrentMeterReading, item.Asset.MeterUnit },
             pricing = new { duration = days, hire, booking.DiscountAmount, booking.AdditionalCharges, booking.AdditionalChargesDescription, booking.TaxRate, tax = subtotal * booking.TaxRate / 100m, total = subtotal * (1 + booking.TaxRate / 100m), booking.DepositRequired, paid, balance = Math.Max(0, subtotal * (1 + booking.TaxRate / 100m) - paid), internalCost = booking.Charges.Sum(x => x.Quantity * x.UnitCost), charges = booking.Charges.Select(x => new { x.Description, category = x.Category.ToString(), unit = x.Unit.ToString(), x.Quantity, x.UnitRate, x.UnitCost, x.IsTaxable }) },
-            readiness = new { confirmed = booking.Status == BookingStatus.Confirmed, assetAllocated = item != null, customerEligible = !booking.Customer.IsBlocked && booking.Customer.IsActive, identificationVerified = booking.Inspections.Any(x => x.Type == InspectionType.Handover && x.IdentificationVerified), licenceVerified = booking.Inspections.Any(x => x.Type == InspectionType.Handover && x.DriverLicenceVerified), paymentSatisfied = paid >= booking.DepositRequired, preHireInspectionComplete = booking.Inspections.Any(x => x.Type == InspectionType.Handover), agreementSigned = booking.RentalAgreement != null },
+            bond = new { required = booking.DepositRequired, held = booking.BondAmountHeld, deduction = booking.BondDeductionAmount, booking.BondDeductionReason, refund = booking.BondRefundAmount, status = booking.BondStatus.ToString(), booking.BondSettledAt },
+            readiness = new { confirmed = booking.Status == BookingStatus.Confirmed, assetAllocated = item != null, customerEligible = !booking.Customer.IsBlocked && booking.Customer.IsActive, identificationVerified = booking.Inspections.Any(x => x.Type == InspectionType.Handover && x.IdentificationVerified), licenceVerified = booking.Inspections.Any(x => x.Type == InspectionType.Handover && x.DriverLicenceVerified), paymentSatisfied = booking.DepositRequired <= 0 || booking.BondAmountHeld >= booking.DepositRequired, preHireInspectionComplete = booking.Inspections.Any(x => x.Type == InspectionType.Handover), agreementSigned = booking.RentalAgreement != null },
             agreement = booking.RentalAgreement is null ? null : new { booking.RentalAgreement.AgreementNumber, status = booking.RentalAgreement.Status.ToString(), booking.RentalAgreement.CustomerSignedAt, booking.RentalAgreement.ApprovedByName, booking.RentalAgreement.LastEmailedAt, addendumCount = booking.RentalAgreement.Addendums.Count },
             quotation = quote is null ? null : new { quote.Id, quote.QuoteNumber, status = quote.Status.ToString(), quote.ValidUntil, quote.Subtotal, quote.Discount, quote.Tax, quote.Total, quote.Version, quote.LineItemsJson, quote.LastEmailedTo, quote.LastEmailedAt },
             invoice = booking.Invoice is null ? null : new { booking.Invoice.InvoiceNumber, status = booking.Invoice.Status.ToString(), booking.Invoice.Total, booking.Invoice.AmountPaid, booking.Invoice.BalanceDue },
@@ -149,6 +151,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         else db.SalesQuotes.Add(quote);
         quote.ValidUntil = request.ValidUntil; quote.Discount = request.Discount; quote.Subtotal = totals.Subtotal; quote.Tax = totals.Tax; quote.Total = totals.Total; quote.LineItemsJson = System.Text.Json.JsonSerializer.Serialize(request.Lines); quote.Status = QuoteStatus.Draft; quote.UpdatedAt = DateTimeOffset.UtcNow;
         booking.DiscountAmount = request.Discount; booking.TaxRate = request.TaxRate; booking.DepositRequired = Math.Max(0, request.Deposit);
+        if (booking.BondAmountHeld == 0) booking.BondStatus = booking.DepositRequired > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired;
         booking.AdditionalCharges = Math.Max(0, totals.Subtotal - booking.Items.Sum(x => x.DailyRate * Math.Max(1, (decimal)Math.Ceiling((x.EndAt - x.StartAt).TotalDays)))); booking.UpdatedAt = DateTimeOffset.UtcNow;
         booking.AdditionalChargesDescription = string.Join(", ", request.Lines.Where(x => x.Category != ChargeCategory.BaseHire).Select(x => x.Description));
         if (request.Discount > 0 && !await db.ApprovalRequests.AnyAsync(x => x.EntityType == nameof(SalesQuote) && x.EntityId == quote.Id && x.Status == ApprovalStatus.Pending, cancellationToken))
@@ -289,6 +292,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         booking.Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
         booking.DiscountAmount = request.DiscountAmount; booking.TaxRate = request.TaxRate;
         booking.DepositRequired = request.DepositRequired; booking.AdditionalCharges = request.AdditionalCharges;
+        if (booking.BondAmountHeld == 0) booking.BondStatus = booking.DepositRequired > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired;
         booking.AdditionalChargesDescription = string.IsNullOrWhiteSpace(request.AdditionalChargesDescription) ? null : request.AdditionalChargesDescription.Trim();
         var item = booking.Items.FirstOrDefault();
         if (item is null) { item = new BookingItem(); booking.Items.Add(item); }

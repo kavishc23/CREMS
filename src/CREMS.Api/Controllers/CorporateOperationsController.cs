@@ -173,7 +173,7 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         var quote = await db.SalesQuotes.FirstOrDefaultAsync(x => x.Id == id, token); if (quote is null) return NotFound();
         var scope = await ScopeFor(quote.BranchId); if (scope is null || (!scope.IsAdministrator && quote.DivisionId != scope.DivisionId)) return Forbid();
         if (quote.Status != QuoteStatus.Accepted || quote.ConvertedBookingId.HasValue) return Validation("status", "Only an accepted quote that has not already been converted can create a booking.");
-        if (request.EndAt <= request.StartAt || request.StartAt < DateTimeOffset.UtcNow.AddHours(-1) || request.DailyRate < 0 || request.DepositRequired < 0) return Validation("booking", "Enter a valid future hire period, rate and deposit.");
+        if (request.EndAt <= request.StartAt || request.StartAt < DateTimeOffset.UtcNow.AddHours(-1) || request.DailyRate < 0 || request.DepositRequired < 0) return Validation("booking", "Enter a valid future hire period, rate and refundable bond.");
         var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == request.AssetId && x.BranchId == quote.BranchId && x.DivisionId == quote.DivisionId, token);
         if (asset is null || !BookingPolicy.IsOperational(asset)) return Validation("assetId", "Select an operational asset from the quote division and branch.");
         var conflict = await db.BookingItems.AnyAsync(x => x.AssetId == asset.Id && x.StartAt < request.EndAt && x.EndAt > request.StartAt && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental || x.Booking.Status == BookingStatus.Draft && x.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)), token);

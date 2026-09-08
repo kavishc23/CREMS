@@ -92,7 +92,7 @@ public sealed class RentalAgreementAddendum : Entity
     public required string ApprovedByName { get; set; }
 }
 
-public enum PaymentType { RentalCharge, Deposit, Refund, AdditionalCharge }
+public enum PaymentType { RentalCharge, Deposit, Refund, AdditionalCharge, BondCollection, BondRefund }
 public enum PaymentMethod { Cash, Card, BankTransfer, PurchaseOrder, MobileMoney }
 public enum PaymentStatus { Recorded, Refunded, Voided }
 public enum NotificationChannel { Email, Sms }

@@ -16,6 +16,12 @@ public sealed class Booking : Entity
     public decimal DiscountAmount { get; set; }
     public decimal TaxRate { get; set; } = 15m;
     public decimal DepositRequired { get; set; }
+    public BondStatus BondStatus { get; set; } = BondStatus.NotRequired;
+    public decimal BondAmountHeld { get; set; }
+    public decimal BondDeductionAmount { get; set; }
+    public string? BondDeductionReason { get; set; }
+    public decimal BondRefundAmount { get; set; }
+    public DateTimeOffset? BondSettledAt { get; set; }
     public decimal AdditionalCharges { get; set; }
     public string? AdditionalChargesDescription { get; set; }
     public Guid? ApprovedByUserId { get; set; }
@@ -89,4 +95,15 @@ public enum BookingStatus
     ConvertedToRental,
     Completed,
     Expired
+}
+
+public enum BondStatus
+{
+    NotRequired,
+    AwaitingPayment,
+    Held,
+    SettlementPending,
+    Refunded,
+    PartiallyRefunded,
+    Retained
 }

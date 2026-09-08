@@ -88,13 +88,17 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
                 IsPrimary = true, Verified = true,
             });
         if (request.AmountCollected > 0)
+        {
             booking.Payments.Add(new RentalPayment
             {
-                BookingId = booking.Id, Type = request.PaymentType, Method = request.PaymentMethod,
+                BookingId = booking.Id, Type = PaymentType.BondCollection, Method = request.PaymentMethod,
                 Amount = request.AmountCollected, ReceiptNumber = string.IsNullOrWhiteSpace(request.ReceiptNumber)
                     ? $"RCPT-{now:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}" : request.ReceiptNumber.Trim(),
                 RecordedByUserId = scope.UserId, RecordedByName = scope.UserName,
             });
+            booking.BondAmountHeld += request.AmountCollected;
+            booking.BondStatus = booking.BondAmountHeld >= booking.DepositRequired ? BondStatus.Held : BondStatus.AwaitingPayment;
+        }
         if (!string.IsNullOrWhiteSpace(booking.Customer?.Email)) QueueAgreementEmail(agreement, booking);
         booking.Status = BookingStatus.ConvertedToRental;
         booking.UpdatedAt = now;
@@ -154,7 +158,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
     {
         var customer = booking.Customer!; var data = BuildAgreementData(booking);
         var terms = string.Join("", data.Terms.Select(term => $"<h3 style=\"font-size:14px;margin:18px 0 5px\">{HtmlEncoder.Default.Encode(term.Title)}</h3><p style=\"font-size:13px;line-height:1.5;margin:0\">{HtmlEncoder.Default.Encode(term.Content)}</p>"));
-        var content = $"<p>Dear {HtmlEncoder.Default.Encode(customer.Name)},</p><p>This is your signed and agent-approved rental agreement. Keep this email with your rental records.</p><table role=\"presentation\" width=\"100%\" style=\"background:#f5f5f2;padding:14px\"><tr><td><strong>Agreement</strong></td><td>{agreement.AgreementNumber}</td></tr><tr><td><strong>Booking</strong></td><td>{booking.BookingNumber}</td></tr><tr><td><strong>Asset</strong></td><td>{HtmlEncoder.Default.Encode(data.Asset.Name)} ({HtmlEncoder.Default.Encode(data.Asset.AssetNumber)})</td></tr><tr><td><strong>Rental period</strong></td><td>{data.Rental.StartAt:dd MMM yyyy} – {data.Rental.EndAt:dd MMM yyyy}</td></tr><tr><td><strong>Total</strong></td><td>FJD {data.Pricing.Total:N2}</td></tr><tr><td><strong>Deposit</strong></td><td>FJD {data.Pricing.DepositRequired:N2}</td></tr></table><h2 style=\"font-size:18px\">Terms and conditions</h2>{terms}<h2 style=\"font-size:18px\">Acceptance record</h2><p>Signed by <strong>{HtmlEncoder.Default.Encode(agreement.CustomerSignatureName)}</strong> on {agreement.CustomerSignedAt:dd MMM yyyy 'at' HH:mm}. Approved by <strong>{HtmlEncoder.Default.Encode(agreement.ApprovedByName)}</strong>. Terms version: {agreement.TermsVersion}.</p><p>Contact {HtmlEncoder.Default.Encode(booking.Branch?.Name ?? "the issuing branch")} on {HtmlEncoder.Default.Encode(booking.Branch?.Phone ?? "the published branch number")} if any detail is incorrect.</p>";
+        var content = $"<p>Dear {HtmlEncoder.Default.Encode(customer.Name)},</p><p>This is your signed and agent-approved rental agreement. Keep this email with your rental records.</p><table role=\"presentation\" width=\"100%\" style=\"background:#f5f5f2;padding:14px\"><tr><td><strong>Agreement</strong></td><td>{agreement.AgreementNumber}</td></tr><tr><td><strong>Booking</strong></td><td>{booking.BookingNumber}</td></tr><tr><td><strong>Asset</strong></td><td>{HtmlEncoder.Default.Encode(data.Asset.Name)} ({HtmlEncoder.Default.Encode(data.Asset.AssetNumber)})</td></tr><tr><td><strong>Rental period</strong></td><td>{data.Rental.StartAt:dd MMM yyyy} – {data.Rental.EndAt:dd MMM yyyy}</td></tr><tr><td><strong>Total</strong></td><td>FJD {data.Pricing.Total:N2}</td></tr><tr><td><strong>Refundable bond</strong></td><td>FJD {data.Pricing.DepositRequired:N2}</td></tr></table><h2 style=\"font-size:18px\">Terms and conditions</h2>{terms}<h2 style=\"font-size:18px\">Acceptance record</h2><p>Signed by <strong>{HtmlEncoder.Default.Encode(agreement.CustomerSignatureName)}</strong> on {agreement.CustomerSignedAt:dd MMM yyyy 'at' HH:mm}. Approved by <strong>{HtmlEncoder.Default.Encode(agreement.ApprovedByName)}</strong>. Terms version: {agreement.TermsVersion}.</p><p>Contact {HtmlEncoder.Default.Encode(booking.Branch?.Name ?? "the issuing branch")} on {HtmlEncoder.Default.Encode(booking.Branch?.Phone ?? "the published branch number")} if any detail is incorrect.</p>";
         var email = emailQueue.Queue(db, customer.Email!, $"Signed rental agreement {agreement.AgreementNumber}", EmailTemplate.Branded($"Rental agreement {agreement.AgreementNumber}", content), $"Signed rental agreement {agreement.AgreementNumber} for booking {booking.BookingNumber}. Asset {data.Asset.Name}. Total FJD {data.Pricing.Total:N2}.", "RentalAgreement");
         agreement.LastEmailedTo = customer.Email!.Trim(); agreement.LastEmailedAt = DateTimeOffset.UtcNow; agreement.LastEmailId = email.Id;
     }
@@ -177,7 +181,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
     private static IReadOnlyList<AgreementTerm> DefaultTerms() =>
     [
         new("1. Agreement and rental period", "This agreement, the booking summary, pricing schedule and signed inspection records form the entire rental record. The customer must return the asset to the stated branch by the agreed date and time unless Carpenters Rentals approves an extension in writing."),
-        new("2. Charges, deposit and payment", "The customer must pay the stated rental charges, taxes, deposit and any properly assessed additional charges. Extra time, excess kilometres or hours, refuelling, cleaning, recovery, fines, tolls, loss and damage may be charged where applicable and disclosed."),
+        new("2. Charges, refundable bond and payment", "The customer must pay the stated rental charges, taxes, refundable bond and any properly assessed additional charges. Extra time, excess kilometres or hours, refuelling, cleaning, recovery, fines, tolls, loss and damage may be charged where applicable and disclosed."),
         new("3. Inspection and acceptance", "Before collection, the customer and rental officer must inspect the asset and record fuel, mileage or operating hours and existing damage. Signing confirms receipt in the recorded condition and suitability for the stated purpose, subject to defects that could not reasonably be identified."),
         new("4. Authorized drivers and operators", "Only persons approved by Carpenters Rentals who hold the legally required licence, permit, certification and competence may drive or operate the asset. The customer must not subhire, lend or transfer possession without written approval."),
         new("5. Safe and permitted use", "The asset must be used carefully, lawfully, within rated capacity and manufacturer instructions, only for the disclosed purpose and within any agreed geographic limits. Racing, towing without approval, overloading, unlawful use, use while impaired and reckless or unsafe operation are prohibited."),

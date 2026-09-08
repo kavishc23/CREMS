@@ -152,6 +152,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(x => x.Name).HasMaxLength(150);
             entity.Property(x => x.Category).HasMaxLength(100);
             entity.Property(x => x.DailyRate).HasPrecision(18, 2);
+            entity.Property(x => x.DefaultBondAmount).HasPrecision(18, 2);
             entity.Property(x => x.CurrentMeterReading).HasPrecision(18, 2);
             entity.Property(x => x.AcquisitionCost).HasPrecision(18, 2);
             entity.Property(x => x.CurrentBookValue).HasPrecision(18, 2);
@@ -230,6 +231,9 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(x => x.TaxRate).HasPrecision(5, 2);
             entity.Property(x => x.DepositRequired).HasPrecision(18, 2);
             entity.Property(x => x.AdditionalCharges).HasPrecision(18, 2);
+            entity.Property(x => x.BondAmountHeld).HasPrecision(18, 2);
+            entity.Property(x => x.BondDeductionAmount).HasPrecision(18, 2);
+            entity.Property(x => x.BondRefundAmount).HasPrecision(18, 2);
         });
 
         builder.Entity<RentalInspection>(entity =>
