@@ -4,12 +4,13 @@ import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
 import DashboardOutlined from '@mui/icons-material/DashboardOutlined'
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
-import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
+import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
+import VisibilityOffOutlined from '@mui/icons-material/VisibilityOffOutlined'
 import {
   Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Container,
   Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, FormControlLabel, FormGroup, Grid,
-  InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography,
+  IconButton, InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
 import { CustomerSiteHeader, type CustomerSiteSection } from '../components/CustomerSiteHeader'
@@ -84,6 +85,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [login, setLogin] = useState({ email: '', password: '' })
+  const [showPassword, setShowPassword] = useState(false)
   const [registration, setRegistration] = useState(emptyRegistration)
   const [activation, setActivation] = useState({ email: '', code: '', password: '', confirmPassword: '' })
   const [reset, setReset] = useState({ email: '', code: '', password: '', confirmPassword: '', codeSent: false })
@@ -141,7 +143,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
   }, [session, onSessionChange])
 
   async function finishAuthentication() { const signedIn = await loadSession(); if (signedIn) onBack() }
-  async function signIn(event: FormEvent) { event.preventDefault(); setSubmitting(true); setError(''); try { await api.post('/auth/login?useCookies=true', login); await finishAuthentication() } catch { setError('The email address or password is incorrect, or this is not a customer account.') } finally { setSubmitting(false) } }
+  async function signIn(event: FormEvent) { event.preventDefault(); setShowPassword(false); setSubmitting(true); setError(''); try { await api.post('/auth/login?useCookies=true', login); await finishAuthentication() } catch { setError('The email address or password is incorrect, or this is not a customer account.') } finally { setSubmitting(false) } }
   async function register(event: FormEvent) { event.preventDefault(); setError(''); if (registration.password !== registration.confirmPassword) return setError('The passwords do not match.'); setSubmitting(true); try { const { confirmPassword: _, ...request } = registration; void _; await api.post('/customer-account/register', request); await finishAuthentication() } catch (reason) { setError(apiMessage(reason, 'Unable to create your account.')) } finally { setSubmitting(false) } }
   async function activate(event: FormEvent) { event.preventDefault(); setError(''); if (activation.password !== activation.confirmPassword) return setError('The passwords do not match.'); setSubmitting(true); try { await api.post('/customer-account/activate', { email: activation.email, code: activation.code, password: activation.password }); await finishAuthentication() } catch (reason) { setError(apiMessage(reason, 'Unable to activate the account.')) } finally { setSubmitting(false) } }
   async function requestReset() { setSubmitting(true); setError(''); try { const response = await api.post<{ message: string }>('/auth/password-reset/request', { email: reset.email }); setReset({ ...reset, codeSent: true }); setNotice(response.data.message) } catch { setError('Unable to request a password reset right now.') } finally { setSubmitting(false) } }
@@ -177,7 +179,31 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
       <Typography variant="h4" fontWeight={800}>{authMode === 'register' ? 'Create customer account' : authMode === 'activate' ? 'Activate existing account' : authMode === 'reset' ? 'Reset your password' : 'Customer sign in'}</Typography>
       <Typography color="text.secondary" mt={1} mb={3}>{authMode === 'login' ? 'Manage requests, quotations, documents and active rentals securely.' : authMode === 'register' ? 'Create one account for participating Carpenters rental services.' : authMode === 'activate' ? 'Use the code provided by Carpenters staff and choose your password.' : 'We will send a six-digit reset code to your account email.'}</Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}{notice && <Alert severity="success" sx={{ mb: 2 }}>{notice}</Alert>}
-      {authMode === 'login' && <Box component="form" onSubmit={signIn}><Stack spacing={2}><TextField required type="email" label="Email" autoComplete="email" value={login.email} onChange={e => setLogin({ ...login, email: e.target.value })} /><TextField required type="password" label="Password" autoComplete="current-password" value={login.password} onChange={e => setLogin({ ...login, password: e.target.value })} /><Button type="submit" size="large" variant="contained" disabled={submitting}>Sign in</Button><Button onClick={() => { setAuthMode('reset'); setError(''); setNotice('') }}>Forgot password?</Button><Divider>New customer?</Divider><Button variant="outlined" onClick={() => { setRegistration({ ...emptyRegistration }); setAuthMode('register'); setError('') }}>Create customer account</Button><Button onClick={() => { setAuthMode('activate'); setError('') }}>I received an activation code</Button></Stack></Box>}
+      {authMode === 'login' && <Box component="form" onSubmit={signIn}><Stack spacing={2}><TextField required type="email" label="Email" autoComplete="email" value={login.email} onChange={e => setLogin({ ...login, email: e.target.value })} /><TextField
+          required
+          type={showPassword ? 'text' : 'password'}
+          label="Password"
+          autoComplete="current-password"
+          value={login.password}
+          onChange={e => setLogin({ ...login, password: e.target.value })}
+          slotProps={{
+            input: {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    type="button"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowPassword(value => !value)}
+                    onMouseDown={event => event.preventDefault()}
+                    edge="end"
+                  >
+                    {showPassword ? <VisibilityOffOutlined /> : <VisibilityOutlined />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            },
+          }}
+        /><Button type="submit" size="large" variant="contained" disabled={submitting}>Sign in</Button><Button onClick={() => { setAuthMode('reset'); setError(''); setNotice('') }}>Forgot password?</Button><Divider>New customer?</Divider><Button variant="outlined" onClick={() => { setRegistration({ ...emptyRegistration }); setAuthMode('register'); setError('') }}>Create customer account</Button><Button onClick={() => { setAuthMode('activate'); setError('') }}>I received an activation code</Button></Stack></Box>}
       {authMode === 'register' && <Box component="form" onSubmit={register} autoComplete="off"><Stack spacing={2}>
         <TextField required label="Your full name" autoComplete="name" value={registration.fullName} onChange={e => setRegistration({ ...registration, fullName: e.target.value })} />
         <TextField required type="email" label="Email" autoComplete="email" value={registration.email} onChange={e => setRegistration({ ...registration, email: e.target.value })} />
