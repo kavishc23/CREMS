@@ -88,29 +88,50 @@ public static class DatabaseInitializer
 
     private static async Task EnsureDefaultBookingApprovalRuleAsync(ApplicationDbContext db, CancellationToken token)
     {
-        if (await db.ApprovalWorkflows.AnyAsync(x => x.Type == ApprovalType.Booking, token)) return;
-        db.ApprovalWorkflows.Add(new ApprovalWorkflow
+        var operationalRule = await db.ApprovalWorkflows.Include(x => x.Stages)
+            .FirstOrDefaultAsync(x => x.Type == ApprovalType.Booking &&
+                (x.Name == "Equipment, personnel and overtime approval" || x.Name == "Operational exception approval"), token);
+        if (operationalRule is null)
         {
-            Name = "Equipment, personnel and overtime approval",
-            Type = ApprovalType.Booking,
-            EntityType = nameof(Booking),
-            TriggerForEquipment = true,
-            TriggerForPersonnel = true,
-            TriggerForOvertime = true,
-            Priority = 100,
-            IsActive = true,
-            Stages =
-            [
-                new ApprovalWorkflowStage
-                {
-                    Sequence = 1,
-                    Name = "Branch manager approval",
-                    AssignedRole = SystemRoles.BranchManager,
-                    EscalateAfterHours = 24,
-                    EscalationRole = SystemRoles.Administrator,
-                },
-            ],
-        });
+            db.ApprovalWorkflows.Add(new ApprovalWorkflow
+            {
+                Name = "Operational exception approval",
+                Type = ApprovalType.Booking,
+                EntityType = nameof(Booking),
+                TriggerForEquipment = true,
+                TriggerForPersonnel = true,
+                TriggerForOvertime = true,
+                Priority = 200,
+                IsActive = true,
+                Stages =
+                [
+                    new ApprovalWorkflowStage { Sequence = 1, Name = "Branch manager review", AssignedRole = SystemRoles.BranchManager, EscalateAfterHours = 24, EscalationRole = SystemRoles.Administrator },
+                ],
+            });
+        }
+        else
+        {
+            operationalRule.Name = "Operational exception approval";
+            operationalRule.Priority = Math.Max(operationalRule.Priority, 200);
+        }
+
+        if (!await db.ApprovalWorkflows.AnyAsync(x => x.Type == ApprovalType.Booking && x.Name == "High-value hire approval", token))
+        {
+            db.ApprovalWorkflows.Add(new ApprovalWorkflow
+            {
+                Name = "High-value hire approval",
+                Type = ApprovalType.Booking,
+                EntityType = nameof(Booking),
+                MinimumAmount = 5000m,
+                Priority = 300,
+                IsActive = true,
+                Stages =
+                [
+                    new ApprovalWorkflowStage { Sequence = 1, Name = "Branch manager review", AssignedRole = SystemRoles.BranchManager, EscalateAfterHours = 12, EscalationRole = SystemRoles.Administrator },
+                    new ApprovalWorkflowStage { Sequence = 2, Name = "Administration approval", AssignedRole = SystemRoles.Administrator, EscalateAfterHours = 24, EscalationRole = SystemRoles.SuperAdministrator },
+                ],
+            });
+        }
         await db.SaveChangesAsync(token);
     }
 
