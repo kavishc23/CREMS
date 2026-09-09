@@ -49,6 +49,16 @@ public static class DatabaseInitializer
         {
             await SeedDevelopmentDataAsync(db, userManager, app.Environment.ContentRootPath, cancellationToken);
         }
+        if (app.Environment.IsDevelopment())
+        {
+            var developmentAssets = await db.Assets
+                .Where(asset => asset.IsActive)
+                .ToDictionaryAsync(asset => asset.AssetNumber, cancellationToken);
+            if (developmentAssets.Count > 0)
+            {
+                await SeedAssetPhotosAsync(db, developmentAssets, app.Environment.ContentRootPath, cancellationToken);
+            }
+        }
         await NormalizeCustomersAsync(db, cancellationToken);
 
         var email = app.Configuration["BootstrapAdmin:Email"];
@@ -788,7 +798,6 @@ public static class DatabaseInitializer
         if (!await db.AssetLifecycleEvents.AnyAsync(cancellationToken))
             foreach (var asset in seededAssets.Values) db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = asset.Id, Type = asset.AcquisitionDate.HasValue ? AssetLifecycleEventType.Commissioned : AssetLifecycleEventType.Available, ToStatus = asset.Status, OccurredAt = asset.AcquisitionDate.HasValue ? new DateTimeOffset(asset.AcquisitionDate.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(12)) : asset.CreatedAt, MeterReading = asset.CurrentMeterReading, Notes = "Initial lifecycle record created from the asset register.", RecordedByUserId = Guid.Empty, RecordedByName = "CREMS System" });
         await SeedOperationalHistoryAsync(db, seededAssets, cancellationToken);
-        await SeedAssetPhotosAsync(db, seededAssets, contentRootPath, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
     }
 
