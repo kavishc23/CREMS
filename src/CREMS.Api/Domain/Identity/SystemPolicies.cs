@@ -15,3 +15,8 @@ public static class SystemPolicies
     public const string ViewReports = "ViewReports";
     public const string CustomerPortal = "CustomerPortal";
 }
+
+public static class SystemAuthenticationSchemes
+{
+    public const string Customer = "CREMS.Customer";
+}

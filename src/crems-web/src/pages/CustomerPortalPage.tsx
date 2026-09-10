@@ -13,6 +13,7 @@ import {
   IconButton, InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
+import { monitorInactivity } from '../auth/inactivity'
 import { CustomerSiteHeader, type CustomerSiteSection } from '../components/CustomerSiteHeader'
 
 type HirePreference = 'Vehicles' | 'Equipment' | 'WasteAndSiteHire'
@@ -112,7 +113,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
   async function loadSession() {
     try {
       const current = (await api.get<CustomerSession>('/customer-account/session')).data
-      setSession(current); sessionStorage.setItem('crems.customerName', current.fullName); sessionStorage.removeItem('crems.customerSection'); setProfile({ fullName: current.fullName, phone: current.phone ?? '', address: current.address ?? '', identificationNumber: current.identificationNumber ?? '', hirePreferences: sessionPreferences(current) }); onSessionChange?.(true)
+      setSession(current); sessionStorage.setItem('crems.customerName', current.fullName); setProfile({ fullName: current.fullName, phone: current.phone ?? '', address: current.address ?? '', identificationNumber: current.identificationNumber ?? '', hirePreferences: sessionPreferences(current) }); onSessionChange?.(true)
       await loadPortalData()
       return true
     } catch { setSession(null); onSessionChange?.(false); return false }
@@ -131,24 +132,24 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
       setQuotes([])
       onSessionChange?.(false)
     }
-    const timer = window.setTimeout(() => {
+    const stopMonitoring = monitorInactivity(() => {
       void api.post('/customer-account/logout').catch(() => undefined).finally(expirePortalSession)
-    }, 30 * 60 * 1000)
-    window.addEventListener('crems:session-expired', expirePortalSession)
+    })
+    window.addEventListener('crems:customer-session-expired', expirePortalSession)
 
     return () => {
-      window.clearTimeout(timer)
-      window.removeEventListener('crems:session-expired', expirePortalSession)
+      stopMonitoring()
+      window.removeEventListener('crems:customer-session-expired', expirePortalSession)
     }
   }, [session, onSessionChange])
 
-  async function finishAuthentication() { const signedIn = await loadSession(); if (signedIn) onBack() }
+  async function finishAuthentication() { const signedIn = await loadSession(); if (signedIn) { sessionStorage.removeItem('crems.customerSection'); onBack() } }
   async function signIn(event: FormEvent) { event.preventDefault(); setShowPassword(false); setSubmitting(true); setError(''); try { await api.post('/auth/login?useCookies=true', login); await finishAuthentication() } catch { setError('The email address or password is incorrect, or this is not a customer account.') } finally { setSubmitting(false) } }
   async function register(event: FormEvent) { event.preventDefault(); setError(''); if (registration.password !== registration.confirmPassword) return setError('The passwords do not match.'); setSubmitting(true); try { const { confirmPassword: _, ...request } = registration; void _; await api.post('/customer-account/register', request); await finishAuthentication() } catch (reason) { setError(apiMessage(reason, 'Unable to create your account.')) } finally { setSubmitting(false) } }
   async function activate(event: FormEvent) { event.preventDefault(); setError(''); if (activation.password !== activation.confirmPassword) return setError('The passwords do not match.'); setSubmitting(true); try { await api.post('/customer-account/activate', { email: activation.email, code: activation.code, password: activation.password }); await finishAuthentication() } catch (reason) { setError(apiMessage(reason, 'Unable to activate the account.')) } finally { setSubmitting(false) } }
   async function requestReset() { setSubmitting(true); setError(''); try { const response = await api.post<{ message: string }>('/auth/password-reset/request', { email: reset.email }); setReset({ ...reset, codeSent: true }); setNotice(response.data.message) } catch { setError('Unable to request a password reset right now.') } finally { setSubmitting(false) } }
   async function completeReset(event: FormEvent) { event.preventDefault(); setError(''); if (reset.password !== reset.confirmPassword) return setError('The passwords do not match.'); setSubmitting(true); try { await api.post('/auth/password-reset/complete', { email: reset.email, code: reset.code, newPassword: reset.password }); setNotice('Password changed. You can now sign in.'); setLogin({ email: reset.email, password: '' }); setAuthMode('login') } catch (reason) { setError(apiMessage(reason, 'Unable to reset the password.')) } finally { setSubmitting(false) } }
-  async function logout() { await api.post('/customer-account/logout'); sessionStorage.removeItem('crems.customerName'); setSession(null); setBookings([]); setQuotes([]); onSessionChange?.(false) }
+  async function logout() { await api.post('/customer-account/logout'); sessionStorage.removeItem('crems.customerName'); sessionStorage.removeItem('crems.customerSection'); setSession(null); setBookings([]); setQuotes([]); onSessionChange?.(false) }
   async function requestVerification() { setSubmitting(true); setError(''); try { const response = await api.post<{ message: string }>('/customer-account/verification/request'); setNotice(response.data.message) } catch { setError('Unable to send a verification code right now.') } finally { setSubmitting(false) } }
   async function confirmVerification(event: FormEvent) { event.preventDefault(); setSubmitting(true); setError(''); try { await api.post('/customer-account/verification/confirm', { code: verificationCode }); setNotice('Email verified successfully.'); setVerificationCode(''); await loadSession() } catch (reason) { setError(apiMessage(reason, 'The verification code is invalid or expired.')) } finally { setSubmitting(false) } }
   async function updateProfile() {

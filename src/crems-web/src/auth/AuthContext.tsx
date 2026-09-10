@@ -1,5 +1,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
+import { monitorInactivity } from './inactivity'
 
 export type AuthenticatedUser = {
   id: string
@@ -23,8 +24,6 @@ type AuthContextValue = {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
-const sessionTimeoutMs = 30 * 60 * 1000
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthenticatedUser | null>(null)
   const [checkingSession, setCheckingSession] = useState(true)
@@ -49,16 +48,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return
 
-    const timer = window.setTimeout(() => {
+    const stopMonitoring = monitorInactivity(() => {
       void api.post('/auth/logout').catch(() => undefined).finally(() => setUser(null))
-    }, sessionTimeoutMs)
+    })
     const sessionExpired = () => setUser(null)
 
-    window.addEventListener('crems:session-expired', sessionExpired)
+    window.addEventListener('crems:staff-session-expired', sessionExpired)
 
     return () => {
-      window.clearTimeout(timer)
-      window.removeEventListener('crems:session-expired', sessionExpired)
+      stopMonitoring()
+      window.removeEventListener('crems:staff-session-expired', sessionExpired)
     }
   }, [user])
 

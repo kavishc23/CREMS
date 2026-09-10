@@ -4,6 +4,7 @@ import { useAuth } from './auth/AuthContext'
 import { canAccessPage, type AppPage } from './auth/access'
 import { AppShell } from './layout/AppShell'
 import { isPageEnabledForDemo } from './config/demoMode'
+import { api } from './api/client'
 
 const staffRoutes: Record<AppPage, string> = {
   dashboard: '/staff/dashboard',
@@ -64,7 +65,22 @@ export default function App() {
   const [staffView, setStaffView] = useState(() => window.location.pathname.startsWith('/staff'))
   const [customerView, setCustomerView] = useState(() => window.location.pathname.startsWith('/account'))
   const [customerSignedIn, setCustomerSignedIn] = useState(false)
+  const [checkingCustomerSession, setCheckingCustomerSession] = useState(() => !window.location.pathname.startsWith('/staff'))
   const { user, checkingSession, logout } = useAuth()
+
+  useEffect(() => {
+    if (staffView || customerView) return
+    void api.get<{ fullName: string }>('/customer-account/session')
+      .then(response => {
+        setCustomerSignedIn(true)
+        sessionStorage.setItem('crems.customerName', response.data.fullName)
+      })
+      .catch(() => {
+        setCustomerSignedIn(false)
+        sessionStorage.removeItem('crems.customerName')
+      })
+      .finally(() => setCheckingCustomerSession(false))
+  }, [customerView, staffView])
 
   useEffect(() => {
     function synchronizeRoute() {
@@ -101,7 +117,7 @@ export default function App() {
     setPage('dashboard')
   }
 
-  if (checkingSession) return <LoadingScreen />
+  if (checkingSession || (checkingCustomerSession && !staffView && !customerView)) return <LoadingScreen />
 
   if (customerView) return <Box className="customer-site-density"><Suspense fallback={<LoadingScreen />}><CustomerPortalPage onSessionChange={setCustomerSignedIn} onBack={() => {
     window.history.pushState({}, '', '/')
@@ -113,9 +129,11 @@ export default function App() {
     window.history.pushState({}, '', '/account')
     setCustomerView(true)
   }} onCustomerSignOut={async () => {
-    await logout()
-    sessionStorage.removeItem('crems.customerName')
-    setCustomerSignedIn(false)
+    try { await api.post('/customer-account/logout') }
+    finally {
+      sessionStorage.removeItem('crems.customerName')
+      setCustomerSignedIn(false)
+    }
   }} /></Suspense></Box>
 
   if (!user) return <Suspense fallback={<LoadingScreen />}><LoginPage onBackToWebsite={() => {

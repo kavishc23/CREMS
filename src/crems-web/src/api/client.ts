@@ -30,7 +30,10 @@ api.interceptors.response.use(
     const requestUrl = String(error?.config?.url ?? '')
     const isAuthenticationAttempt = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/mfa/verify')
     if (status === 401 && !isAuthenticationAttempt) {
-      window.dispatchEvent(new CustomEvent('crems:session-expired'))
+      const eventName = requestUrl.includes('/customer-account/')
+        ? 'crems:customer-session-expired'
+        : 'crems:staff-session-expired'
+      window.dispatchEvent(new CustomEvent(eventName))
     }
     return Promise.reject(error)
   },
