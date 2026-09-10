@@ -103,12 +103,12 @@ export default function App() {
 
   if (checkingSession) return <LoadingScreen />
 
-  if (customerView) return <Suspense fallback={<LoadingScreen />}><CustomerPortalPage onSessionChange={setCustomerSignedIn} onBack={() => {
+  if (customerView) return <Box className="customer-site-density"><Suspense fallback={<LoadingScreen />}><CustomerPortalPage onSessionChange={setCustomerSignedIn} onBack={() => {
     window.history.pushState({}, '', '/')
     setCustomerView(false)
-  }} /></Suspense>
+  }} /></Suspense></Box>
 
-  if ((!user || user.roles.includes('Customer')) && !staffView) return <Suspense fallback={<LoadingScreen />}><PublicRentalPage customerAuthenticated={customerSignedIn || user?.roles.includes('Customer')} customerName={user?.fullName || sessionStorage.getItem('crems.customerName') || undefined} onCustomerAccount={section => {
+  if ((!user || user.roles.includes('Customer')) && !staffView) return <Box className="customer-site-density"><Suspense fallback={<LoadingScreen />}><PublicRentalPage customerAuthenticated={customerSignedIn || user?.roles.includes('Customer')} customerName={user?.fullName || sessionStorage.getItem('crems.customerName') || undefined} onCustomerAccount={section => {
     if (section) sessionStorage.setItem('crems.customerSection', section)
     window.history.pushState({}, '', '/account')
     setCustomerView(true)
@@ -116,7 +116,7 @@ export default function App() {
     await logout()
     sessionStorage.removeItem('crems.customerName')
     setCustomerSignedIn(false)
-  }} /></Suspense>
+  }} /></Suspense></Box>
 
   if (!user) return <Suspense fallback={<LoadingScreen />}><LoginPage onBackToWebsite={() => {
     window.history.pushState({}, '', '/')
