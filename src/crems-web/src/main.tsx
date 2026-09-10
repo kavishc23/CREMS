@@ -59,6 +59,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <GlobalStyles styles={{
       'html, body': { maxWidth: '100%', overflowX: 'hidden' },
       '.customer-site-density': { zoom: '90%', width: '100%', minHeight: '100dvh' },
+      '.customer-site-density .MuiCard-root, .customer-site-density .MuiGrid-root': { minWidth: 0 },
+      '.customer-site-density img': { maxWidth: '100%' },
       '@media (max-width: 600px)': { '.customer-site-density': { zoom: 1 } },
       '@media print': { '.customer-site-density': { zoom: 1, width: '100%', minHeight: 0 }, 'body *': { visibility: 'hidden' }, '#crems-qr-label, #crems-qr-label *': { visibility: 'visible' }, '#crems-qr-label': { position: 'absolute', left: 0, top: 0, width: '90mm', border: '2px solid #000 !important' } },
     }} />
