@@ -27,7 +27,16 @@ public sealed class WindowSessionRegistryTests
     {
         var registry = new WindowSessionRegistry(); var now = DateTimeOffset.UtcNow;
         registry.Validate("user-1", "window-1", "ticket-a", now);
-        Assert.Equal(WindowSessionResult.Expired, registry.Validate("user-1", "window-1", "ticket-a", now.AddMinutes(31)));
+        Assert.Equal(WindowSessionResult.Expired, registry.Validate("user-1", "window-1", "ticket-a", now.AddMinutes(15)));
+    }
+
+    [Fact]
+    public void Activity_extends_the_idle_session()
+    {
+        var registry = new WindowSessionRegistry(); var now = DateTimeOffset.UtcNow;
+        Assert.Equal(WindowSessionResult.Valid, registry.Validate("user-1", "window-1", "ticket-a", now));
+        Assert.Equal(WindowSessionResult.Valid, registry.Validate("user-1", "window-1", "ticket-a", now.AddMinutes(10)));
+        Assert.Equal(WindowSessionResult.Valid, registry.Validate("user-1", "window-1", "ticket-a", now.AddMinutes(20)));
     }
 
     [Fact]

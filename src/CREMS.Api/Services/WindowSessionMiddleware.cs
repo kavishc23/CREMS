@@ -19,7 +19,7 @@ public sealed class WindowSessionRegistry
                 continue;
             }
 
-            if (now - current.CreatedAt > TimeSpan.FromMinutes(30))
+            if (now - current.LastSeenAt >= TimeSpan.FromMinutes(15))
             {
                 sessions.TryRemove(new KeyValuePair<string, WindowSession>(userId, current));
                 return WindowSessionResult.Expired;
@@ -62,7 +62,10 @@ public sealed class WindowSessionMiddleware(RequestDelegate next)
 
         var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
         var windowId = context.Request.Headers["X-CREMS-Window-Id"].ToString();
-        var ticket = context.Request.Cookies["CREMS.Session"];
+        var cookieName = context.User.IsInRole(Domain.Identity.SystemRoles.Customer)
+            ? "CREMS.CustomerSession"
+            : "CREMS.Session";
+        var ticket = context.Request.Cookies[cookieName];
         if (string.IsNullOrWhiteSpace(userId) || !Guid.TryParse(windowId, out _) || string.IsNullOrWhiteSpace(ticket))
         {
             await Reject(context, "A valid browser-window session is required.");

@@ -1,5 +1,6 @@
 using CREMS.Api.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +18,7 @@ namespace CREMS.Api.Controllers;
 public sealed class SessionController(
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
+    IUserClaimsPrincipalFactory<ApplicationUser> claimsFactory,
     CREMS.Api.Data.ApplicationDbContext db,
     CREMS.Api.Services.WindowSessionRegistry windowSessions,
     IEmailQueue emailQueue) : ControllerBase
@@ -126,12 +128,12 @@ public sealed class SessionController(
     }
 
     [HttpPost("logout")]
-    [Authorize]
+    [Authorize(Policy = SystemPolicies.StaffPortal)]
     public async Task<IActionResult> Logout()
     {
         var userId = userManager.GetUserId(User);
         if (Guid.TryParse(userId, out var parsed)) { var windowId = Request.Headers["X-CREMS-Window-Id"].ToString(); var sessions = await db.UserSessions.Where(x => x.UserId == parsed && x.WindowId == windowId && x.EndedAt == null).ToListAsync(); foreach (var session in sessions) { session.EndedAt = DateTimeOffset.UtcNow; session.EndReason = "Logout"; } await Record(parsed, User.Identity?.Name, SecurityEventType.Logout, true, null, false); await db.SaveChangesAsync(); }
-        await signInManager.SignOutAsync();
+        await HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
         if (!string.IsNullOrWhiteSpace(userId)) windowSessions.End(userId);
         return NoContent();
     }
@@ -148,8 +150,18 @@ public sealed class SessionController(
 
     private async Task CompleteSignIn(ApplicationUser user)
     {
-        await signInManager.SignInAsync(user, isPersistent: false); var now = DateTimeOffset.UtcNow; user.LastLoginAt = now; user.LastActivityAt = now; user.LastLoginIp = HttpContext.Connection.RemoteIpAddress?.ToString();
-        var windowId = Request.Headers["X-CREMS-Window-Id"].ToString(); db.UserSessions.Add(new UserSession { UserId = user.Id, WindowId = windowId, IpAddress = user.LastLoginIp, UserAgent = Request.Headers.UserAgent.ToString(), DeviceLabel = Device(Request.Headers.UserAgent.ToString()), ExpiresAt = now.AddMinutes(30) });
+        var roles = await userManager.GetRolesAsync(user);
+        if (roles.Contains(SystemRoles.Customer))
+        {
+            var principal = await claimsFactory.CreateAsync(user);
+            await HttpContext.SignInAsync(SystemAuthenticationSchemes.Customer, principal);
+        }
+        else
+        {
+            await signInManager.SignInAsync(user, isPersistent: false);
+        }
+        var now = DateTimeOffset.UtcNow; user.LastLoginAt = now; user.LastActivityAt = now; user.LastLoginIp = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var windowId = Request.Headers["X-CREMS-Window-Id"].ToString(); db.UserSessions.Add(new UserSession { UserId = user.Id, WindowId = windowId, IpAddress = user.LastLoginIp, UserAgent = Request.Headers.UserAgent.ToString(), DeviceLabel = Device(Request.Headers.UserAgent.ToString()), ExpiresAt = now.AddMinutes(15) });
         await Record(user.Id, user.Email, SecurityEventType.LoginSucceeded, true, null, false); await db.SaveChangesAsync();
     }
     private async Task<MfaChallenge> IssueMfa(ApplicationUser user)

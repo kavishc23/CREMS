@@ -4,6 +4,7 @@ using CREMS.Api.Domain.Identity;
 using CREMS.Api.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.ResponseCompression;
 using System.Threading.RateLimiting;
@@ -38,24 +39,34 @@ builder.Services.ConfigureApplicationCookie(options =>
         ? CookieSecurePolicy.SameAsRequest
         : CookieSecurePolicy.Always;
     options.Cookie.SameSite = SameSiteMode.Strict;
-    // Fixed session lifetime. Activity does not extend this period.
-    options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
-    options.SlidingExpiration = false;
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(15);
+    options.SlidingExpiration = true;
     options.Events.OnValidatePrincipal = async context =>
     {
         await SecurityStampValidator.ValidatePrincipalAsync(context);
         if (context.Principal?.Identity?.IsAuthenticated == true &&
             context.Properties.IssuedUtc is { } issued &&
-            DateTimeOffset.UtcNow - issued > TimeSpan.FromMinutes(30))
+            DateTimeOffset.UtcNow - issued > TimeSpan.FromMinutes(15))
         {
             context.RejectPrincipal();
         }
     };
 });
+builder.Services.AddAuthentication().AddCookie(SystemAuthenticationSchemes.Customer, options =>
+{
+    options.Cookie.Name = "CREMS.CustomerSession";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(15);
+    options.SlidingExpiration = true;
+    options.Events.OnRedirectToLogin = context => { context.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; };
+    options.Events.OnRedirectToAccessDenied = context => { context.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
+});
 
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(SystemPolicies.StaffPortal, policy =>
-        policy.RequireRole(SystemRoles.Staff))
+        policy.AddAuthenticationSchemes(IdentityConstants.ApplicationScheme).RequireRole(SystemRoles.Staff))
     .AddPolicy(SystemPolicies.AdministerSystem, policy =>
         policy.RequireRole(SystemRoles.SuperAdministrator))
     .AddPolicy(SystemPolicies.ManageUsers, policy =>
@@ -86,7 +97,7 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(SystemPolicies.ViewReports, policy =>
         policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager))
     .AddPolicy(SystemPolicies.CustomerPortal, policy =>
-        policy.RequireRole(SystemRoles.Customer))
+        policy.AddAuthenticationSchemes(SystemAuthenticationSchemes.Customer).RequireRole(SystemRoles.Customer))
     .AddPolicy(SystemPermissions.UsersCreate, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.UsersCreate)))
     .AddPolicy(SystemPermissions.UsersResetPassword, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.UsersResetPassword)))
     .AddPolicy(SystemPermissions.UsersManageAccess, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.UsersManageAccess)))
@@ -189,8 +200,8 @@ app.UseCors("Frontend");
 app.UseRequestTimeouts();
 app.UseRateLimiter();
 app.UseAuthentication();
-app.UseMiddleware<WindowSessionMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<WindowSessionMiddleware>();
 
 app.MapControllers();
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy" }));

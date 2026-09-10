@@ -6,6 +6,7 @@ using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Rentals;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -23,7 +24,7 @@ namespace CREMS.Api.Controllers;
 public sealed class CustomerAccountController(
     ApplicationDbContext db,
     UserManager<ApplicationUser> userManager,
-    SignInManager<ApplicationUser> signInManager,
+    IUserClaimsPrincipalFactory<ApplicationUser> claimsFactory,
     IEmailQueue emailQueue,
     IWebHostEnvironment environment) : ControllerBase
 {
@@ -65,7 +66,7 @@ public sealed class CustomerAccountController(
         QueueVerification(user);
         await db.SaveChangesAsync(token);
         await transaction.CommitAsync(token);
-        await signInManager.SignInAsync(user, isPersistent: false);
+        await SignInCustomer(user);
         return CreatedAtAction(nameof(Session), new { user.Id });
     }
 
@@ -84,7 +85,7 @@ public sealed class CustomerAccountController(
         var password = await userManager.AddPasswordAsync(user, request.Password);
         if (!password.Succeeded) { foreach (var error in password.Errors) ModelState.AddModelError(nameof(request.Password), error.Description); return ValidationProblem(ModelState); }
         activation.UsedAt = DateTimeOffset.UtcNow; user.EmailConfirmed = true; await userManager.UpdateAsync(user); await db.SaveChangesAsync(token);
-        await signInManager.SignInAsync(user, false); return NoContent();
+        await SignInCustomer(user); return NoContent();
     }
 
     [HttpGet("session")]
@@ -530,7 +531,7 @@ public sealed class CustomerAccountController(
 
     [HttpPost("logout")]
     [Authorize(Policy = SystemPolicies.CustomerPortal)]
-    public async Task<ActionResult> Logout() { await signInManager.SignOutAsync(); return NoContent(); }
+    public async Task<ActionResult> Logout() { await HttpContext.SignOutAsync(SystemAuthenticationSchemes.Customer); return NoContent(); }
 
     [HttpPost("verification/request")]
     [Authorize(Policy = SystemPolicies.CustomerPortal)]
@@ -617,6 +618,12 @@ public sealed class CustomerAccountController(
         if (string.IsNullOrWhiteSpace(json)) return [];
         try { return JsonSerializer.Deserialize<IReadOnlyList<string>>(json) ?? []; }
         catch (JsonException) { return []; }
+    }
+
+    private async Task SignInCustomer(ApplicationUser user)
+    {
+        var principal = await claimsFactory.CreateAsync(user);
+        await HttpContext.SignInAsync(SystemAuthenticationSchemes.Customer, principal);
     }
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
