@@ -16,6 +16,7 @@ const demoPages = new Set<AppPage>([
   'customerAccounts',
   'customers',
   'bookings',
+  'configuration',
 ])
 
 export function isPageEnabledForDemo(page: AppPage) {
