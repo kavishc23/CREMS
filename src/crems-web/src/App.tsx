@@ -124,7 +124,7 @@ export default function App() {
     setCustomerView(false)
   }} /></Suspense></Box>
 
-  if ((!user || user.roles.includes('Customer')) && !staffView) return <Box className="customer-site-density"><Suspense fallback={<LoadingScreen />}><PublicRentalPage customerAuthenticated={customerSignedIn || user?.roles.includes('Customer')} customerName={user?.fullName || sessionStorage.getItem('crems.customerName') || undefined} onCustomerAccount={section => {
+  if (!staffView) return <Box className="customer-site-density"><Suspense fallback={<LoadingScreen />}><PublicRentalPage customerAuthenticated={customerSignedIn} customerName={sessionStorage.getItem('crems.customerName') || undefined} onCustomerAccount={section => {
     if (section) sessionStorage.setItem('crems.customerSection', section)
     window.history.pushState({}, '', '/account')
     setCustomerView(true)
