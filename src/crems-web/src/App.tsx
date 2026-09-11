@@ -70,16 +70,20 @@ export default function App() {
 
   useEffect(() => {
     if (staffView || customerView) return
+    let cancelled = false
     void api.get<{ fullName: string }>('/customer-account/session')
       .then(response => {
+        if (cancelled) return
         setCustomerSignedIn(true)
         sessionStorage.setItem('crems.customerName', response.data.fullName)
       })
       .catch(() => {
+        if (cancelled) return
         setCustomerSignedIn(false)
         sessionStorage.removeItem('crems.customerName')
       })
-      .finally(() => setCheckingCustomerSession(false))
+      .finally(() => { if (!cancelled) setCheckingCustomerSession(false) })
+    return () => { cancelled = true }
   }, [customerView, staffView])
 
   useEffect(() => {
@@ -124,8 +128,9 @@ export default function App() {
     setCustomerView(false)
   }} /></Suspense></Box>
 
-  if ((!user || user.roles.includes('Customer')) && !staffView) return <Box className="customer-site-density"><Suspense fallback={<LoadingScreen />}><PublicRentalPage customerAuthenticated={customerSignedIn || user?.roles.includes('Customer')} customerName={user?.fullName || sessionStorage.getItem('crems.customerName') || undefined} onCustomerAccount={section => {
+  if (!staffView) return <Box className="customer-site-density"><Suspense fallback={<LoadingScreen />}><PublicRentalPage customerAuthenticated={customerSignedIn} customerName={sessionStorage.getItem('crems.customerName') || undefined} onCustomerAccount={section => {
     if (section) sessionStorage.setItem('crems.customerSection', section)
+    else sessionStorage.removeItem('crems.customerSection')
     window.history.pushState({}, '', '/account')
     setCustomerView(true)
   }} onCustomerSignOut={async () => {
