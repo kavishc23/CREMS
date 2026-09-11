@@ -114,7 +114,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
     try {
       const current = (await api.get<CustomerSession>('/customer-account/session')).data
       setSession(current); sessionStorage.setItem('crems.customerName', current.fullName); setProfile({ fullName: current.fullName, phone: current.phone ?? '', address: current.address ?? '', identificationNumber: current.identificationNumber ?? '', hirePreferences: sessionPreferences(current) }); onSessionChange?.(true)
-      await loadPortalData()
+      try { await loadPortalData() } catch { setError('Your account is signed in, but some account information could not be loaded. Please try again.') }
       return true
     } catch { setSession(null); onSessionChange?.(false); return false }
     finally { setChecking(false) }
@@ -173,9 +173,14 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
     onBack()
   }
 
+  function changeSection(next: PortalSection) {
+    sessionStorage.setItem('crems.customerSection', next)
+    setSection(next)
+  }
+
   if (checking) return <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>
   return <Box sx={{ minHeight: '100dvh', bgcolor: 'background.default', overflowX: 'hidden' }}>
-    <CustomerSiteHeader accountActive authenticated={Boolean(session)} accountName={session?.fullName} onAccount={() => undefined} onAccountSection={setSection} onNavigate={returnToWebsite} onSignOut={logout} />
+    <CustomerSiteHeader accountActive authenticated={Boolean(session)} accountName={session?.fullName} onAccount={() => undefined} onAccountSection={changeSection} onNavigate={returnToWebsite} onSignOut={logout} />
     {!session ? <Container maxWidth="sm" sx={{ py: 6 }}><Card variant="outlined"><CardContent sx={{ p: { xs: 3, sm: 4 } }}>
       <Typography variant="h4" fontWeight={800}>{authMode === 'register' ? 'Create customer account' : authMode === 'activate' ? 'Activate existing account' : authMode === 'reset' ? 'Reset your password' : 'Customer sign in'}</Typography>
       <Typography color="text.secondary" mt={1} mb={3}>{authMode === 'login' ? 'Manage requests, quotations, documents and active rentals securely.' : authMode === 'register' ? 'Create one account for participating Carpenters rental services.' : authMode === 'activate' ? 'Use the code provided by Carpenters staff and choose your password.' : 'We will send a six-digit reset code to your account email.'}</Typography>
