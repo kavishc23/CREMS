@@ -166,6 +166,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [photoIndexes, setPhotoIndexes] = useState<Record<string, number>>({})
   const [galleryOffsets, setGalleryOffsets] = useState<Record<string, number>>({})
+  const [hirePreferences, setHirePreferences] = useState<CustomerPreference[]>([])
   const [showModifySearch, setShowModifySearch] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
 
@@ -211,6 +212,12 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   }, [])
 
   const displayedAssets = useMemo(() => (searched ? assets : catalogueAssets).filter((asset) => {
+    if (!searched && hirePreferences.length > 0 && hirePreferences.length < 3) {
+      const preferred = (hirePreferences.includes('Vehicles') && /carpenters motors/i.test(asset.divisionName ?? '')) ||
+        (hirePreferences.includes('Equipment') && /carptrac/i.test(asset.divisionName ?? '')) ||
+        (hirePreferences.includes('WasteAndSiteHire') && /carpenters shipping/i.test(asset.divisionName ?? ''))
+      if (!preferred) return false
+    }
     if (divisionId && asset.divisionId !== divisionId) return false
     if (branchId && asset.branchId !== branchId) return false
     if (type && asset.type !== type) return false
@@ -228,7 +235,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     if (category === 'Lifting') return /crane|forklift|telehandler|scissor/.test(value)
     if (category === 'Power & site') return /generator|compressor|compactor|mixer|scaffold|toilet|portaloo|bin/.test(value)
     return true
-  }), [assets, availableOnly, branchId, catalogueAssets, category, divisionId, priceFilter, searched, seatFilter, transmissionFilter, type])
+  }), [assets, availableOnly, branchId, catalogueAssets, category, divisionId, hirePreferences, priceFilter, searched, seatFilter, transmissionFilter, type])
   const seatOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'SEATS')).filter(Boolean).map(Number))].sort((a, b) => a - b), [catalogueAssets])
   const transmissionOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'TRANSMISSION')).filter(Boolean))].sort(), [catalogueAssets])
   const sortedAssets = useMemo(() => [...displayedAssets].sort((left, right) => {
@@ -315,13 +322,9 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     if (!customerAuthenticated) return
     void api.get<CustomerPreferenceSession>('/customer-account/session').then(({ data }) => {
       const preferences = Array.isArray(data.hirePreferences) ? data.hirePreferences : data.hirePreference && data.hirePreference !== 'NoPreference' ? [data.hirePreference] : []
-      if (preferences.length === 1 && preferences[0] === 'Vehicles') { const motors = divisions.find(item => /motors|rental/i.test(`${item.code} ${item.name}`) && !/shipping|carptrac/i.test(`${item.code} ${item.name}`)); setDivisionId(motors?.id ?? ''); setType('Vehicle'); setCategory('All') }
-      else if (preferences.includes('Equipment') || preferences.includes('WasteAndSiteHire')) {
-        setType('Equipment')
-        setCategory(preferences.length === 1 ? 'Power & site' : 'All')
-      }
+      setHirePreferences(preferences)
     }).catch(() => undefined)
-  }, [customerAuthenticated, divisions])
+  }, [customerAuthenticated])
 
   function renderSearchForm(compact = false) {
     return <Box>
@@ -344,7 +347,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   ], [])
 
   function moveGallery(key: string, total: number, direction: number) {
-    setGalleryOffsets(current => ({ ...current, [key]: ((current[key] ?? 0) + direction + total) % total }))
+    setGalleryOffsets(current => ({ ...current, [key]: Math.max(0, Math.min((current[key] ?? 0) + direction, Math.max(0, total - 4))) }))
   }
 
   function resetToSearch() {
@@ -431,12 +434,12 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       </Grid>}
       {!loading && divisionGalleries.map(gallery => {
         const galleryAssets = sortedAssets.filter(gallery.matches)
-        const offset = galleryOffsets[gallery.key] ?? 0
-        const visibleAssets = galleryAssets.length <= 4 ? galleryAssets : Array.from({ length: 4 }, (_, index) => galleryAssets[(offset + index) % galleryAssets.length])
+        const offset = Math.min(galleryOffsets[gallery.key] ?? 0, Math.max(0, galleryAssets.length - 4))
+        const visibleAssets = galleryAssets.slice(offset, offset + 4)
         if (galleryAssets.length === 0) return null
         if (searched && divisionId && !gallery.matches({ divisionName: divisions.find(division => division.id === divisionId)?.name ?? '' } as PublicAsset)) return null
-        if (searched && divisionId) return <Box key={gallery.key} sx={{ mb: 5 }}><Typography variant="h5" fontWeight={850} mb={2}>{gallery.title}</Typography>{galleryAssets.length ? <Grid container spacing={2}>{galleryAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 4 }}>{renderRentalCard(asset)}</Grid>)}</Grid> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals match this search.</Typography></CardContent></Card>}</Box>
-        return <Box key={gallery.key} sx={{ mb: 5 }}><Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}><Box><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length ? `${galleryAssets.length} rental${galleryAssets.length === 1 ? '' : 's'} to explore` : 'Rental preview'}</Typography></Box></Stack>{visibleAssets.length ? <Stack direction="row" alignItems="center" gap={1.5}><IconButton aria-label={`Previous ${gallery.title} rentals`} disabled={galleryAssets.length < 2} onClick={() => moveGallery(gallery.key, galleryAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ flex: 1, overflow: 'hidden', '& > *': { width: { sm: 'calc((100% - 48px) / 4)' }, minWidth: { sm: 0 } } }}>{visibleAssets.map(renderRentalCard)}</Stack><IconButton aria-label={`Next ${gallery.title} rentals`} disabled={galleryAssets.length < 2} onClick={() => moveGallery(gallery.key, galleryAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals are currently listed for this division.</Typography></CardContent></Card>}</Box>
+        if ((searched && divisionId) || (!searched && hirePreferences.length === 1)) return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length} rental{galleryAssets.length === 1 ? '' : 's'} to explore</Typography></Stack><Grid container spacing={2}>{galleryAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 3 }}>{renderRentalCard(asset)}</Grid>)}</Grid></Box>
+        return <Box key={gallery.key} sx={{ mb: 5 }}><Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}><Box><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length ? `${galleryAssets.length} rental${galleryAssets.length === 1 ? '' : 's'} to explore` : 'Rental preview'}</Typography></Box></Stack>{visibleAssets.length ? <Stack direction="row" alignItems="center" gap={1.5}><IconButton aria-label={`Previous ${gallery.title} rentals`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, galleryAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ flex: 1, overflow: 'hidden', '& > *': { width: { sm: 'calc((100% - 48px) / 4)' }, minWidth: { sm: 0 } } }}>{visibleAssets.map(renderRentalCard)}</Stack><IconButton aria-label={`Next ${gallery.title} rentals`} disabled={offset >= Math.max(0, galleryAssets.length - 4)} onClick={() => moveGallery(gallery.key, galleryAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals are currently listed for this division.</Typography></CardContent></Card>}</Box>
       })}
     </Container>
 
