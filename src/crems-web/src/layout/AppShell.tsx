@@ -41,10 +41,15 @@ import {
   DialogContent,
   DialogTitle,
   Stack,
+  TextField,
+  InputAdornment,
+  ThemeProvider,
 } from '@mui/material'
+import SearchOutlined from '@mui/icons-material/SearchOutlined'
+import { staffTheme } from './staffTheme'
 import { canAccessPage, formatRole, getPrimaryRole, type AppPage } from '../auth/access'
 import { isPageEnabledForDemo } from '../config/demoMode'
-const drawerWidth = 248
+const drawerWidth = 272
 const collapsedDrawerWidth = 76
 const navigation = [
   { label: 'Dashboard', id: 'dashboard', icon: <DashboardOutlined />, section: 'Rental operations' },
@@ -94,24 +99,26 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
   const theme = useTheme()
   const desktop = useMediaQuery(theme.breakpoints.up('md'))
   const [open, setOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('crems.staff.navigation.collapsed') === 'true' } catch { return false } })
   const [helpOpen, setHelpOpen] = useState(false)
+  const [navigationSearch, setNavigationSearch] = useState('')
   const activeDrawerWidth = desktop && collapsed ? collapsedDrawerWidth : drawerWidth
   const currentPageLabel = navigation.find((item) => item.id === activePage)?.label ?? 'Home'
 
   const drawer = (
-    <Box sx={{ height: '100dvh', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#090909', color: 'white' }}>
-      <Toolbar sx={{ px: collapsed && desktop ? 2 : 2.5, minHeight: 76, flex: '0 0 auto', justifyContent: collapsed && desktop ? 'center' : 'flex-start' }}>
-        <Box component="img" src="/brand/carpenters-logo.png" alt="Carpenters Fiji" sx={{ width: 44, height: 44, objectFit: 'cover', mr: collapsed && desktop ? 0 : 1.5 }} />
+    <Box sx={{ height: '100dvh', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#191919', color: 'white', borderTop: '4px solid #ffed00' }}>
+      <Toolbar sx={{ px: collapsed && desktop ? 2 : 2.5, minHeight: '84px !important', py: 1.5, gap: 0, flex: '0 0 auto', justifyContent: collapsed && desktop ? 'center' : 'flex-start' }}>
+        <Box component="img" src="/brand/carpenters-logo.png" alt="Carpenters Fiji" sx={{ width: 40, height: 40, flexShrink: 0, objectFit: 'contain', mr: collapsed && desktop ? 0 : 1.5 }} />
         <Box sx={{ display: collapsed && desktop ? 'none' : 'block' }}>
-          <Typography variant="h6" fontWeight={700} lineHeight={1.1}>CREMS</Typography>
-          <Typography variant="caption" sx={{ color: 'secondary.main' }}>Carpenters Fiji</Typography>
+          <Typography variant="h6" fontWeight={700} lineHeight={1.1} sx={{letterSpacing:'.08em'}}>CREMS</Typography>
+          <Typography variant="caption" sx={{ color: '#d7d3c6', display:'block', mt:.5, whiteSpace:'nowrap', fontSize:10, letterSpacing:'.06em' }}>CARPENTERS FIJI</Typography>
         </Box>
       </Toolbar>
-      <List sx={{ px: 1.5, pt: 1, pb: 4, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', '&::-webkit-scrollbar': { width: 7 }, '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,.24)', borderRadius: 8 }, '&::-webkit-scrollbar-track': { bgcolor: 'transparent' } }}>
+      {(!collapsed || !desktop) && <Box sx={{px:2, pb:1}}><TextField fullWidth placeholder="Find a workspace…" value={navigationSearch} onChange={event=>setNavigationSearch(event.target.value)} inputProps={{'aria-label':'Find a staff workspace'}} InputProps={{startAdornment:<InputAdornment position="start"><SearchOutlined sx={{color:'#c5bfab',fontSize:18}}/></InputAdornment>}} sx={{'& .MuiOutlinedInput-root':{bgcolor:'#252525',color:'white',fontSize:12},'& fieldset':{borderColor:'#494536'},'& input::placeholder':{opacity:1,color:'#c9c4b5'}}}/></Box>}
+      <List component="nav" aria-label="Staff workspaces" sx={{ px: 1.25, pt: 1, pb: 2, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', '&::-webkit-scrollbar': { width: 5 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#716a52', borderRadius: 8 }, '&::-webkit-scrollbar-track': { bgcolor: 'transparent' } }}>
         {(!collapsed || !desktop) && <Box sx={{ mx: .75, mb: 1.25, p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)' }}><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: .8 }}>Working in</Typography><Typography variant="body2" fontWeight={750} noWrap>{divisionName || 'Carpenters Fiji Group'}</Typography><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.62)' }}>{branchName || 'All branches'}</Typography></Box>}
         {sections.map((section) => {
-          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id) && isPageEnabledForDemo(item.id))
+          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id) && isPageEnabledForDemo(item.id) && (collapsed && desktop || `${item.label} ${section}`.toLowerCase().includes(navigationSearch.toLowerCase().trim())))
           if (!items.length) return null
           return <Box key={section}>{!collapsed || !desktop ? <ListSubheader disableSticky sx={{ bgcolor: 'transparent', color: 'rgba(255,255,255,.42)', fontSize: 11, fontWeight: 800, lineHeight: '32px', letterSpacing: 1.1, textTransform: 'uppercase', px: 2, mt: 1 }}>{section}</ListSubheader> : <Box sx={{ height: 12 }} />}{items.map((item) => {
           const button = (
@@ -124,19 +131,20 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
                 setOpen(false)
               }}
               sx={{
-                mb: 0.35,
-                minHeight: 46,
+                mb: 0.25,
+                minHeight: 41,
                 px: collapsed && desktop ? 1.5 : 2,
                 justifyContent: collapsed && desktop ? 'center' : 'flex-start',
-                borderRadius: 2,
-                color: 'rgba(255,255,255,.72)',
-                '&.Mui-selected': { bgcolor: 'secondary.main', color: 'secondary.contrastText' },
-                '&.Mui-selected:hover': { bgcolor: 'secondary.dark' },
+                borderRadius: 1,
+                borderLeft:'3px solid transparent',
+                color: '#d4d1c8',
+                '&.Mui-selected': { bgcolor: '#ffed00', color: '#191919', borderLeftColor:'#ffed00' },
+                '&.Mui-selected:hover': { bgcolor: '#e8d800' },
                 '&:hover': { bgcolor: 'rgba(255,255,255,.08)' },
               }}
             >
               <ListItemIcon sx={{ color: 'inherit', minWidth: collapsed && desktop ? 0 : 40, justifyContent: 'center' }}>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 14.5, fontWeight: activePage === item.id ? 700 : 500 }} sx={{ display: collapsed && desktop ? 'none' : 'block' }} />
+              <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 12.5, fontWeight: activePage === item.id ? 600 : 400 }} sx={{ display: collapsed && desktop ? 'none' : 'block' }} />
             </ListItemButton>
           )
 
@@ -147,11 +155,12 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           ) : button
         })}</Box>})}
       </List>
+      {(!collapsed || !desktop) && <Box sx={{p:2,borderTop:'1px solid #37352c',flexShrink:0}}><Typography variant="body2" noWrap sx={{color:'#f3f1e9',fontWeight:600}}>{userName}</Typography><Typography variant="caption" sx={{color:'#bcb6a4'}}>{formatRole(getPrimaryRole(userRoles))}</Typography></Box>}
     </Box>
   )
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    <ThemeProvider theme={staffTheme}><Box sx={{ display: 'flex', minHeight: '100vh', bgcolor:'background.default' }}>
       <AppBar
         position="fixed"
         color="inherit"
@@ -165,12 +174,12 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
         }}
       >
         <Toolbar>
-          {!desktop && <IconButton onClick={() => setOpen(true)} sx={{ mr: 1 }}><MenuIcon /></IconButton>}
+          {!desktop && <IconButton aria-label="Open navigation" onClick={() => setOpen(true)} sx={{ mr: 1 }}><MenuIcon /></IconButton>}
           {desktop && (
             <Tooltip title={collapsed ? 'Expand navigation' : 'Collapse navigation'}>
               <IconButton
                 aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-                onClick={() => setCollapsed((value) => !value)}
+                onClick={() => setCollapsed((value) => { const next = !value; try { localStorage.setItem('crems.staff.navigation.collapsed', String(next)) } catch { /* Storage can be unavailable in private sessions. */ } return next })}
                 sx={{ mr: 1 }}
               >
                 {collapsed ? <ChevronRightOutlined /> : <ChevronLeftOutlined />}
@@ -184,7 +193,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           <Chip
             label={formatRole(getPrimaryRole(userRoles))}
             size="small"
-            sx={{ ml: 1.5, display: { xs: 'none', md: 'flex' }, bgcolor: 'secondary.main', fontWeight: 600 }}
+            sx={{ ml: 1.5, display: { xs: 'none', md: 'flex' }, bgcolor: '#fff5cb', color:'#685813', fontWeight: 600 }}
           />
           <IconButton aria-label="Sign out" onClick={() => void onLogout()} sx={{ ml: 1 }}>
             <LogoutOutlined />
@@ -216,6 +225,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
         sx={{
           flexGrow: 1,
           minWidth: 0,
+          '& > .staff-page-content': { '& > .MuiBox-root': { maxWidth: '1680px', marginInline:'auto' }, '& .MuiTypography-h4': { fontVariantNumeric:'tabular-nums' }, '& .MuiTableCell-root .MuiButton-root': { whiteSpace:'nowrap' } },
           width: { xs: '100%', md: `calc(100% - ${activeDrawerWidth}px)` },
           pt: { xs: '56px', sm: '64px' },
           transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
@@ -227,9 +237,8 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           sx={{
             px: { xs: 2, sm: 3, lg: 4 },
             py: 1.25,
-            bgcolor: 'background.paper',
-            borderBottom: 1,
-            borderColor: 'divider',
+            bgcolor: 'transparent',
+            display:'flex', alignItems:'center', justifyContent:'space-between', gap:2,
           }}
         >
           <Breadcrumbs aria-label="Current location">
@@ -250,10 +259,11 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
             )}
             {activePage !== 'dashboard' && <Typography variant="body2" fontWeight={700} color="text.primary">{currentPageLabel}</Typography>}
           </Breadcrumbs>
+          <Typography variant="overline" color="text.secondary" sx={{display:{xs:'none',md:'block'}}}>{navigation.find(item=>item.id===activePage)?.section ?? 'Staff workspace'}</Typography>
         </Box>
-        {children}
+        <Box className="staff-page-content" data-workspace={activePage}>{children}</Box>
       </Box>
       <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} fullWidth maxWidth="sm"><DialogTitle>Help with {currentPageLabel}</DialogTitle><DialogContent><Typography color="text.secondary" mb={2}>{pageHelp[activePage]?.purpose ?? 'Use this page to complete your current CREMS task.'}</Typography><Stack spacing={1.25}>{(pageHelp[activePage]?.steps ?? []).map((step, index) => <Stack key={step} direction="row" gap={1.5} alignItems="flex-start"><Box sx={{ width: 28, height: 28, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: '50%', bgcolor: 'secondary.main', fontWeight: 800 }}>{index + 1}</Box><Typography sx={{ pt: .35 }}>{step}</Typography></Stack>)}</Stack></DialogContent><DialogActions sx={{ p: 3 }}><Button variant="contained" onClick={() => setHelpOpen(false)}>Got it</Button></DialogActions></Dialog>
-    </Box>
+    </Box></ThemeProvider>
   )
 }

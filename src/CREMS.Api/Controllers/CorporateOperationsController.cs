@@ -24,12 +24,12 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
     public async Task<ActionResult> Overview(CancellationToken token)
     {
         var scope = await Scope(); if (scope is null) return Forbid(); var now = DateTimeOffset.UtcNow;
-        var bookings = Scoped(db.Bookings.AsNoTracking(), scope, x => x.BranchId);
-        var assets = Scoped(db.Assets.AsNoTracking(), scope, x => x.BranchId);
+        var bookings = BookingScope(scope);
+        var assets = db.Assets.AsNoTracking().Where(x => scope.IsAdministrator || scope.BranchIds.Contains(x.BranchId) && x.DivisionId.HasValue && scope.DivisionIds.Contains(x.DivisionId.Value));
         var rentalDays = await bookings.Where(x => x.Status == BookingStatus.ConvertedToRental).SelectMany(x => x.Items).SumAsync(x => (decimal?)EF.Functions.DateDiffDay(x.StartAt, x.EndAt), token) ?? 0;
-        var revenue = await bookings.Where(x => x.Status == BookingStatus.Completed || x.Status == BookingStatus.ConvertedToRental).SelectMany(x => x.Items).SumAsync(x => (decimal?)(x.DailyRate * Math.Max(1, EF.Functions.DateDiffDay(x.StartAt, x.EndAt))), token) ?? 0;
+        var revenue = await bookings.Where(x => x.Status == BookingStatus.Completed || x.Status == BookingStatus.ConvertedToRental).SelectMany(x => x.Items).SumAsync(x => (decimal?)(x.DailyRate * (EF.Functions.DateDiffDay(x.StartAt, x.EndAt) < 1 ? 1 : EF.Functions.DateDiffDay(x.StartAt, x.EndAt))), token) ?? 0;
         var assetCount = await assets.CountAsync(x => x.IsActive, token); var rented = await assets.CountAsync(x => x.Status == AssetStatus.Rented, token);
-        var invoices = db.RentalInvoices.AsNoTracking().Where(x => db.Bookings.Any(b => b.Id == x.BookingId && (scope.IsAdministrator || b.BranchId == scope.BranchId)));
+        var invoices = db.RentalInvoices.AsNoTracking().Where(x => bookings.Any(b => b.Id == x.BookingId));
         return Ok(new { activeRentals = await bookings.CountAsync(x => x.Status == BookingStatus.ConvertedToRental, token), overdueRentals = await bookings.CountAsync(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt < now), token), pendingQuotes = await QuoteScope(scope).CountAsync(x => x.Status == QuoteStatus.Draft || x.Status == QuoteStatus.Sent || x.Status == QuoteStatus.Negotiating, token), todayDispatches = await Scoped(db.DispatchJobs.AsNoTracking(), scope, x => x.BranchId).CountAsync(x => x.ScheduledAt.Date == now.Date && x.Status != DispatchStatus.Completed && x.Status != DispatchStatus.Cancelled, token), pendingApprovals = await ApprovalScope(scope).CountAsync(x => x.Status == ApprovalStatus.Pending, token), lowStockParts = await Scoped(db.InventoryParts.AsNoTracking(), scope, x => x.BranchId).CountAsync(x => x.QuantityOnHand - x.QuantityAllocated <= x.ReorderLevel, token), openCases = await Scoped(db.CustomerCases.AsNoTracking(), scope, x => x.BranchId).CountAsync(x => x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed, token), activeTasks = await ScopedNullable(db.ManagementTasks.AsNoTracking(), scope, x => x.BranchId).CountAsync(x => !x.IsCompleted, token), outstandingReceivables = await invoices.SumAsync(x => (decimal?)x.BalanceDue, token) ?? 0, assetCount, rentedAssets = rented, utilizationPercent = assetCount == 0 ? 0 : Math.Round(rented * 100m / assetCount, 1), recordedRentalDays = rentalDays, recordedRevenue = revenue });
     }
 
@@ -37,18 +37,25 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
     public async Task<ActionResult> Workspace(CancellationToken token)
     {
         var scope = await Scope(); if (scope is null) return Forbid();
+        var bookings = BookingScope(scope);
         return Ok(new {
             quotes = await QuoteScope(scope).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(token),
-            dispatches = await Scoped(db.DispatchJobs.AsNoTracking(), scope, x => x.BranchId).OrderBy(x => x.ScheduledAt).Take(100).ToListAsync(token),
+            dispatches = await Scoped(db.DispatchJobs.AsNoTracking(), scope, x => x.BranchId).Where(x => scope.IsAdministrator || bookings.Any(b => b.Id == x.BookingId)).OrderBy(x => x.ScheduledAt).Take(100).ToListAsync(token),
             transfers = await TransferScope(scope).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(token),
-            pricing = await ScopedNullable(db.PricingRules.AsNoTracking(), scope, x => x.BranchId).OrderBy(x => x.Name).ToListAsync(token),
-            approvals = await ApprovalScope(scope).Include(x => x.StageDecisions).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(token),
+            pricing = await db.PricingRules.AsNoTracking().Where(x => scope.IsAdministrator || (!x.BranchId.HasValue || scope.BranchIds.Contains(x.BranchId.Value)) && (!x.DivisionId.HasValue || scope.DivisionIds.Contains(x.DivisionId.Value))).OrderBy(x => x.Name).ToListAsync(token),
+            approvals = await ApprovalScope(scope).OrderByDescending(x => x.CreatedAt).Take(100).Select(x => new {
+                x.Id, x.RequestNumber, x.Status, x.Type, x.EntityType, x.Amount, x.Reason, x.CreatedAt, x.CurrentStage, x.TotalStages,
+                canDecide = x.Status == ApprovalStatus.Pending && x.StageDecisions.Any(s => s.StageNumber == x.CurrentStage && s.Status == ApprovalStatus.Pending &&
+                    s.AssignedRole == SystemRoles.BranchManager && User.IsInRole(SystemRoles.BranchManager) &&
+                    (x.EntityType == nameof(Booking) || x.EntityType == nameof(SalesQuote) || x.RequestedByUserId != scope.UserId && (!s.AssignedUserId.HasValue || s.AssignedUserId == scope.UserId))),
+                stageDecisions = x.StageDecisions.OrderBy(s => s.StageNumber).Select(s => new { s.StageNumber, s.StageName, s.AssignedRole, s.Status, s.DecisionNote, s.DecidedAt })
+            }).ToListAsync(token),
             parts = await Scoped(db.InventoryParts.AsNoTracking(), scope, x => x.BranchId).OrderBy(x => x.Name).ToListAsync(token),
             purchaseOrders = await Scoped(db.PurchaseOrders.AsNoTracking(), scope, x => x.BranchId).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(token),
-            cases = await Scoped(db.CustomerCases.AsNoTracking(), scope, x => x.BranchId).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(token),
-            tasks = await ScopedNullable(db.ManagementTasks.AsNoTracking(), scope, x => x.BranchId).Where(x => !x.IsCompleted).OrderBy(x => x.DueAt).Take(100).ToListAsync(token),
-            telematics = await db.TelematicsSnapshots.AsNoTracking().Where(x => db.Assets.Any(a => a.Id == x.AssetId && (scope.IsAdministrator || a.BranchId == scope.BranchId))).OrderByDescending(x => x.RecordedAt).Take(100).ToListAsync(token),
-            corporateAccounts = await db.CorporateAccounts.AsNoTracking().OrderBy(x => x.LegalName).Take(100).ToListAsync(token),
+            cases = await Scoped(db.CustomerCases.AsNoTracking(), scope, x => x.BranchId).Where(x => scope.IsAdministrator || x.AssignedUserId == scope.UserId || bookings.Any(b => b.CustomerId == x.CustomerId)).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(token),
+            tasks = await ScopedNullable(db.ManagementTasks.AsNoTracking(), scope, x => x.BranchId).Where(x => !x.IsCompleted && (scope.IsAdministrator || x.AssignedUserId == scope.UserId || x.SourceEntityType == nameof(Booking) && bookings.Any(b => b.Id == x.SourceEntityId))).OrderBy(x => x.DueAt).Take(100).ToListAsync(token),
+            telematics = await db.TelematicsSnapshots.AsNoTracking().Where(x => db.Assets.Any(a => a.Id == x.AssetId && (scope.IsAdministrator || scope.BranchIds.Contains(a.BranchId) && a.DivisionId.HasValue && scope.DivisionIds.Contains(a.DivisionId.Value)))).OrderByDescending(x => x.RecordedAt).Take(100).ToListAsync(token),
+            corporateAccounts = await db.CorporateAccounts.AsNoTracking().Where(x => scope.IsAdministrator || bookings.Any(b => b.CustomerId == x.CustomerId)).OrderBy(x => x.LegalName).Take(100).ToListAsync(token),
         });
     }
 
@@ -121,7 +128,7 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
                     Subject = item.Status == ApprovalStatus.Approved ? $"Rental request {booking.BookingNumber} approved" : $"Rental request {booking.BookingNumber} requires attention",
                     Message = item.Status == ApprovalStatus.Approved ? "The required branch approval has been completed. Your rental request can now proceed to confirmation." : $"The approval was declined. Reason: {stage.DecisionNote ?? "No reason provided."}" });
         }
-        await SaveAudit(scope, "Approval phase decided", item.Id, $"{item.RequestNumber}: phase {stage.StageNumber}/{item.TotalStages} {stage.Status}; request {item.Status}", item.BranchId, token); return Ok(item);
+        await SaveAudit(scope, "Approval phase decided", item.Id, $"{item.RequestNumber}: phase {stage.StageNumber}/{item.TotalStages} {stage.Status}; request {item.Status}", item.BranchId, token); return Ok(new { item.Id, item.Status, item.CurrentStage, item.TotalStages });
     }
 
     [HttpPost("parts")]
@@ -217,9 +224,10 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
 
     private async Task<StaffDataScope?> Scope() => await staffScope.GetAsync(User);
     private async Task<StaffDataScope?> ScopeFor(Guid branchId) { var scope = await Scope(); return scope is not null && scope.HasBranchAccess(branchId) ? scope : null; }
-    private IQueryable<T> Scoped<T>(IQueryable<T> query, StaffDataScope scope, System.Linq.Expressions.Expression<Func<T, Guid>> branch) => scope.IsAdministrator ? query : query.Where(BuildEqual(branch, scope.BranchId!.Value));
+    private IQueryable<Booking> BookingScope(StaffDataScope scope) => db.Bookings.AsNoTracking().Where(b => scope.IsAdministrator || scope.BranchIds.Contains(b.BranchId) && b.Items.Any() && b.Items.All(i => i.Asset != null && i.Asset.DivisionId.HasValue && scope.DivisionIds.Contains(i.Asset.DivisionId.Value)));
+    private IQueryable<T> Scoped<T>(IQueryable<T> query, StaffDataScope scope, System.Linq.Expressions.Expression<Func<T, Guid>> branch) => scope.IsAdministrator ? query : query.Where(System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(System.Linq.Expressions.Expression.Call(typeof(Enumerable), nameof(Enumerable.Contains), new[] { typeof(Guid) }, System.Linq.Expressions.Expression.Constant(scope.BranchIds.ToArray()), branch.Body), branch.Parameters));
     private IQueryable<T> ScopedNullable<T>(IQueryable<T> query, StaffDataScope scope, System.Linq.Expressions.Expression<Func<T, Guid?>> branch) => scope.IsAdministrator ? query : query.Where(BuildEqual(branch, (Guid?)scope.BranchId));
-    private IQueryable<AssetTransfer> TransferScope(StaffDataScope scope) => scope.IsAdministrator ? db.AssetTransfers.AsNoTracking() : db.AssetTransfers.AsNoTracking().Where(x => x.FromBranchId == scope.BranchId || x.ToBranchId == scope.BranchId);
+    private IQueryable<AssetTransfer> TransferScope(StaffDataScope scope) => scope.IsAdministrator ? db.AssetTransfers.AsNoTracking() : db.AssetTransfers.AsNoTracking().Where(x => (scope.BranchIds.Contains(x.FromBranchId) || scope.BranchIds.Contains(x.ToBranchId)) && db.Assets.Any(a => a.Id == x.AssetId && a.DivisionId.HasValue && scope.DivisionIds.Contains(a.DivisionId.Value)));
     private IQueryable<SalesQuote> QuoteScope(StaffDataScope scope) => scope.IsAdministrator
         ? db.SalesQuotes.AsNoTracking()
         : db.SalesQuotes.AsNoTracking().Where(x => scope.BranchIds.Contains(x.BranchId) && x.DivisionId.HasValue && scope.DivisionIds.Contains(x.DivisionId.Value));

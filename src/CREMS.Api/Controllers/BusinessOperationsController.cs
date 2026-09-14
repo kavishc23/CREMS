@@ -29,8 +29,8 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
         var branchId = scope.IsAdministrator ? null : scope.BranchId;
         return Ok(new
         {
-            personnel = await db.Personnel.AsNoTracking().Include(x => x.Qualifications).Where(x => scope.IsAdministrator || x.BranchId == branchId && x.DivisionId == scope.DivisionId).OrderBy(x => x.FullName).ToListAsync(token),
-            assignments = await db.BookingPersonnelAssignments.AsNoTracking().Include(x => x.Personnel).Include(x => x.Timesheets).Where(x => scope.IsAdministrator || x.Personnel!.BranchId == branchId && x.Personnel.DivisionId == scope.DivisionId).OrderByDescending(x => x.StartAt).Take(150).ToListAsync(token),
+            personnel = await db.Personnel.AsNoTracking().Where(x => scope.IsAdministrator || scope.BranchIds.Contains(x.BranchId) && scope.DivisionIds.Contains(x.DivisionId)).OrderBy(x => x.FullName).Select(x => new { x.Id, x.EmployeeNumber, x.FullName, x.Type, x.BranchId, x.DivisionId, x.StandardChargeRate }).ToListAsync(token),
+            assignments = await db.BookingPersonnelAssignments.AsNoTracking().Where(x => scope.IsAdministrator || scope.BranchIds.Contains(x.Personnel!.BranchId) && scope.DivisionIds.Contains(x.Personnel.DivisionId)).OrderByDescending(x => x.StartAt).Take(150).Select(x => new { x.Id, personnelName = x.Personnel!.FullName, x.BookingId, x.StartAt, x.EndAt, x.CustomerHourlyRate }).ToListAsync(token),
             suppliers = await db.Suppliers.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Name).ToListAsync(token),
             deliveryZones = await db.DeliveryZones.AsNoTracking().Where(x => x.IsActive && (scope.IsAdministrator || (x.BranchId == null || x.BranchId == branchId) && (x.DivisionId == null || x.DivisionId == scope.DivisionId))).OrderBy(x => x.Name).ToListAsync(token),
             alerts = await db.BusinessAlerts.AsNoTracking().Where(x => x.AcknowledgedAt == null && (scope.IsAdministrator || x.BranchId == branchId && (x.DivisionId == null || x.DivisionId == scope.DivisionId))).OrderByDescending(x => x.Priority).ThenBy(x => x.RaisedAt).Take(100).ToListAsync(token),
@@ -203,7 +203,7 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     }
 
     private async Task<StaffDataScope?> Scope() => await staffScope.GetAsync(User);
-    private IQueryable<Asset> AssetScope(StaffDataScope scope) => db.Assets.Where(x => scope.IsAdministrator || x.BranchId == scope.BranchId && x.DivisionId == scope.DivisionId);
+    private IQueryable<Asset> AssetScope(StaffDataScope scope) => db.Assets.Where(x => scope.IsAdministrator || scope.BranchIds.Contains(x.BranchId) && x.DivisionId.HasValue && scope.DivisionIds.Contains(x.DivisionId.Value));
     private ActionResult Validation(string key, string message) => BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { [key] = [message] }));
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string Csv(string? value) => $"\"{(value ?? string.Empty).Replace("\"", "\"\"")}\"";
