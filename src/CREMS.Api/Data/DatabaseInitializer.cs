@@ -88,51 +88,42 @@ public static class DatabaseInitializer
 
     private static async Task EnsureDefaultBookingApprovalRuleAsync(ApplicationDbContext db, CancellationToken token)
     {
-        var operationalRule = await db.ApprovalWorkflows.Include(x => x.Stages)
-            .FirstOrDefaultAsync(x => x.Type == ApprovalType.Booking &&
-                (x.Name == "Equipment, personnel and overtime approval" || x.Name == "Operational exception approval"), token);
-        if (operationalRule is null)
-        {
-            db.ApprovalWorkflows.Add(new ApprovalWorkflow
-            {
-                Name = "Operational exception approval",
-                Type = ApprovalType.Booking,
-                EntityType = nameof(Booking),
-                TriggerForEquipment = true,
-                TriggerForPersonnel = true,
-                TriggerForOvertime = true,
-                Priority = 200,
-                IsActive = true,
-                Stages =
-                [
-                    new ApprovalWorkflowStage { Sequence = 1, Name = "Branch manager review", AssignedRole = SystemRoles.BranchManager, EscalateAfterHours = 24, EscalationRole = SystemRoles.Administrator },
-                ],
-            });
-        }
-        else
-        {
-            operationalRule.Name = "Operational exception approval";
-            operationalRule.Priority = Math.Max(operationalRule.Priority, 200);
-        }
+        var rules = await db.ApprovalWorkflows.Include(x => x.Stages)
+            .Where(x => x.Type == ApprovalType.Booking).ToListAsync(token);
 
-        if (!await db.ApprovalWorkflows.AnyAsync(x => x.Type == ApprovalType.Booking && x.Name == "High-value hire approval", token))
-        {
-            db.ApprovalWorkflows.Add(new ApprovalWorkflow
-            {
-                Name = "High-value hire approval",
-                Type = ApprovalType.Booking,
-                EntityType = nameof(Booking),
-                MinimumAmount = 5000m,
-                Priority = 300,
-                IsActive = true,
-                Stages =
-                [
-                    new ApprovalWorkflowStage { Sequence = 1, Name = "Branch manager review", AssignedRole = SystemRoles.BranchManager, EscalateAfterHours = 12, EscalationRole = SystemRoles.Administrator },
-                    new ApprovalWorkflowStage { Sequence = 2, Name = "Administration approval", AssignedRole = SystemRoles.Administrator, EscalateAfterHours = 24, EscalationRole = SystemRoles.SuperAdministrator },
-                ],
-            });
-        }
+        await UpsertBookingRule("Equipment and professional personnel", 300, equipment: true, personnel: true);
+        await UpsertBookingRule("Staff overtime approval", 250, overtime: true);
+        await UpsertBookingRule("High-value rental approval", 200, minimumAmount: 5000m);
+
+        foreach (var obsolete in rules.Where(x => x.Name is "Operational exception approval" or "Equipment, personnel and overtime approval" or "High-value hire approval"))
+            obsolete.IsActive = false;
+        foreach (var stage in rules.SelectMany(x => x.Stages).Where(x => x.AssignedRole is SystemRoles.Administrator or SystemRoles.SuperAdministrator))
+            stage.AssignedRole = SystemRoles.BranchManager;
+        foreach (var pendingStage in await db.ApprovalStageDecisions.Where(x => x.Status == ApprovalStatus.Pending &&
+                     (x.AssignedRole == SystemRoles.Administrator || x.AssignedRole == SystemRoles.SuperAdministrator) &&
+                     x.ApprovalRequest!.Type == ApprovalType.Booking).ToListAsync(token))
+            pendingStage.AssignedRole = SystemRoles.BranchManager;
         await db.SaveChangesAsync(token);
+
+        async Task UpsertBookingRule(string name, int priority, bool equipment = false, bool personnel = false, bool overtime = false, decimal? minimumAmount = null)
+        {
+            var rule = rules.FirstOrDefault(x => x.Name == name);
+            if (rule is null)
+            {
+                rule = new ApprovalWorkflow { Name = name, Type = ApprovalType.Booking, EntityType = nameof(Booking) };
+                rules.Add(rule); db.ApprovalWorkflows.Add(rule);
+            }
+            rule.EntityType = nameof(Booking); rule.MinimumAmount = minimumAmount; rule.TriggerForEquipment = equipment;
+            rule.TriggerForPersonnel = personnel; rule.TriggerForOvertime = overtime; rule.IsDefaultForBookings = false;
+            rule.Priority = priority; rule.IsActive = true;
+            if (rule.Stages.Count > 0) db.ApprovalWorkflowStages.RemoveRange(rule.Stages);
+            rule.Stages =
+            [
+                new ApprovalWorkflowStage { Sequence = 1, Name = "Rental officer review", AssignedRole = SystemRoles.RentalOfficer, EscalateAfterHours = 12, EscalationRole = SystemRoles.BranchManager },
+                new ApprovalWorkflowStage { Sequence = 2, Name = "Branch manager approval", AssignedRole = SystemRoles.BranchManager, EscalateAfterHours = 24, EscalationRole = SystemRoles.BranchManager },
+            ];
+            await Task.CompletedTask;
+        }
     }
 
     private static async Task SeedDevelopmentDataAsync(

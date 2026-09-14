@@ -27,6 +27,8 @@ public sealed class ApprovalWorkflowsController(ApplicationDbContext db, Current
     {
         if (request.Stages.Count is < 1 or > 5 || request.Stages.Select(x => x.Sequence).Distinct().Count() != request.Stages.Count)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["stages"] = ["Configure between one and five uniquely ordered approval phases."] }));
+        if (request.Type == ApprovalType.Booking && request.Stages.Any(x => x.AssignedRole is not (SystemRoles.RentalOfficer or SystemRoles.BranchManager)))
+            return BadRequest(new { message = "Booking approval stages can only be assigned to rental officers and branch managers." });
         var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid();
         var workflow = new ApprovalWorkflow { Name = request.Name.Trim(), Type = request.Type, EntityType = Clean(request.EntityType), BranchId = request.BranchId, DivisionId = request.DivisionId, MinimumAmount = request.MinimumAmount, TriggerForEquipment = request.TriggerForEquipment, TriggerForPersonnel = request.TriggerForPersonnel, TriggerForOvertime = request.TriggerForOvertime, IsDefaultForBookings = request.IsDefaultForBookings, Priority = request.Priority, IsActive = request.IsActive,
             Stages = request.Stages.OrderBy(x => x.Sequence).Select(MapStage).ToList() };
@@ -39,9 +41,11 @@ public sealed class ApprovalWorkflowsController(ApplicationDbContext db, Current
     {
         var workflow = await db.ApprovalWorkflows.Include(x => x.Stages).FirstOrDefaultAsync(x => x.Id == id, token); if (workflow is null) return NotFound();
         if (request.Stages.Count is < 1 or > 5 || request.Stages.Select(x => x.Sequence).Distinct().Count() != request.Stages.Count) return BadRequest();
+        if (request.Type == ApprovalType.Booking && request.Stages.Any(x => x.AssignedRole is not (SystemRoles.RentalOfficer or SystemRoles.BranchManager)))
+            return BadRequest(new { message = "Booking approval stages can only be assigned to rental officers and branch managers." });
         var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid();
-        db.ApprovalWorkflowStages.RemoveRange(workflow.Stages); workflow.Name = request.Name.Trim(); workflow.Type = request.Type; workflow.EntityType = Clean(request.EntityType); workflow.BranchId = request.BranchId; workflow.DivisionId = request.DivisionId; workflow.MinimumAmount = request.MinimumAmount; workflow.TriggerForEquipment = request.TriggerForEquipment; workflow.TriggerForPersonnel = request.TriggerForPersonnel; workflow.TriggerForOvertime = request.TriggerForOvertime; workflow.IsDefaultForBookings = request.IsDefaultForBookings; workflow.Priority = request.Priority; workflow.IsActive = request.IsActive;
-        workflow.Stages = request.Stages.OrderBy(x => x.Sequence).Select(MapStage).ToList(); workflow.UpdatedAt = DateTimeOffset.UtcNow;
+        workflow.Name = request.Name.Trim(); workflow.Type = request.Type; workflow.EntityType = Clean(request.EntityType); workflow.BranchId = request.BranchId; workflow.DivisionId = request.DivisionId; workflow.MinimumAmount = request.MinimumAmount; workflow.TriggerForEquipment = request.TriggerForEquipment; workflow.TriggerForPersonnel = request.TriggerForPersonnel; workflow.TriggerForOvertime = request.TriggerForOvertime; workflow.IsDefaultForBookings = request.IsDefaultForBookings; workflow.Priority = request.Priority; workflow.IsActive = request.IsActive;
+        SynchronizeStages(workflow, request.Stages); workflow.UpdatedAt = DateTimeOffset.UtcNow;
         AuditWriter.Record(db, scope, "Approval workflow updated", nameof(ApprovalWorkflow), workflow.Id, $"{workflow.Name} now has {workflow.Stages.Count} phases.", request.BranchId); await db.SaveChangesAsync(token); return Ok(ToResponse(workflow));
     }
     [HttpGet("delegations")]
@@ -56,6 +60,28 @@ public sealed class ApprovalWorkflowsController(ApplicationDbContext db, Current
     }
 
     private static ApprovalWorkflowStage MapStage(ApprovalWorkflowStageRequest x) => new() { Sequence = x.Sequence, Name = x.Name.Trim(), AssignedRole = Clean(x.AssignedRole), AssignedUserId = x.AssignedUserId, EscalateAfterHours = x.EscalateAfterHours, EscalationRole = Clean(x.EscalationRole) };
+    private void SynchronizeStages(ApprovalWorkflow workflow, IReadOnlyList<ApprovalWorkflowStageRequest> requestedStages)
+    {
+        var requestedBySequence = requestedStages.ToDictionary(x => x.Sequence);
+        foreach (var existing in workflow.Stages.ToList())
+        {
+            if (!requestedBySequence.TryGetValue(existing.Sequence, out var requested))
+            {
+                db.ApprovalWorkflowStages.Remove(existing);
+                continue;
+            }
+
+            existing.Name = requested.Name.Trim();
+            existing.AssignedRole = Clean(requested.AssignedRole);
+            existing.AssignedUserId = requested.AssignedUserId;
+            existing.EscalateAfterHours = requested.EscalateAfterHours;
+            existing.EscalationRole = Clean(requested.EscalationRole);
+            requestedBySequence.Remove(existing.Sequence);
+        }
+
+        foreach (var requested in requestedBySequence.Values)
+            workflow.Stages.Add(MapStage(requested));
+    }
     private static object ToResponse(ApprovalWorkflow x) => new { x.Id, x.Name, x.Type, x.EntityType, x.BranchId, x.DivisionId, x.MinimumAmount, x.TriggerForEquipment, x.TriggerForPersonnel, x.TriggerForOvertime, x.IsDefaultForBookings, x.Priority, x.IsActive, x.CreatedAt, x.UpdatedAt, stages = x.Stages.OrderBy(s => s.Sequence).Select(s => new { s.Id, s.Sequence, s.Name, s.AssignedRole, s.AssignedUserId, s.EscalateAfterHours, s.EscalationRole }) };
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

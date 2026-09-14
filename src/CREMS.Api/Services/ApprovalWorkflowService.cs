@@ -1,5 +1,6 @@
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Corporate;
+using CREMS.Api.Domain.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace CREMS.Api.Services;
@@ -43,6 +44,24 @@ public static class ApprovalWorkflowService
         request.TotalStages = match.Stages.Count;
         foreach (var stage in match.Stages)
             request.StageDecisions.Add(new ApprovalStageDecision { StageNumber = stage.Sequence, StageName = stage.Name, AssignedRole = stage.AssignedRole, AssignedUserId = stage.AssignedUserId });
+    }
+
+    public static void RecordRentalOfficerReview(ApprovalRequest request, Guid reviewerUserId)
+    {
+        var firstStage = request.StageDecisions.OrderBy(x => x.StageNumber).FirstOrDefault();
+        if (firstStage?.AssignedRole != SystemRoles.RentalOfficer) return;
+        firstStage.Status = ApprovalStatus.Approved;
+        firstStage.DecidedByUserId = reviewerUserId;
+        firstStage.DecisionNote = "Booking checked and submitted by the rental officer.";
+        firstStage.DecidedAt = DateTimeOffset.UtcNow;
+        request.CurrentStage = request.TotalStages > 1 ? firstStage.StageNumber + 1 : firstStage.StageNumber;
+        if (request.TotalStages == 1)
+        {
+            request.Status = ApprovalStatus.Approved;
+            request.DecidedByUserId = reviewerUserId;
+            request.DecidedAt = firstStage.DecidedAt;
+            request.DecisionNote = firstStage.DecisionNote;
+        }
     }
 
     public static async Task ConfigureAsync(ApplicationDbContext db, ApprovalRequest request, Guid? divisionId, CancellationToken token)

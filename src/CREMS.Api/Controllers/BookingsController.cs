@@ -101,7 +101,9 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var quote = await db.SalesQuotes.AsNoTracking().FirstOrDefaultAsync(x => x.ConvertedBookingId == id, cancellationToken);
         var quoteId = quote?.Id;
         var approvals = await db.ApprovalRequests.AsNoTracking().Where(x => (x.EntityType == nameof(Booking) && x.EntityId == id) || (quoteId != null && x.EntityType == nameof(SalesQuote) && x.EntityId == quoteId))
-            .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.RequestNumber, status = x.Status.ToString(), x.Amount, x.Reason, x.CurrentStage, x.TotalStages, x.DecisionNote, x.CreatedAt, x.DecidedAt }).ToListAsync(cancellationToken);
+            .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.RequestNumber, status = x.Status.ToString(), x.Amount, x.Reason, x.CurrentStage, x.TotalStages, x.DecisionNote, x.CreatedAt, x.DecidedAt,
+                stages = x.StageDecisions.OrderBy(s => s.StageNumber).Select(s => new { s.StageNumber, s.StageName, s.AssignedRole, status = s.Status.ToString(), s.DecisionNote, s.DecidedAt, s.DecidedByUserId,
+                    decidedByName = s.DecidedByUserId.HasValue ? db.Users.Where(u => u.Id == s.DecidedByUserId.Value).Select(u => u.FullName).FirstOrDefault() : null }) }).ToListAsync(cancellationToken);
         var activity = await db.AuditEvents.AsNoTracking().Where(x => x.EntityType == nameof(Booking) && x.EntityId == id)
             .OrderByDescending(x => x.OccurredAt).Take(50).Select(x => new { x.Id, x.Action, x.Summary, x.UserName, x.OccurredAt }).ToListAsync(cancellationToken);
         var documents = await db.DocumentRecords.AsNoTracking().Where(x => x.EntityType == nameof(Booking) && x.EntityId == id)
@@ -365,6 +367,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                         Amount = subtotal * (1 + booking.TaxRate / 100m), Reason = $"{booking.BookingNumber}: {approvalMatch.Reason}", RequestedByUserId = scope.UserId
                     };
                     ApprovalWorkflowService.ConfigureFromMatch(approval, approvalMatch);
+                    ApprovalWorkflowService.RecordRentalOfficerReview(approval, scope.UserId);
                     db.ApprovalRequests.Add(approval);
                     AuditWriter.Record(db, scope, "Booking submitted for approval", nameof(Booking), booking.Id,
                         $"{booking.BookingNumber} routed through {approvalMatch.WorkflowName}.", booking.BranchId);

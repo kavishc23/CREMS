@@ -7,8 +7,8 @@ const configuredStage = String(import.meta.env.VITE_CREMS_DEMO_STAGE ?? 'full').
 export const demoStage: DemoStage = configuredStage === 'demo' ? 'demo' : 'full'
 export const isDemoMode = demoStage === 'demo'
 
-// Demo is the cumulative, presentation-safe environment. Week 4 adds the
-// customer-to-staff booking flow without exposing later lifecycle modules.
+// Demo is the cumulative, presentation-safe environment. It now includes
+// staged approvals and the guided QR-supported pickup and return lifecycle.
 const demoPages = new Set<AppPage>([
   'dashboard',
   'assets',
@@ -16,6 +16,9 @@ const demoPages = new Set<AppPage>([
   'customerAccounts',
   'customers',
   'bookings',
+  'rentals',
+  'scan',
+  'operations',
   'configuration',
 ])
 

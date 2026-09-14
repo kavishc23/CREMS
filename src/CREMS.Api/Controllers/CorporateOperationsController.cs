@@ -95,6 +95,7 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         var item = await db.ApprovalRequests.Include(x => x.StageDecisions).FirstOrDefaultAsync(x => x.Id == id, token); if (item is null) return NotFound();
         var scope = await ScopeFor(item.BranchId); if (scope is null || !await ApprovalScope(scope).AnyAsync(x => x.Id == id, token)) return Forbid();
         if (item.Status != ApprovalStatus.Pending) return Validation("status", "Only a pending request can be decided.");
+        if (!request.Approved && string.IsNullOrWhiteSpace(request.Note)) return Validation("note", "Enter a clear reason before rejecting this request.");
         var requiredPermission = item.Type == ApprovalType.Refund ? SystemPermissions.PaymentsRefund : SystemPermissions.RentalsApprove;
         if (!(await authorization.AuthorizeAsync(User, requiredPermission)).Succeeded) return Forbid();
         var stage = item.StageDecisions.FirstOrDefault(x => x.StageNumber == item.CurrentStage);
@@ -112,6 +113,14 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         if (!request.Approved) { item.Status = ApprovalStatus.Rejected; item.DecidedAt = stage.DecidedAt; item.DecidedByUserId = scope.UserId; item.DecisionNote = stage.DecisionNote; }
         else if (item.CurrentStage >= item.TotalStages) { item.Status = ApprovalStatus.Approved; item.DecidedAt = stage.DecidedAt; item.DecidedByUserId = scope.UserId; item.DecisionNote = stage.DecisionNote; }
         else item.CurrentStage++;
+        if (item.EntityType == nameof(Booking) && item.Status is ApprovalStatus.Approved or ApprovalStatus.Rejected)
+        {
+            var booking = await db.Bookings.Include(x => x.Customer).FirstOrDefaultAsync(x => x.Id == item.EntityId, token);
+            if (booking?.Customer?.Email is { Length: > 0 } email)
+                db.RentalNotifications.Add(new RentalNotification { BookingId = booking.Id, Channel = NotificationChannel.Email, Recipient = email,
+                    Subject = item.Status == ApprovalStatus.Approved ? $"Rental request {booking.BookingNumber} approved" : $"Rental request {booking.BookingNumber} requires attention",
+                    Message = item.Status == ApprovalStatus.Approved ? "The required branch approval has been completed. Your rental request can now proceed to confirmation." : $"The approval was declined. Reason: {stage.DecisionNote ?? "No reason provided."}" });
+        }
         await SaveAudit(scope, "Approval phase decided", item.Id, $"{item.RequestNumber}: phase {stage.StageNumber}/{item.TotalStages} {stage.Status}; request {item.Status}", item.BranchId, token); return Ok(item);
     }
 
@@ -217,7 +226,8 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
     private IQueryable<ApprovalRequest> ApprovalScope(StaffDataScope scope) => scope.IsAdministrator
         ? db.ApprovalRequests.AsNoTracking()
         : db.ApprovalRequests.AsNoTracking().Where(x => scope.BranchIds.Contains(x.BranchId) &&
-            (x.EntityType != nameof(SalesQuote) || db.SalesQuotes.Any(q => q.Id == x.EntityId && q.DivisionId.HasValue && scope.DivisionIds.Contains(q.DivisionId.Value))));
+            (x.EntityType != nameof(SalesQuote) || db.SalesQuotes.Any(q => q.Id == x.EntityId && q.DivisionId.HasValue && scope.DivisionIds.Contains(q.DivisionId.Value))) &&
+            (x.EntityType != nameof(Booking) || db.Bookings.Any(b => b.Id == x.EntityId && b.Items.Any(i => i.Asset != null && i.Asset.DivisionId.HasValue && scope.DivisionIds.Contains(i.Asset.DivisionId.Value)))));
     private static System.Linq.Expressions.Expression<Func<T, bool>> BuildEqual<T, TValue>(System.Linq.Expressions.Expression<Func<T, TValue>> selector, TValue value) { var body = System.Linq.Expressions.Expression.Equal(selector.Body, System.Linq.Expressions.Expression.Constant(value, typeof(TValue))); return System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(body, selector.Parameters); }
     private async Task SaveAudit(StaffDataScope scope, string action, Guid id, string summary, Guid? branch, CancellationToken token) { AuditWriter.Record(db, scope, action, "CorporateOperation", id, summary, branch); await db.SaveChangesAsync(token); }
     private static string Number(string prefix) => $"{prefix}-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
