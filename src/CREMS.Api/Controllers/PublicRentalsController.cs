@@ -111,7 +111,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.BranchId, BranchName = asset.Branch!.Name, asset.DailyRate,
                 asset.RegistrationNumber, asset.SerialNumber, asset.DivisionId,
                 DivisionName = asset.Division != null ? asset.Division.Name : null,
-                asset.Category, asset.PersonnelRequirement,
+                asset.Category, CategoryCode = asset.AssetCategory != null ? asset.AssetCategory.Code : null,
+                PersonnelRequirement = asset.AssetCategory != null ? asset.AssetCategory.PersonnelRequirement : asset.PersonnelRequirement,
                 ServiceName = asset.ServiceOffering != null ? asset.ServiceOffering.Name : null,
                 RequiresQuote = asset.ServiceOffering != null && asset.ServiceOffering.RequiresQuote,
                 RequiresDelivery = asset.ServiceOffering != null && asset.ServiceOffering.RequiresDelivery,
@@ -131,7 +132,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status,
             asset.BranchId, asset.BranchName, asset.DailyRate,
             asset.RegistrationNumber, asset.SerialNumber,
-            asset.DivisionId, asset.DivisionName, asset.Category, asset.PersonnelRequirement,
+            asset.DivisionId, asset.DivisionName, asset.Category, asset.CategoryCode, asset.PersonnelRequirement,
             asset.ServiceName, asset.RequiresQuote, asset.RequiresDelivery, asset.PhotoUrlsJson,
             asset.Attributes,
             startDate.HasValue
@@ -269,10 +270,10 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var availableCharges = await db.ChargeDefinitions.AsNoTracking().Where(x => x.IsActive && x.IsCustomerVisible && x.Category != ChargeCategory.BaseHire &&
             x.DivisionId == asset.DivisionId && (!x.ServiceOfferingId.HasValue || x.ServiceOfferingId == asset.ServiceOfferingId))
             .ToListAsync(cancellationToken);
-        var assetDescription = $"{asset.Category} {asset.Name}";
-        var heavyEquipment = asset.Type == AssetType.Equipment && new[] { "heavy", "excavator", "crane", "backhoe", "loader" }
-            .Any(value => assetDescription.Contains(value, StringComparison.OrdinalIgnoreCase));
-        var personnelRequested = asset.PersonnelRequirement == PersonnelRequirement.Required || heavyEquipment || request.PersonnelRequested;
+        var personnelPolicy = AssetCategoryPolicy.Personnel(asset);
+        if (request.PersonnelRequested && !AssetCategoryPolicy.AllowsPersonnel(asset))
+            return BadRequest(new { message = "A driver or operator is not applicable to this asset category." });
+        var personnelRequested = personnelPolicy == PersonnelRequirement.Required || request.PersonnelRequested;
         if (personnelRequested && !availableCharges.Any(x => x.Category is ChargeCategory.Operator or ChargeCategory.Driver))
             return Conflict(new { message = "Professional personnel is required or selected, but no operator or driver rate is configured for this service. Please contact the branch." });
         var selectedExtras = (request.Extras ?? []).Where(x => x.Quantity > 0 && x.Quantity <= 1000)
@@ -295,8 +296,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var taxRate = asset.Division?.DefaultTaxRate ?? 15m;
         var tax = decimal.Round((baseSubtotal + chargeSubtotal) * taxRate / 100m, 2);
         var total = baseSubtotal + chargeSubtotal + tax;
-        var requiresQuote = request.RequestQuotation || activeCustomer.Type == CustomerType.Business || asset.Type == AssetType.Equipment ||
-            asset.ServiceOffering?.RequiresQuote == true || asset.PersonnelRequirement != PersonnelRequirement.None;
+        var requiresQuote = request.RequestQuotation || activeCustomer.Type == CustomerType.Business ||
+            asset.ServiceOffering?.RequiresQuote == true || personnelPolicy == PersonnelRequirement.Required || request.PersonnelRequested;
 
         var booking = new Booking
         {
@@ -470,7 +471,7 @@ public sealed record PublicAssetResponse(
     Guid Id, string AssetNumber, string Name, AssetType Type, AssetStatus Status,
     Guid BranchId, string BranchName, decimal DailyRate,
     string? RegistrationNumber, string? SerialNumber, Guid? DivisionId,
-    string? DivisionName, string? Category, PersonnelRequirement PersonnelRequirement,
+    string? DivisionName, string? Category, string? CategoryCode, PersonnelRequirement PersonnelRequirement,
     string? ServiceName, bool RequiresQuote, bool RequiresDelivery, string PhotoUrlsJson,
     IReadOnlyList<PublicAssetAttributeResponse> Attributes, bool IsAvailable);
 public sealed record PublicAssetAttributeResponse(string Code, string Name, string Value, string? Unit);

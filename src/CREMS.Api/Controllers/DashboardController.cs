@@ -49,10 +49,10 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
         int AssetCount(AssetStatus? status = null, AssetType? type = null) => assetCounts
             .Where(item => (!status.HasValue || item.Status == status) && (!type.HasValue || item.Type == type))
             .Sum(item => item.Count);
-        var vehicleTotal = AssetCount(type: AssetType.Vehicle);
-        var equipmentTotal = AssetCount(type: AssetType.Equipment);
-        var vehicleRented = AssetCount(AssetStatus.Rented, AssetType.Vehicle);
-        var equipmentRented = AssetCount(AssetStatus.Rented, AssetType.Equipment);
+        var vehicleTotal = assetCounts.Where(x => AssetCategoryPolicy.IsVehicle(x.Type)).Sum(x => x.Count);
+        var equipmentTotal = assetCounts.Where(x => AssetCategoryPolicy.IsEquipment(x.Type)).Sum(x => x.Count);
+        var vehicleRented = assetCounts.Where(x => x.Status == AssetStatus.Rented && AssetCategoryPolicy.IsVehicle(x.Type)).Sum(x => x.Count);
+        var equipmentRented = assetCounts.Where(x => x.Status == AssetStatus.Rented && AssetCategoryPolicy.IsEquipment(x.Type)).Sum(x => x.Count);
 
         return Ok(new DashboardSummaryResponse(
             AssetCount(AssetStatus.Available),

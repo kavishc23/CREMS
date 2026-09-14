@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Encodings.Web;
 using CREMS.Api.Data;
+using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
@@ -43,12 +44,23 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status != BookingStatus.Confirmed)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["The booking must be confirmed before its rental agreement is signed."] }));
-        var customerWillDrive = booking.Items.Any(x => x.Asset?.Type == Domain.Assets.AssetType.Vehicle) &&
+        var allocatedAssetNumber = booking.Items.FirstOrDefault()?.Asset?.AssetNumber;
+        if (string.IsNullOrWhiteSpace(request.ScannedAssetNumber) ||
+            !string.Equals(request.ScannedAssetNumber.Trim(), allocatedAssetNumber, StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["asset"] = ["Scan or enter the allocated asset QR number before handover."] }));
+        var customerWillDrive = booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.IsVehicle(x.Asset.Type)) &&
             !booking.Charges.Any(x => x.Category == ChargeCategory.Driver);
+        var professionalPersonnelIncluded = booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator);
+        if (professionalPersonnelIncluded && !await db.BookingPersonnelAssignments.AnyAsync(x => x.BookingId == booking.Id && x.Status == AssignmentStatus.Confirmed, cancellationToken))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["personnel"] = ["Assign and confirm the professional driver or operator before handover."] }));
         if (!request.IdentificationVerified || customerWillDrive && !request.DriverLicenceVerified || !request.PaymentVerified)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["verification"] = [customerWillDrive ? "Identification, driver licence and payment verification are required before pickup." : "Customer identification and payment verification are required before pickup."] }));
         if (!request.CustomerAcceptedTerms || !request.AgentApproved || string.IsNullOrWhiteSpace(request.CustomerSignatureName) || string.IsNullOrWhiteSpace(request.CustomerSignatureDataUrl))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["signature"] = ["Customer acceptance, a drawn customer signature and agent approval are required."] }));
+        if (request.ChecklistItems is null || request.ChecklistItems.Count == 0 || string.IsNullOrWhiteSpace(request.ConditionNotes))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Complete the category checklist and record the pre-hire condition."] }));
+        if (request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["photos"] = ["Attach at least one pre-hire inspection photograph."] }));
         if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["licence"] = ["A valid, unexpired driver licence is required."] }));
         if (await db.RentalAgreements.AnyAsync(item => item.BookingId == bookingId, cancellationToken))
@@ -76,7 +88,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             MeterReading = request.MeterReading, FuelLevelPercent = request.FuelLevelPercent,
             ConditionNotes = Normalize(request.ConditionNotes), DamageNotes = Normalize(request.DamageNotes),
             SignatureName = request.CustomerSignatureName.Trim(), SignatureDataUrl = request.CustomerSignatureDataUrl,
-            PaymentVerified = request.PaymentVerified, EvidenceJson = JsonSerializer.Serialize(new { photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [] }, SnapshotJson),
+            PaymentVerified = request.PaymentVerified, EvidenceJson = JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [] }, SnapshotJson),
             CompletedByUserId = scope.UserId,
             CompletedByName = scope.UserName, CompletedAt = now,
         });
@@ -208,6 +220,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
 }
 
 public sealed record PickupRentalRequest(
+    string ScannedAssetNumber,
     string CustomerSignatureName,
     bool CustomerAcceptedTerms,
     bool AgentApproved,
@@ -227,4 +240,5 @@ public sealed record PickupRentalRequest(
     string? ConditionNotes,
     string? DamageNotes,
     IReadOnlyList<string>? EvidenceDataUrls,
-    IReadOnlyList<string>? DamageZones);
+    IReadOnlyList<string>? DamageZones,
+    IReadOnlyList<string>? ChecklistItems);

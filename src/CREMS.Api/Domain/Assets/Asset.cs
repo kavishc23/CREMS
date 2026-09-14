@@ -112,8 +112,17 @@ public enum InspectionOutcome { Passed, PassedWithNotes, Failed, DamageDetected 
 
 public enum AssetType
 {
-    Vehicle,
-    Equipment
+    Vehicle = 0,             // Legacy data compatibility
+    Equipment = 1,           // Legacy data compatibility
+    PassengerVehicle = 2,
+    CommercialVehicle = 3,
+    HeavyEquipment = 4,
+    MaterialHandlingEquipment = 5,
+    PowerEquipment = 6,
+    LightEquipment = 7,
+    Scaffolding = 8,
+    PortableSanitation = 9,
+    WasteContainer = 10,
 }
 
 public enum AssetStatus

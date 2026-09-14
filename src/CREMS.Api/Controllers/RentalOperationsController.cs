@@ -55,11 +55,16 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var rows = await selected.OrderBy(x => x.Items.Select(i => i.StartAt).FirstOrDefault()).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(x => new RentalWorkQueueRow(x.Id, x.BookingNumber, x.Status.ToString(), x.Customer!.Name, x.Customer.Phone,
                 x.Branch!.Name, x.Items.Select(i => i.Asset!.AssetNumber).FirstOrDefault(), x.Items.Select(i => i.Asset!.Name).FirstOrDefault(),
+                x.Items.Select(i => i.Asset!.AssetCategory!.Code).FirstOrDefault(), x.Items.Select(i => i.Asset!.Category).FirstOrDefault(),
+                x.Charges.Any(c => c.Category == ChargeCategory.Driver || c.Category == ChargeCategory.Operator),
                 x.Items.Select(i => (DateTimeOffset?)i.StartAt).FirstOrDefault(), x.Items.Select(i => (DateTimeOffset?)i.EndAt).FirstOrDefault(),
                 x.RentalAgreement != null, x.RentalAgreement != null ? x.RentalAgreement.Status.ToString() : "Not prepared",
                 x.Payments.Where(p => p.Status == PaymentStatus.Recorded && (p.Type == PaymentType.RentalCharge || p.Type == PaymentType.AdditionalCharge)).Sum(p => (decimal?)p.Amount) ?? 0, x.DepositRequired,
                 x.BondStatus.ToString(), x.BondAmountHeld, x.BondDeductionAmount, x.BondRefundAmount,
                 x.Inspections.Any(i => i.Type == InspectionType.Handover), x.Inspections.Any(i => i.Type == InspectionType.Return),
+                x.Inspections.Where(i => i.Type == InspectionType.Handover).OrderByDescending(i => i.CompletedAt).Select(i => i.ConditionNotes).FirstOrDefault(),
+                x.Inspections.Where(i => i.Type == InspectionType.Handover).OrderByDescending(i => i.CompletedAt).Select(i => i.MeterReading).FirstOrDefault(),
+                x.Inspections.Where(i => i.Type == InspectionType.Handover).OrderByDescending(i => i.CompletedAt).Select(i => i.FuelLevelPercent).FirstOrDefault(),
                 x.Items.Any(i => i.EndAt < now) ? "Return is overdue" : x.Customer.IsBlocked ? "Customer account is blocked" : null))
             .ToListAsync(cancellationToken);
         return Ok(new RentalWorkQueueResponse(rows, counts, page, pageSize, total));
@@ -116,10 +121,18 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status != BookingStatus.ConvertedToRental)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["Only an active rental can be returned."] }));
+        var allocatedAssetNumber = booking.Items.FirstOrDefault()?.Asset?.AssetNumber;
+        if (string.IsNullOrWhiteSpace(request.ScannedAssetNumber) ||
+            !string.Equals(request.ScannedAssetNumber.Trim(), allocatedAssetNumber, StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["asset"] = ["Scan or enter the asset QR number linked to this rental."] }));
         if (request.BondDeductionAmount < 0 || request.BondDeductionAmount > booking.BondAmountHeld)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["bond"] = ["The bond deduction must be between zero and the amount held."] }));
         if (request.BondDeductionAmount > 0 && string.IsNullOrWhiteSpace(request.BondDeductionReason))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["bondReason"] = ["Give a clear reason for every bond deduction."] }));
+        if (request.ChecklistItems is null || request.ChecklistItems.Count == 0 || string.IsNullOrWhiteSpace(request.ConditionNotes))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Complete the category checklist and record the post-hire condition."] }));
+        if (request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["photos"] = ["Attach at least one return inspection photograph."] }));
 
         booking.Inspections.Add(CreateInspection(booking.Id, InspectionType.Return, request, scope));
         booking.AdditionalCharges = request.AdditionalCharges + request.LateFee + request.ExcessUsageCharge + request.RefuellingCharge + request.CleaningCharge + request.DamageCharge;
@@ -180,7 +193,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         FuelLevelPercent = request.FuelLevelPercent, ConditionNotes = Normalize(request.ConditionNotes),
         DamageNotes = Normalize(request.DamageNotes), SignatureName = Normalize(request.SignatureName),
         SignatureDataUrl = request.SignatureDataUrl, PaymentVerified = request.PaymentVerified,
-        EvidenceJson = System.Text.Json.JsonSerializer.Serialize(new { photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [] }),
+        EvidenceJson = System.Text.Json.JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [] }),
         CompletedByUserId = scope.UserId, CompletedByName = scope.UserName,
     };
 
@@ -214,8 +227,10 @@ public record InspectionRequest(
     public bool PaymentVerified { get; init; }
     public IReadOnlyList<string>? EvidenceDataUrls { get; init; }
     public IReadOnlyList<string>? DamageZones { get; init; }
+    public IReadOnlyList<string>? ChecklistItems { get; init; }
 }
 public sealed record ReturnInspectionRequest(
+    string ScannedAssetNumber,
     bool IdentificationVerified,
     bool DriverLicenceVerified,
     decimal? MeterReading,
@@ -238,7 +253,9 @@ public sealed record ReturnInspectionRequest(
 public sealed record RentalQueueCounts(int PickupToday, int OnHire, int DueToday, int Overdue, int ReturnInProgress, int RecentlyCompleted);
 public sealed record RentalWorkQueueResponse(IReadOnlyList<RentalWorkQueueRow> Items, RentalQueueCounts Counts, int Page, int PageSize, int Total);
 public sealed record RentalWorkQueueRow(Guid Id, string BookingNumber, string Status, string CustomerName, string? CustomerPhone,
-    string BranchName, string? AssetNumber, string? AssetName, DateTimeOffset? StartAt, DateTimeOffset? EndAt,
+    string BranchName, string? AssetNumber, string? AssetName, string? AssetCategoryCode, string? AssetCategory,
+    bool HasProfessionalPersonnel, DateTimeOffset? StartAt, DateTimeOffset? EndAt,
     bool HasAgreement, string AgreementStatus, decimal AmountPaid, decimal DepositRequired,
     string BondStatus, decimal BondAmountHeld, decimal BondDeductionAmount, decimal BondRefundAmount,
-    bool PreHireInspectionComplete, bool ReturnInspectionComplete, string? Warning);
+    bool PreHireInspectionComplete, bool ReturnInspectionComplete, string? PreHireCondition,
+    decimal? PreHireMeterReading, int? PreHireFuelLevelPercent, string? Warning);

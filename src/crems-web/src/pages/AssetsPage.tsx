@@ -20,7 +20,7 @@ import { AssetQrLabelDialog } from '../components/AssetQrLabelDialog'
 import { AssetProfileDialog } from '../components/AssetProfileDialog'
 import { isDemoMode } from '../config/demoMode'
 
-const assetTypes = ['Vehicle', 'Equipment'] as const
+const assetTypes = ['PassengerVehicle','CommercialVehicle','HeavyEquipment','MaterialHandlingEquipment','PowerEquipment','LightEquipment','Scaffolding','PortableSanitation','WasteContainer'] as const
 const assetStatuses = ['Available', 'Reserved', 'Rented', 'Inspection', 'Maintenance', 'OutOfService', 'Retired'] as const
 type AssetType = typeof assetTypes[number]
 type AssetStatus = typeof assetStatuses[number]
@@ -32,20 +32,21 @@ type Asset = {
   category: string | null; manufacturer: string | null; model: string | null; modelYear: number | null; vinOrChassisNumber: string | null; engineNumber: string | null
   meterUnit: string | null; currentMeterReading: number | null; acquisitionDate: string | null; acquisitionCost: number; currentBookValue: number | null
   ownershipType: string | null; insurancePolicyNumber: string | null; insuranceExpiry: string | null; warrantyExpiry: string | null
-  photoUrlsJson: string
+  photoUrlsJson: string; serviceOfferingId: string | null; assetCategoryId: string | null
 }
 type Branch = { id: string; name: string; isActive: boolean; divisionIds: string[] }
 type Division = { id: string; name: string; isActive: boolean }
+type AssetCategory = { id:string; code:string; name:string; divisionId:string; serviceOfferingId:string|null; defaultMeterType:string|null; personnelRequirement:'None'|'Optional'|'Required' }
 type AssetForm = {
   assetNumber: string; name: string; type: AssetType; status: AssetStatus; divisionId: string; branchId: string
   registrationNumber: string; serialNumber: string; dailyRate: string; defaultBondAmount: string; nextServiceDate: string
   category: string; manufacturer: string; model: string; modelYear: string; vinOrChassisNumber: string; engineNumber: string; meterUnit: string; currentMeterReading: string
-  acquisitionDate: string; acquisitionCost: string; currentBookValue: string; ownershipType: string; insurancePolicyNumber: string; insuranceExpiry: string; warrantyExpiry: string; photoUrlsJson: string
+  acquisitionDate: string; acquisitionCost: string; currentBookValue: string; ownershipType: string; insurancePolicyNumber: string; insuranceExpiry: string; warrantyExpiry: string; photoUrlsJson: string; serviceOfferingId:string; assetCategoryId:string
 }
 const emptyForm: AssetForm = {
-  assetNumber: '', name: '', type: 'Vehicle', status: 'Available', divisionId: '', branchId: '',
+  assetNumber: '', name: '', type: 'PassengerVehicle', status: 'Available', divisionId: '', branchId: '',
   registrationNumber: '', serialNumber: '', dailyRate: '', defaultBondAmount: '0', nextServiceDate: '',
-  category: '', manufacturer: '', model: '', modelYear: '', vinOrChassisNumber: '', engineNumber: '', meterUnit: 'km', currentMeterReading: '', acquisitionDate: '', acquisitionCost: '', currentBookValue: '', ownershipType: 'Owned', insurancePolicyNumber: '', insuranceExpiry: '', warrantyExpiry: '', photoUrlsJson: '[]',
+  category: '', manufacturer: '', model: '', modelYear: '', vinOrChassisNumber: '', engineNumber: '', meterUnit: 'km', currentMeterReading: '', acquisitionDate: '', acquisitionCost: '', currentBookValue: '', ownershipType: 'Owned', insurancePolicyNumber: '', insuranceExpiry: '', warrantyExpiry: '', photoUrlsJson: '[]', serviceOfferingId:'', assetCategoryId:'',
 }
 type Performance = { assetNumber:string; name:string; rentalRevenue:number; maintenanceExpense:number; operatingExpense:number; transferExpense:number; totalExpense:number; operatingProfit:number; acquisitionCost:number; currentBookValue:number|null; lifetimeNetAfterAcquisition:number; rentalCount:number; rentalDays:number; inspectionCount:number; maintenance:{id:string;jobNumber:string;serviceType:string;actualCost:number|null;status:string}[]; costs:{id:string;category:string;description:string;amount:number;occurredOn:string}[] }
 type AssetSummary = { total:number;available:number;onHire:number;reserved:number;maintenance:number;inspection:number;outOfService:number;categories:string[] }
@@ -58,6 +59,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
   const [assets, setAssets] = useState<Asset[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [divisions, setDivisions] = useState<Division[]>([])
+  const [assetCategories,setAssetCategories]=useState<AssetCategory[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -115,9 +117,10 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
 
   useEffect(() => {
     if (!canManage) return
-    void Promise.all([api.get<Branch[]>('/branches'), api.get<Division[]>('/divisions')]).then(([branchResponse, divisionResponse]) => {
+    void Promise.all([api.get<Branch[]>('/branches'), api.get<Division[]>('/divisions'),api.get<AssetCategory[]>('/asset-categories')]).then(([branchResponse, divisionResponse,categoryResponse]) => {
       setBranches(branchResponse.data.filter(branch => branch.isActive))
       setDivisions(divisionResponse.data.filter(division => division.isActive))
+      setAssetCategories(categoryResponse.data)
     }).catch(() => setError('Unable to load branch and division options.'))
   }, [canManage])
 
@@ -129,7 +132,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
     setEditing(asset)
     setForm({ assetNumber: asset.assetNumber, name: asset.name, type: asset.type, status: asset.status,
       divisionId: asset.divisionId ?? '', branchId: asset.branchId, registrationNumber: asset.registrationNumber ?? '', serialNumber: asset.serialNumber ?? '',
-      dailyRate: String(asset.dailyRate), defaultBondAmount: String(asset.defaultBondAmount ?? 0), nextServiceDate: asset.nextServiceDate ?? '', category:asset.category??'',manufacturer:asset.manufacturer??'',model:asset.model??'',modelYear:asset.modelYear?String(asset.modelYear):'',vinOrChassisNumber:asset.vinOrChassisNumber??'',engineNumber:asset.engineNumber??'',meterUnit:asset.meterUnit??'',currentMeterReading:asset.currentMeterReading==null?'':String(asset.currentMeterReading),acquisitionDate:asset.acquisitionDate??'',acquisitionCost:String(asset.acquisitionCost??0),currentBookValue:asset.currentBookValue==null?'':String(asset.currentBookValue),ownershipType:asset.ownershipType??'',insurancePolicyNumber:asset.insurancePolicyNumber??'',insuranceExpiry:asset.insuranceExpiry??'',warrantyExpiry:asset.warrantyExpiry??'',photoUrlsJson:asset.photoUrlsJson??'[]' })
+      dailyRate: String(asset.dailyRate), defaultBondAmount: String(asset.defaultBondAmount ?? 0), nextServiceDate: asset.nextServiceDate ?? '', category:asset.category??'',manufacturer:asset.manufacturer??'',model:asset.model??'',modelYear:asset.modelYear?String(asset.modelYear):'',vinOrChassisNumber:asset.vinOrChassisNumber??'',engineNumber:asset.engineNumber??'',meterUnit:asset.meterUnit??'',currentMeterReading:asset.currentMeterReading==null?'':String(asset.currentMeterReading),acquisitionDate:asset.acquisitionDate??'',acquisitionCost:String(asset.acquisitionCost??0),currentBookValue:asset.currentBookValue==null?'':String(asset.currentBookValue),ownershipType:asset.ownershipType??'',insurancePolicyNumber:asset.insurancePolicyNumber??'',insuranceExpiry:asset.insuranceExpiry??'',warrantyExpiry:asset.warrantyExpiry??'',photoUrlsJson:asset.photoUrlsJson??'[]',serviceOfferingId:asset.serviceOfferingId??'',assetCategoryId:asset.assetCategoryId??'' })
     setError(''); setOpen(true)
   }
 
@@ -215,8 +218,8 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
             <TextField fullWidth required label="Asset name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <FormControl fullWidth required><InputLabel>Division</InputLabel><Select label="Division" value={form.divisionId} onChange={(e) => { const divisionId = e.target.value; setForm({ ...form, divisionId, branchId: branches.find(x => x.divisionIds.includes(divisionId))?.id ?? '' }) }}>{divisions.map(value => <MenuItem key={value.id} value={value.id}>{value.name}</MenuItem>)}</Select></FormControl>
-            <FormControl fullWidth><InputLabel>Type</InputLabel><Select label="Type" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as AssetType })}>{assetTypes.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl>
+            <FormControl fullWidth required><InputLabel>Division</InputLabel><Select label="Division" value={form.divisionId} onChange={(e) => { const divisionId = e.target.value; setForm({ ...form, divisionId, branchId: branches.find(x => x.divisionIds.includes(divisionId))?.id ?? '', assetCategoryId:'', serviceOfferingId:'', category:'' }) }}>{divisions.map(value => <MenuItem key={value.id} value={value.id}>{value.name}</MenuItem>)}</Select></FormControl>
+            <FormControl fullWidth required><InputLabel>Asset category</InputLabel><Select label="Asset category" value={form.assetCategoryId} onChange={(e)=>{const selected=assetCategories.find(x=>x.id===e.target.value);setForm({...form,assetCategoryId:e.target.value,serviceOfferingId:selected?.serviceOfferingId??'',category:selected?.name??'',meterUnit:selected?.defaultMeterType??form.meterUnit,type:selected?.code==='RENTAL_VEHICLE'?'PassengerVehicle':selected?.code==='HEAVY_MACHINE'?'HeavyEquipment':selected?.code==='FORKLIFT'?'MaterialHandlingEquipment':selected?.code==='GENSET'?'PowerEquipment':selected?.code==='SCAFFOLD'?'Scaffolding':selected?.code==='PORTABLE_TOILET'?'PortableSanitation':selected?.code==='BIG_BIN'?'WasteContainer':'LightEquipment'})}}>{assetCategories.filter(x=>x.divisionId===form.divisionId).map(value=><MenuItem key={value.id} value={value.id}>{value.name} ({value.personnelRequirement==='Required'?'operator required':value.personnelRequirement==='Optional'?'operator optional':'no operator'})</MenuItem>)}</Select></FormControl>
             <FormControl fullWidth><InputLabel>Status</InputLabel><Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as AssetStatus })}>{assetStatuses.map((value) => <MenuItem key={value} value={value}>{value.replace(/([a-z])([A-Z])/g, '$1 $2')}</MenuItem>)}</Select></FormControl>
             <FormControl fullWidth required><InputLabel>Branch</InputLabel><Select label="Branch" value={form.branchId} onChange={(e) => setForm({ ...form, branchId: e.target.value })}>{branches.filter(branch => branch.divisionIds.includes(form.divisionId)).map((branch) => <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>)}</Select></FormControl>
           </Stack>
@@ -224,7 +227,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
             <TextField fullWidth label="Registration number" value={form.registrationNumber} onChange={(e) => setForm({ ...form, registrationNumber: e.target.value })} />
             <TextField fullWidth label="Serial number" value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} />
           </Stack>
-          <Typography variant="subtitle2">Identification and specifications</Typography><Stack direction={{xs:'column',sm:'row'}} spacing={2}><TextField fullWidth label="Category" placeholder="Vehicle, container, portable toilet, scaffolding…" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/><TextField fullWidth label="Manufacturer" value={form.manufacturer} onChange={e=>setForm({...form,manufacturer:e.target.value})}/><TextField fullWidth label="Model" value={form.model} onChange={e=>setForm({...form,model:e.target.value})}/><TextField fullWidth type="number" label="Model year" value={form.modelYear} onChange={e=>setForm({...form,modelYear:e.target.value})}/></Stack><Stack direction={{xs:'column',sm:'row'}} spacing={2}><TextField fullWidth label="VIN / chassis number" value={form.vinOrChassisNumber} onChange={e=>setForm({...form,vinOrChassisNumber:e.target.value})}/><TextField fullWidth label="Engine number" value={form.engineNumber} onChange={e=>setForm({...form,engineNumber:e.target.value})}/><TextField fullWidth label="Current meter" type="number" value={form.currentMeterReading} onChange={e=>setForm({...form,currentMeterReading:e.target.value})}/><TextField fullWidth label="Meter unit" placeholder="km or hours" value={form.meterUnit} onChange={e=>setForm({...form,meterUnit:e.target.value})}/></Stack>
+          <Typography variant="subtitle2">Identification and specifications</Typography><Stack direction={{xs:'column',sm:'row'}} spacing={2}><TextField fullWidth label="Classification" value={form.category} disabled helperText="Controls booking, inspection and maintenance requirements"/><TextField fullWidth label="Manufacturer" value={form.manufacturer} onChange={e=>setForm({...form,manufacturer:e.target.value})}/><TextField fullWidth label="Model" value={form.model} onChange={e=>setForm({...form,model:e.target.value})}/><TextField fullWidth type="number" label="Model year" value={form.modelYear} onChange={e=>setForm({...form,modelYear:e.target.value})}/></Stack><Stack direction={{xs:'column',sm:'row'}} spacing={2}><TextField fullWidth label="VIN / chassis number" value={form.vinOrChassisNumber} onChange={e=>setForm({...form,vinOrChassisNumber:e.target.value})}/><TextField fullWidth label="Engine number" value={form.engineNumber} onChange={e=>setForm({...form,engineNumber:e.target.value})}/><TextField fullWidth label="Current meter" type="number" value={form.currentMeterReading} onChange={e=>setForm({...form,currentMeterReading:e.target.value})}/><TextField fullWidth label="Meter unit" placeholder="km or hours" value={form.meterUnit} onChange={e=>setForm({...form,meterUnit:e.target.value})}/></Stack>
           <Typography variant="subtitle2">Ownership and financial baseline</Typography><Stack direction={{xs:'column',sm:'row'}} spacing={2}><TextField fullWidth type="date" label="Acquisition date" InputLabelProps={{shrink:true}} value={form.acquisitionDate} onChange={e=>setForm({...form,acquisitionDate:e.target.value})}/><TextField fullWidth type="number" label="Acquisition cost (FJD)" value={form.acquisitionCost} onChange={e=>setForm({...form,acquisitionCost:e.target.value})}/><TextField fullWidth type="number" label="Current book value (FJD)" value={form.currentBookValue} onChange={e=>setForm({...form,currentBookValue:e.target.value})}/><TextField fullWidth label="Ownership" placeholder="Owned, leased or financed" value={form.ownershipType} onChange={e=>setForm({...form,ownershipType:e.target.value})}/></Stack><Stack direction={{xs:'column',sm:'row'}} spacing={2}><TextField fullWidth label="Insurance policy" value={form.insurancePolicyNumber} onChange={e=>setForm({...form,insurancePolicyNumber:e.target.value})}/><TextField fullWidth type="date" label="Insurance expiry" InputLabelProps={{shrink:true}} value={form.insuranceExpiry} onChange={e=>setForm({...form,insuranceExpiry:e.target.value})}/><TextField fullWidth type="date" label="Warranty expiry" InputLabelProps={{shrink:true}} value={form.warrantyExpiry} onChange={e=>setForm({...form,warrantyExpiry:e.target.value})}/></Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField fullWidth required type="number" label="Daily rate (FJD)" inputProps={{ min: 0, step: '0.01' }} value={form.dailyRate} onChange={(e) => setForm({ ...form, dailyRate: e.target.value })} />

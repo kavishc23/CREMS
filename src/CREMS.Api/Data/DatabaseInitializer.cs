@@ -50,6 +50,8 @@ public static class DatabaseInitializer
             await SeedDevelopmentDataAsync(db, userManager, app.Environment.ContentRootPath, cancellationToken);
         }
         await NormalizeCustomersAsync(db, cancellationToken);
+        if (app.Environment.IsDevelopment())
+            await RefreshDevelopmentBookingTimelineAsync(db, cancellationToken);
         await EnsureDefaultBookingApprovalRuleAsync(db, cancellationToken);
 
         var email = app.Configuration["BootstrapAdmin:Email"];
@@ -86,6 +88,39 @@ public static class DatabaseInitializer
         }
     }
 
+    private static async Task RefreshDevelopmentBookingTimelineAsync(ApplicationDbContext db, CancellationToken token)
+    {
+        // Keep the named demonstration records useful as the calendar moves forward,
+        // without overwriting bookings created or changed by a presenter.
+        var timeline = new Dictionary<string, (BookingStatus Status, int Start, int End)>
+        {
+            ["BK-2026-0001"] = (BookingStatus.Completed, -18, -14),
+            ["BK-2026-0002"] = (BookingStatus.Completed, -12, -8),
+            ["BK-2026-0003"] = (BookingStatus.Completed, -7, -4),
+            ["BK-2026-0004"] = (BookingStatus.ConvertedToRental, -1, 3),
+            ["BK-2026-0005"] = (BookingStatus.ConvertedToRental, -4, -1), // Deliberate overdue example.
+            ["BK-2026-0006"] = (BookingStatus.Confirmed, 2, 6),
+            ["BK-2026-0007"] = (BookingStatus.Confirmed, 5, 9),
+            ["REQ-2026-0008"] = (BookingStatus.Draft, 8, 11),
+            ["REQ-2026-0009"] = (BookingStatus.Draft, 12, 16),
+        };
+        var records = await db.Bookings.Include(x => x.Items)
+            .Where(x => timeline.Keys.Contains(x.BookingNumber)).ToListAsync(token);
+        var today = DateTimeOffset.UtcNow.Date;
+        foreach (var booking in records)
+        {
+            var desired = timeline[booking.BookingNumber];
+            var item = booking.Items.FirstOrDefault();
+            if (item is null || Math.Abs((item.StartAt - today.AddDays(desired.Start)).TotalDays) < 10) continue;
+            item.StartAt = today.AddDays(desired.Start);
+            item.EndAt = today.AddDays(desired.End);
+            booking.Status = desired.Status;
+            booking.CreatedAt = item.StartAt.AddDays(-3);
+            booking.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+        await db.SaveChangesAsync(token);
+    }
+
     private static async Task EnsureDefaultBookingApprovalRuleAsync(ApplicationDbContext db, CancellationToken token)
     {
         var rules = await db.ApprovalWorkflows.Include(x => x.Stages)
@@ -116,12 +151,14 @@ public static class DatabaseInitializer
             rule.EntityType = nameof(Booking); rule.MinimumAmount = minimumAmount; rule.TriggerForEquipment = equipment;
             rule.TriggerForPersonnel = personnel; rule.TriggerForOvertime = overtime; rule.IsDefaultForBookings = false;
             rule.Priority = priority; rule.IsActive = true;
-            if (rule.Stages.Count > 0) db.ApprovalWorkflowStages.RemoveRange(rule.Stages);
-            rule.Stages =
-            [
-                new ApprovalWorkflowStage { Sequence = 1, Name = "Rental officer review", AssignedRole = SystemRoles.RentalOfficer, EscalateAfterHours = 12, EscalationRole = SystemRoles.BranchManager },
-                new ApprovalWorkflowStage { Sequence = 2, Name = "Branch manager approval", AssignedRole = SystemRoles.BranchManager, EscalateAfterHours = 24, EscalationRole = SystemRoles.BranchManager },
-            ];
+            // Seed the route once. Existing routes belong to configuration and must not be
+            // deleted and recreated every time the API starts.
+            if (rule.Stages.Count == 0)
+                rule.Stages =
+                [
+                    new ApprovalWorkflowStage { Sequence = 1, Name = "Rental officer review", AssignedRole = SystemRoles.RentalOfficer, EscalateAfterHours = 12, EscalationRole = SystemRoles.BranchManager },
+                    new ApprovalWorkflowStage { Sequence = 2, Name = "Branch manager approval", AssignedRole = SystemRoles.BranchManager, EscalateAfterHours = 24, EscalationRole = SystemRoles.BranchManager },
+                ];
             await Task.CompletedTask;
         }
     }
@@ -320,7 +357,7 @@ public static class DatabaseInitializer
                     new("POWER_TYPE", "Power type", AttributeDataType.Choice, null, true, true, OptionsJson: "[\"Diesel\",\"LPG\",\"Electric\"]"),
                 ]),
             new AssetCategorySeed("GENSET", "Generator set", "CARPTRAC", "EQUIPMENT_HIRE", "EngineHours",
-                PersonnelRequirement.Optional,
+                PersonnelRequirement.None,
                 [
                     new("OUTPUT_KVA", "Rated output", AttributeDataType.Number, "kVA", true, true),
                     new("VOLTAGE", "Voltage", AttributeDataType.Number, "V", false, true),
@@ -335,7 +372,7 @@ public static class DatabaseInitializer
                     new("TRACKED", "Tracked machine", AttributeDataType.Boolean, null, false, true),
                 ]),
             new AssetCategorySeed("GENERAL_EQUIPMENT", "General hire equipment", "CARPTRAC", "EQUIPMENT_HIRE", "OperatingHours",
-                PersonnelRequirement.Optional,
+                PersonnelRequirement.None,
                 [
                     new("POWER_SUPPLY", "Power supply", AttributeDataType.Text, null, false, true),
                     new("CAPACITY", "Capacity", AttributeDataType.Text, null, false, true),
@@ -348,7 +385,7 @@ public static class DatabaseInitializer
                     new("WASTE_CAPACITY", "Waste tank capacity", AttributeDataType.Number, "L", false, false),
                 ]),
             new AssetCategorySeed("SCAFFOLD", "Scaffolding", "SHIPPING", "SCAFFOLDING_HIRE", "Units",
-                PersonnelRequirement.Optional,
+                PersonnelRequirement.None,
                 [
                     new("SYSTEM_TYPE", "Scaffold system", AttributeDataType.Choice, null, true, true, OptionsJson: "[\"Frame\",\"Ringlock\",\"Mobile tower\"]"),
                     new("COVERAGE", "Coverage", AttributeDataType.Number, "m²", true, true),
@@ -496,6 +533,19 @@ public static class DatabaseInitializer
                   seed.Name.Contains("Telehandler", StringComparison.OrdinalIgnoreCase) ? "HEAVY_MACHINE"
                 : "GENERAL_EQUIPMENT";
             asset.AssetCategoryId = categories[categoryCode].Id;
+            asset.Type = categoryCode switch
+            {
+                "RENTAL_VEHICLE" when seed.Name.Contains("Urvan") || seed.Name.Contains("Crew Cab") || seed.Name.Contains("Coach") || seed.Name.Contains("Navara") || seed.Name.Contains("D-Max") => AssetType.CommercialVehicle,
+                "RENTAL_VEHICLE" => AssetType.PassengerVehicle,
+                "HEAVY_MACHINE" => AssetType.HeavyEquipment,
+                "FORKLIFT" => AssetType.MaterialHandlingEquipment,
+                "GENSET" => AssetType.PowerEquipment,
+                "GENERAL_EQUIPMENT" => AssetType.LightEquipment,
+                "SCAFFOLD" => AssetType.Scaffolding,
+                "PORTABLE_TOILET" => AssetType.PortableSanitation,
+                "BIG_BIN" => AssetType.WasteContainer,
+                _ => seed.Type,
+            };
             asset.ServiceOfferingId = categoryCode switch
             {
                 "RENTAL_VEHICLE" => services["VEHICLE_RENTAL"].Id,
@@ -505,10 +555,7 @@ public static class DatabaseInitializer
                 _ => services["EQUIPMENT_HIRE"].Id,
             };
             asset.Category = categories[categoryCode].Name;
-            asset.PersonnelRequirement = seed.Type == AssetType.Equipment &&
-                (seed.Name.Contains("Excavator") || seed.Name.Contains("Backhoe") || seed.Name.Contains("Crane") || seed.Name.Contains("Telehandler"))
-                ? PersonnelRequirement.Required : PersonnelRequirement.None;
-            if (categoryCode == "SCAFFOLD") asset.PersonnelRequirement = PersonnelRequirement.Optional;
+            asset.PersonnelRequirement = categories[categoryCode].PersonnelRequirement;
             asset.Status = asset.Status == AssetStatus.Rented ? AssetStatus.Rented : AssetStatus.Available;
             asset.BranchId = branch.Id;
             asset.RegistrationNumber = seed.RegistrationNumber;
@@ -753,7 +800,7 @@ public static class DatabaseInitializer
                 Status = seed.Status,
                 Notes = "Created as part of the development operating dataset.",
                 TaxRate = 15m,
-                DepositRequired = asset.Type == AssetType.Vehicle ? 500m : 1000m,
+                DepositRequired = AssetCategoryPolicy.IsVehicle(asset.Type) ? 500m : 1000m,
                 CreatedAt = start.AddDays(-3),
                 Items = [new BookingItem { AssetId = asset.Id, StartAt = start, EndAt = end, DailyRate = asset.DailyRate }],
             });
@@ -855,8 +902,8 @@ public static class DatabaseInitializer
                     AssetId = asset.Id, BookingId = booking.Id, TemplateId = preTemplate?.Id,
                     Stage = InspectionStage.PreHire, Outcome = InspectionOutcome.Passed,
                     ResponsesJson = "[{\"section\":\"Condition\",\"result\":\"Passed\"},{\"section\":\"Safety and accessories\",\"result\":\"Passed\"}]",
-                    MeterReading = asset.CurrentMeterReading.HasValue ? asset.CurrentMeterReading - (asset.Type == AssetType.Vehicle ? 420 : 18) : null,
-                    FuelPercent = asset.Type == AssetType.Vehicle ? 100 : 85,
+                    MeterReading = asset.CurrentMeterReading.HasValue ? asset.CurrentMeterReading - (AssetCategoryPolicy.IsVehicle(asset.Type) ? 420 : 18) : null,
+                    FuelPercent = AssetCategoryPolicy.IsVehicle(asset.Type) ? 100 : 85,
                     CustomerSignatureName = booking.Customer?.Name ?? "Customer representative",
                     StaffSignatureName = "Rental Operations Team", CompletedByUserId = Guid.Empty,
                     CompletedByName = "Rental Operations Team", CompletedAt = item.StartAt.AddHours(-1),
@@ -869,7 +916,7 @@ public static class DatabaseInitializer
                     AssetId = asset.Id, BookingId = booking.Id, TemplateId = postTemplate?.Id,
                     Stage = InspectionStage.PostHire, Outcome = booking.BookingNumber == "BK-2026-0002" ? InspectionOutcome.PassedWithNotes : InspectionOutcome.Passed,
                     ResponsesJson = "[{\"section\":\"Return condition\",\"result\":\"Passed\"},{\"section\":\"Meter and fuel\",\"result\":\"Recorded\"}]",
-                    MeterReading = asset.CurrentMeterReading, FuelPercent = asset.Type == AssetType.Vehicle ? 72 : 55,
+                    MeterReading = asset.CurrentMeterReading, FuelPercent = AssetCategoryPolicy.IsVehicle(asset.Type) ? 72 : 55,
                     CustomerSignatureName = booking.Customer?.Name ?? "Customer representative",
                     StaffSignatureName = "Rental Operations Team", CompletedByUserId = Guid.Empty,
                     CompletedByName = "Rental Operations Team", CompletedAt = item.EndAt.AddMinutes(35),
@@ -885,12 +932,12 @@ public static class DatabaseInitializer
             foreach (var asset in assets.Values.Where(x => x.CurrentMeterReading.HasValue).Take(18))
             {
                 var current = asset.CurrentMeterReading!.Value;
-                var type = asset.Type == AssetType.Vehicle ? MeterType.Odometer : MeterType.EngineHours;
-                var increment = asset.Type == AssetType.Vehicle ? 760m : 42m;
+                var type = AssetCategoryPolicy.IsVehicle(asset.Type) ? MeterType.Odometer : MeterType.EngineHours;
+                var increment = AssetCategoryPolicy.IsVehicle(asset.Type) ? 760m : 42m;
                 db.AssetMeterReadings.AddRange(
-                    new AssetMeterReading { AssetId = asset.Id, Type = type, Unit = asset.MeterUnit ?? (asset.Type == AssetType.Vehicle ? "km" : "hours"), Reading = Math.Max(0, current - increment), FuelPercent = 90, RecordedAt = DateTimeOffset.UtcNow.AddDays(-45), Source = MeterReadingSource.Manual, RecordedByUserId = Guid.Empty },
-                    new AssetMeterReading { AssetId = asset.Id, Type = type, Unit = asset.MeterUnit ?? (asset.Type == AssetType.Vehicle ? "km" : "hours"), Reading = Math.Max(0, current - increment / 2), FuelPercent = 70, RecordedAt = DateTimeOffset.UtcNow.AddDays(-20), Source = MeterReadingSource.Maintenance, RecordedByUserId = Guid.Empty },
-                    new AssetMeterReading { AssetId = asset.Id, Type = type, Unit = asset.MeterUnit ?? (asset.Type == AssetType.Vehicle ? "km" : "hours"), Reading = current, FuelPercent = 82, RecordedAt = DateTimeOffset.UtcNow.AddDays(-2), Source = MeterReadingSource.Manual, RecordedByUserId = Guid.Empty });
+                    new AssetMeterReading { AssetId = asset.Id, Type = type, Unit = asset.MeterUnit ?? (AssetCategoryPolicy.IsVehicle(asset.Type) ? "km" : "hours"), Reading = Math.Max(0, current - increment), FuelPercent = 90, RecordedAt = DateTimeOffset.UtcNow.AddDays(-45), Source = MeterReadingSource.Manual, RecordedByUserId = Guid.Empty },
+                    new AssetMeterReading { AssetId = asset.Id, Type = type, Unit = asset.MeterUnit ?? (AssetCategoryPolicy.IsVehicle(asset.Type) ? "km" : "hours"), Reading = Math.Max(0, current - increment / 2), FuelPercent = 70, RecordedAt = DateTimeOffset.UtcNow.AddDays(-20), Source = MeterReadingSource.Maintenance, RecordedByUserId = Guid.Empty },
+                    new AssetMeterReading { AssetId = asset.Id, Type = type, Unit = asset.MeterUnit ?? (AssetCategoryPolicy.IsVehicle(asset.Type) ? "km" : "hours"), Reading = current, FuelPercent = 82, RecordedAt = DateTimeOffset.UtcNow.AddDays(-2), Source = MeterReadingSource.Manual, RecordedByUserId = Guid.Empty });
             }
         }
 
@@ -913,7 +960,7 @@ public static class DatabaseInitializer
                 Status = seed.Status, ServiceType = seed.Type, FaultDescription = seed.Fault,
                 Description = "Workshop record created from the asset service schedule and inspection findings.",
                 Priority = completed ? MaintenancePriority.Normal : MaintenancePriority.High,
-                AssignedTo = asset.Type == AssetType.Vehicle ? "Carpenters Motors Workshop" : "Carptrac Service Department",
+                AssignedTo = AssetCategoryPolicy.IsVehicle(asset.Type) ? "Carpenters Motors Workshop" : "Carptrac Service Department",
                 Supplier = "Carpenters Parts", IsPreventive = seed.Type.Contains("service", StringComparison.OrdinalIgnoreCase),
                 EstimatedCost = seed.Parts + seed.Labour + seed.Transport + 75m,
                 PartsCost = seed.Parts, LabourCost = seed.Labour, TransportCost = seed.Transport,
@@ -923,7 +970,7 @@ public static class DatabaseInitializer
                 ReportedAt = DateTimeOffset.UtcNow.AddDays(completed ? -24 : -3),
                 CompletedAt = completed ? DateTimeOffset.UtcNow.AddDays(-23) : null,
                 NextServiceDate = DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(completed ? 6 : 1)),
-                NextServiceMeter = asset.CurrentMeterReading + (asset.Type == AssetType.Vehicle ? 10_000 : 500)
+                NextServiceMeter = asset.CurrentMeterReading + (AssetCategoryPolicy.IsVehicle(asset.Type) ? 10_000 : 500)
             });
             if (!completed) asset.Status = AssetStatus.Maintenance;
         }
@@ -1028,7 +1075,7 @@ public static class DatabaseInitializer
                 : value.Contains("urvan") || value.Contains("staria") || value.Contains("coach") ? new[] { "minibus.jpg" }
                 : value.Contains("navara") || value.Contains("d-max") ? new[] { "pickup-v2.jpg", "pickup.jpg" }
                 : value.Contains("sedan") || value.Contains("i10") ? new[] { "sedan.jpg" }
-                : asset.Type == AssetType.Vehicle ? new[] { "suv.jpg" }
+                : AssetCategoryPolicy.IsVehicle(asset.Type) ? new[] { "suv.jpg" }
                 : new[] { "scissor-lift.jpg" };
             var storageRoot = Path.Combine(contentRootPath, "App_Data", "asset-images", asset.Id.ToString("N"));
             Directory.CreateDirectory(storageRoot);

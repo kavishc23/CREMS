@@ -10,12 +10,14 @@ import {
   Divider, Grid, IconButton, Stack, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
+
+type AssetType='Vehicle'|'Equipment'|'PassengerVehicle'|'CommercialVehicle'|'HeavyEquipment'|'MaterialHandlingEquipment'|'PowerEquipment'|'LightEquipment'|'Scaffolding'|'PortableSanitation'|'WasteContainer'
 import axios from 'axios'
 
 type AssetSummary = {
   id: string
   name: string
-  type: 'Vehicle' | 'Equipment'
+  type: AssetType
   branchName: string
   dailyRate: number
   isAvailable: boolean
@@ -104,6 +106,6 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
         </Grid>
       </Grid>}
     </DialogContent>
-    <DialogActions sx={{ p: { xs: 2.5, md: 3 }, pt: 0, flexShrink: 0, bgcolor: 'background.paper' }}><Button onClick={onClose}>Close</Button><Box sx={{ flex: 1 }} /><Button variant="contained" disabled={!details || !available} onClick={() => asset && onContinue(asset)}>{details?.service?.requiresQuote || asset?.type === 'Equipment' ? 'Continue to request quote' : 'Continue to booking'}</Button></DialogActions>
+    <DialogActions sx={{ p: { xs: 2.5, md: 3 }, pt: 0, flexShrink: 0, bgcolor: 'background.paper' }}><Button onClick={onClose}>Close</Button><Box sx={{ flex: 1 }} /><Button variant="contained" disabled={!details || !available} onClick={() => asset && onContinue(asset)}>{details?.service?.requiresQuote || Boolean(asset && !['Vehicle','PassengerVehicle','CommercialVehicle'].includes(asset.type)) ? 'Continue to request quote' : 'Continue to booking'}</Button></DialogActions>
   </Dialog>
 }

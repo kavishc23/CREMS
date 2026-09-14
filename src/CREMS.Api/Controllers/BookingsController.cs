@@ -42,8 +42,10 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var quotedBookings = db.SalesQuotes.AsNoTracking().Where(x => x.ConvertedBookingId != null &&
             (x.Status == QuoteStatus.Draft || x.Status == QuoteStatus.Sent || x.Status == QuoteStatus.Negotiating))
             .Select(x => x.ConvertedBookingId!.Value);
+        var equipmentTypes = new[] { AssetType.Equipment, AssetType.HeavyEquipment, AssetType.MaterialHandlingEquipment,
+            AssetType.PowerEquipment, AssetType.LightEquipment, AssetType.Scaffolding, AssetType.PortableSanitation, AssetType.WasteContainer };
         var quotationRequired = baseQuery.Where(x => x.Status == BookingStatus.Draft && !draftWithApproval.Contains(x.Id) &&
-            (quotedBookings.Contains(x.Id) || x.Customer!.Type == CREMS.Api.Domain.Customers.CustomerType.Business || x.Items.Any(i => i.Asset!.Type == AssetType.Equipment)));
+            (quotedBookings.Contains(x.Id) || x.Customer!.Type == CREMS.Api.Domain.Customers.CustomerType.Business || x.Items.Any(i => equipmentTypes.Contains(i.Asset!.Type))));
 
         IQueryable<Booking> selected = queue switch
         {
@@ -52,11 +54,11 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             "Confirmed" => baseQuery.Where(x => x.Status == BookingStatus.Confirmed),
             "Closed" => baseQuery.Where(x => x.Status == BookingStatus.Cancelled || x.Status == BookingStatus.Expired),
             _ => baseQuery.Where(x => x.Status == BookingStatus.Draft && !draftWithApproval.Contains(x.Id) &&
-                !quotedBookings.Contains(x.Id) && x.Customer!.Type == CREMS.Api.Domain.Customers.CustomerType.Individual && !x.Items.Any(i => i.Asset!.Type == AssetType.Equipment)),
+                !quotedBookings.Contains(x.Id) && x.Customer!.Type == CREMS.Api.Domain.Customers.CustomerType.Individual && !x.Items.Any(i => equipmentTypes.Contains(i.Asset!.Type))),
         };
 
         var counts = new BookingQueueCounts(
-            await baseQuery.CountAsync(x => x.Status == BookingStatus.Draft && !draftWithApproval.Contains(x.Id) && !quotedBookings.Contains(x.Id) && x.Customer!.Type == CREMS.Api.Domain.Customers.CustomerType.Individual && !x.Items.Any(i => i.Asset!.Type == AssetType.Equipment), cancellationToken),
+            await baseQuery.CountAsync(x => x.Status == BookingStatus.Draft && !draftWithApproval.Contains(x.Id) && !quotedBookings.Contains(x.Id) && x.Customer!.Type == CREMS.Api.Domain.Customers.CustomerType.Individual && !x.Items.Any(i => equipmentTypes.Contains(i.Asset!.Type)), cancellationToken),
             await quotationRequired.CountAsync(cancellationToken),
             await baseQuery.CountAsync(x => x.Status == BookingStatus.Draft && draftWithApproval.Contains(x.Id), cancellationToken),
             await baseQuery.CountAsync(x => x.Status == BookingStatus.Confirmed, cancellationToken),
@@ -432,7 +434,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
 
     private static ApprovalWorkflowService.BookingApprovalContext BuildApprovalContext(Booking booking, decimal amount)
     {
-        var equipment = booking.Items.Any(x => x.Asset?.Type == AssetType.Equipment);
+        var equipment = booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.IsEquipment(x.Asset.Type));
         var personnel = booking.Items.Any(x => x.Asset?.ServiceOffering?.PersonnelRequirement != PersonnelRequirement.None) ||
             booking.Charges.Any(x => x.Category is ChargeCategory.Operator or ChargeCategory.Driver or ChargeCategory.Labour);
         var overtime = booking.Charges.Any(x => x.Description.Contains("overtime", StringComparison.OrdinalIgnoreCase)) ||

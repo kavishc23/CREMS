@@ -4,6 +4,7 @@ using CREMS.Api.Domain.Customers;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Common;
+using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Rentals;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication;
@@ -150,7 +151,7 @@ public sealed class CustomerAccountController(
         var identificationVerified = booking.Inspections.Any(x => x.IdentificationVerified) ||
             documents.Any(x => x.Type.Contains("ident", StringComparison.OrdinalIgnoreCase));
         var professionalDriverProvided = booking.Charges.Any(x => x.Category == ChargeCategory.Driver);
-        var licenceRequired = booking.Items.Any(x => x.Asset!.Type == Domain.Assets.AssetType.Vehicle) && !professionalDriverProvided;
+        var licenceRequired = booking.Items.Any(x => AssetCategoryPolicy.IsVehicle(x.Asset!.Type)) && !professionalDriverProvided;
         var licenceVerified = !licenceRequired || booking.Inspections.Any(x => x.DriverLicenceVerified) ||
             documents.Any(x => x.Type.Contains("licence", StringComparison.OrdinalIgnoreCase) || x.Type.Contains("license", StringComparison.OrdinalIgnoreCase));
         var bondPaid = booking.DepositRequired <= 0 || booking.BondAmountHeld >= booking.DepositRequired;

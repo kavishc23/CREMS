@@ -113,6 +113,8 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         if (!request.DivisionId.HasValue || !await db.BranchDivisions.AnyAsync(x => x.BranchId == request.BranchId && x.DivisionId == request.DivisionId && x.IsActive, cancellationToken))
         { ModelState.AddModelError(nameof(request.DivisionId), "Select a division operating at this branch."); return ValidationProblem(ModelState); }
         if (!await ValidClassification(request, cancellationToken)) { ModelState.AddModelError(nameof(request.AssetCategoryId), "The service and asset category must belong to the selected division and be enabled at this branch."); return ValidationProblem(ModelState); }
+        var classification = request.AssetCategoryId.HasValue
+            ? await db.AssetCategories.AsNoTracking().FirstAsync(x => x.Id == request.AssetCategoryId, cancellationToken) : null;
 
         var asset = new Asset
         {
@@ -136,6 +138,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name,
             PhotoUrlsJson = request.PhotoUrlsJson ?? "[]",
             IsActive = true,
+            PersonnelRequirement = classification?.PersonnelRequirement ?? PersonnelRequirement.None,
         };
         db.Assets.Add(asset);
         AuditWriter.Record(db, scope, "Asset created", "Asset", asset.Id,
@@ -175,6 +178,8 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         if (!request.DivisionId.HasValue || !await db.BranchDivisions.AnyAsync(x => x.BranchId == request.BranchId && x.DivisionId == request.DivisionId && x.IsActive, cancellationToken))
         { ModelState.AddModelError(nameof(request.DivisionId), "Select a division operating at this branch."); return ValidationProblem(ModelState); }
         if (!await ValidClassification(request, cancellationToken)) { ModelState.AddModelError(nameof(request.AssetCategoryId), "The service and asset category must belong to the selected division and be enabled at this branch."); return ValidationProblem(ModelState); }
+        var classification = request.AssetCategoryId.HasValue
+            ? await db.AssetCategories.AsNoTracking().FirstAsync(x => x.Id == request.AssetCategoryId, cancellationToken) : null;
 
         asset.AssetNumber = assetNumber;
         asset.Name = request.Name.Trim();
@@ -183,6 +188,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.DivisionId = request.DivisionId;
         asset.ServiceOfferingId = request.ServiceOfferingId;
         asset.AssetCategoryId = request.AssetCategoryId;
+        asset.PersonnelRequirement = classification?.PersonnelRequirement ?? PersonnelRequirement.None;
         asset.BranchId = branch.Id;
         asset.RegistrationNumber = Normalize(request.RegistrationNumber);
         asset.SerialNumber = Normalize(request.SerialNumber);
