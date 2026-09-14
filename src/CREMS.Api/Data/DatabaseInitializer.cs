@@ -49,6 +49,13 @@ public static class DatabaseInitializer
         {
             await SeedDevelopmentDataAsync(db, userManager, app.Environment.ContentRootPath, cancellationToken);
         }
+        if (app.Environment.IsDevelopment())
+        {
+            var photoAssets = await db.Assets.AsNoTracking()
+                .Select(asset => new { asset.Id, asset.PhotoUrlsJson }).ToListAsync(cancellationToken);
+            foreach (var asset in photoAssets)
+                CREMS.Api.Services.SeedAssetPhotoRepair.Restore(app.Environment.ContentRootPath, asset.Id, asset.PhotoUrlsJson);
+        }
         await NormalizeCustomersAsync(db, cancellationToken);
         if (app.Environment.IsDevelopment())
             await RefreshDevelopmentBookingTimelineAsync(db, cancellationToken);

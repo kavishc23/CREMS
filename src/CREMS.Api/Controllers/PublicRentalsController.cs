@@ -21,7 +21,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
 {
     [HttpGet("assets/{assetId:guid}/photos/{fileName}")]
     [AllowAnonymous]
-    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
+
     public async Task<ActionResult> GetAssetPhoto(Guid assetId, string fileName, CancellationToken token)
     {
         var safeName = Path.GetFileName(fileName);
@@ -33,6 +33,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var path = Path.GetFullPath(Path.Combine(root, safeName));
         if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !System.IO.File.Exists(path)) return NotFound();
         var contentType = Path.GetExtension(path).ToLowerInvariant() switch { ".png" => "image/png", ".webp" => "image/webp", _ => "image/jpeg" };
+        Response.Headers.CacheControl = "public, max-age=3600";
         return PhysicalFile(path, contentType, enableRangeProcessing: true);
     }
 

@@ -66,6 +66,8 @@ function assetPhotoUrls(asset: PublicAsset) {
   try {
     const uploaded = JSON.parse(asset.photoUrlsJson || '[]') as string[]
     return uploaded.filter(url => typeof url === 'string' && url.startsWith('/api/public/assets/'))
+      // Invalidate missing-image responses cached before catalogue files were restored.
+      .map(url => `${url}${url.includes('?') ? '&' : '?'}v=2`)
   } catch { return [] }
 }
 

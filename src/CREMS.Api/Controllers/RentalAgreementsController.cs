@@ -61,7 +61,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Complete the category checklist and record the pre-hire condition."] }));
         if (request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["photos"] = ["Attach at least one pre-hire inspection photograph."] }));
-        if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
+        if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || !request.LicenceExpiry.HasValue || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["licence"] = ["A valid, unexpired driver licence is required."] }));
         if (await db.RentalAgreements.AnyAsync(item => item.BookingId == bookingId, cancellationToken))
             return Conflict(new { message = "This booking already has an approved rental agreement." });
@@ -95,8 +95,8 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         if (customerWillDrive)
             booking.AuthorizedDrivers.Add(new AuthorizedDriver
             {
-                BookingId = booking.Id, FullName = request.CustomerSignatureName.Trim(), LicenceNumber = request.LicenceNumber.Trim(),
-                LicenceClass = Normalize(request.LicenceClass), LicenceExpiry = request.LicenceExpiry,
+                BookingId = booking.Id, FullName = request.CustomerSignatureName.Trim(), LicenceNumber = request.LicenceNumber!.Trim(),
+                LicenceClass = Normalize(request.LicenceClass), LicenceExpiry = request.LicenceExpiry!.Value,
                 IsPrimary = true, Verified = true,
             });
         if (request.AmountCollected > 0)
@@ -228,9 +228,9 @@ public sealed record PickupRentalRequest(
     bool DriverLicenceVerified,
     bool PaymentVerified,
     string CustomerSignatureDataUrl,
-    string LicenceNumber,
+    string? LicenceNumber,
     string? LicenceClass,
-    DateOnly LicenceExpiry,
+    DateOnly? LicenceExpiry,
     PaymentType PaymentType,
     PaymentMethod PaymentMethod,
     [System.ComponentModel.DataAnnotations.Range(0, 1000000)] decimal AmountCollected,
