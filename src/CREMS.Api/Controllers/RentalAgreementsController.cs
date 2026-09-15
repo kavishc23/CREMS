@@ -49,7 +49,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             !string.Equals(request.ScannedAssetNumber.Trim(), allocatedAssetNumber, StringComparison.OrdinalIgnoreCase))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["asset"] = ["Scan or enter the allocated asset QR number before handover."] }));
         var customerWillDrive = booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.IsVehicle(x.Asset.Type)) &&
-            !booking.Charges.Any(x => x.Category == ChargeCategory.Driver);
+            !booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator);
         var professionalPersonnelIncluded = booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator);
         if (professionalPersonnelIncluded && !await db.BookingPersonnelAssignments.AnyAsync(x => x.BookingId == booking.Id && x.Status == AssignmentStatus.Confirmed, cancellationToken))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["personnel"] = ["Assign and confirm the professional driver or operator before handover."] }));
@@ -69,6 +69,10 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         if (request.MeterReading.HasValue && booking.Items.Any(x => x.Asset != null && x.Asset.CurrentMeterReading.HasValue && request.MeterReading < x.Asset.CurrentMeterReading))
             return BadRequest(new { message = "The pickup meter reading cannot be lower than the asset's recorded reading." });
         var draft = BuildAgreementData(booking);
+        if (request.AmountCollected > Math.Max(0, booking.DepositRequired - booking.BondAmountHeld))
+            return BadRequest(new { message = "The amount collected exceeds the remaining refundable bond. Previously recorded bond payments are already included." });
+        if (booking.BondAmountHeld + request.AmountCollected < booking.DepositRequired)
+            return BadRequest(new { message = "Receive the full refundable bond before releasing the asset." });
         var now = DateTimeOffset.UtcNow;
         var agreement = new RentalAgreement
         {

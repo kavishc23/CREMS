@@ -207,7 +207,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.ServiceOffering.Description, asset.ServiceOffering.Type,
                 asset.ServiceOffering.PersonnelRequirement, asset.ServiceOffering.IsBookableOnline,
                 asset.ServiceOffering.RequiresQuote, asset.ServiceOffering.DefaultHireUnit,
-                asset.ServiceOffering.RequiresDelivery, asset.ServiceOffering.DefaultDepositAmount,
+                asset.ServiceOffering.RequiresDelivery, DefaultDepositAmount = asset.DefaultBondAmount,
                 RequiredDocuments = ParseJsonArray(asset.ServiceOffering.RequiredDocumentsJson),
             },
             Specifications = customerAttributes, Charges = visibleCharges, IsAvailable = isAvailable,
@@ -305,8 +305,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             BookingNumber = $"REQ-{Guid.NewGuid():N}"[..16].ToUpperInvariant(), Customer = activeCustomer,
             BranchId = asset.BranchId, Status = BookingStatus.Draft,
             Notes = BuildRequestNotes(request, personnelRequested) + (requiresQuote ? "\nRequest type: Quotation." : "\nRequest type: Booking."),
-            TaxRate = taxRate, DepositRequired = asset.DefaultBondAmount > 0
-                ? asset.DefaultBondAmount : asset.ServiceOffering?.DefaultDepositAmount ?? 0,
+            TaxRate = taxRate, DepositRequired = asset.DefaultBondAmount,
+            BondStatus = asset.DefaultBondAmount > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired,
             Items = [new BookingItem { AssetId = asset.Id, StartAt = start, EndAt = end, DailyRate = asset.DailyRate }],
         };
         foreach (var charge in charges)

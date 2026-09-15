@@ -169,6 +169,33 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         var quote = await db.SalesQuotes.FirstOrDefaultAsync(x => x.Id == id, token); if (quote is null) return NotFound();
         var scope = await ScopeFor(quote.BranchId); if (scope is null || (!scope.IsAdministrator && quote.DivisionId != scope.DivisionId)) return Forbid();
         if (quote.Status is not (QuoteStatus.Draft or QuoteStatus.Sent or QuoteStatus.Negotiating)) return Validation("status", "Only a draft, sent or negotiating quote can be emailed.");
+        if (quote.ValidUntil <= DateTimeOffset.UtcNow) return Validation("expiry", "Revise the expired quotation before sending it.");
+        if (quote.ConvertedBookingId is Guid bookingId)
+        {
+            var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == bookingId, token);
+            if (booking is null || booking.Status != BookingStatus.Draft) return Validation("booking", "Only an open rental request can be quoted.");
+            var match = await ApprovalWorkflowService.MatchBookingAsync(db, new(booking.BranchId, quote.DivisionId, quote.Total,
+                booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.IsEquipment(x.Asset.Type)),
+                booking.Items.Any(x => x.Asset!.PersonnelRequirement == PersonnelRequirement.Required) || booking.Charges.Any(x => x.Category == ChargeCategory.Operator || x.Category == ChargeCategory.Driver || x.Category == ChargeCategory.Labour),
+                booking.Charges.Any(x => x.Description.ToLower().Contains("overtime"))), token);
+            if (match is not null)
+            {
+                var approval = await db.ApprovalRequests.Where(x => x.EntityType == nameof(Booking) && x.EntityId == bookingId && x.WorkflowId == match.WorkflowId).OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
+                if (approval?.Status == ApprovalStatus.Rejected) return Validation("approval", "Manager approval was declined. Revise the quotation before resubmitting.");
+                if (approval?.Status != ApprovalStatus.Approved)
+                {
+                    if (approval?.Status != ApprovalStatus.Pending)
+                    {
+                        approval = new ApprovalRequest { RequestNumber = Number("APR"), BranchId = booking.BranchId, Type = ApprovalType.Booking, EntityType = nameof(Booking), EntityId = booking.Id, Amount = quote.Total, Reason = $"{quote.QuoteNumber} revision {quote.Version}: {match.Reason}", RequestedByUserId = scope.UserId };
+                        ApprovalWorkflowService.ConfigureFromMatch(approval, match);
+                        ApprovalWorkflowService.RecordRentalOfficerReview(approval, scope.UserId);
+                        db.ApprovalRequests.Add(approval);
+                        await db.SaveChangesAsync(token);
+                    }
+                    if (approval.Status == ApprovalStatus.Pending) return Accepted(new { outcome = "AwaitingApproval", approval.RequestNumber, message = "Submitted to the assigned branch manager. Send to the customer after approval." });
+                }
+            }
+        }
         if (await db.ApprovalRequests.AnyAsync(x => x.EntityType == nameof(SalesQuote) && x.EntityId == quote.Id && x.Status == ApprovalStatus.Pending, token)) return Validation("approval", "The discount must be approved before this quote is sent.");
         var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == quote.CustomerId, token);
         if (customer is null || string.IsNullOrWhiteSpace(customer.Email)) return Validation("email", "The customer must have an email address before the quote can be sent.");

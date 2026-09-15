@@ -46,6 +46,18 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
     public async Task<ActionResult> AddPayment(Guid bookingId, PaymentRequest request, CancellationToken cancellationToken)
     {
         var access = await GetBooking(bookingId, cancellationToken); if (access.Result is not null) return access.Result;
+        if (request.Type is PaymentType.BondRefund or PaymentType.Refund)
+            return BadRequest(new { message = "Refunds must be recorded through the controlled return settlement process." });
+        if (request.Type is PaymentType.Deposit or PaymentType.BondCollection)
+        {
+            var booking = access.Booking!;
+            if (booking.Status != BookingStatus.Confirmed && booking.Status != BookingStatus.ConvertedToRental)
+                return BadRequest(new { message = "Confirm the booking before collecting its refundable bond." });
+            if (booking.BondSettledAt.HasValue || request.Amount > Math.Max(0, booking.DepositRequired - booking.BondAmountHeld))
+                return BadRequest(new { message = "Collect only the remaining required bond. A settled bond cannot receive further payments." });
+            booking.BondAmountHeld += request.Amount;
+            booking.BondStatus = booking.BondAmountHeld >= booking.DepositRequired ? BondStatus.Held : BondStatus.AwaitingPayment;
+        }
         var payment = new RentalPayment { BookingId = bookingId, Type = request.Type, Method = request.Method, Amount = request.Amount, ReceiptNumber = string.IsNullOrWhiteSpace(request.ReceiptNumber) ? $"RCPT-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}" : request.ReceiptNumber.Trim(), Note = Clean(request.Note), RecordedByUserId = access.Scope!.UserId, RecordedByName = access.Scope.UserName };
         db.RentalPayments.Add(payment); AuditWriter.Record(db, access.Scope, "Rental payment recorded", "Booking", bookingId, $"{payment.Type} of FJD {payment.Amount:0.00} recorded for {access.Booking!.BookingNumber}.", access.Booking.BranchId);
         await db.SaveChangesAsync(cancellationToken); return Ok(payment);

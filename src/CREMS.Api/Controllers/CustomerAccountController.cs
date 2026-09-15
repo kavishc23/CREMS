@@ -266,6 +266,10 @@ public sealed class CustomerAccountController(
         if (user?.CustomerId is null) return Unauthorized();
         var quote = await db.SalesQuotes.FirstOrDefaultAsync(x => x.Id == quoteId && x.CustomerId == user.CustomerId, token);
         if (quote is null) return NotFound();
+        if (request.ExpectedVersion != quote.Version) return Conflict(new { message = "This quotation has changed. Refresh and review the latest prices before deciding." });
+        if (quote.Status is not (QuoteStatus.Sent or QuoteStatus.Negotiating)) return Conflict(new { message = "Only a quotation sent by the branch can be accepted or declined." });
+        if (request.Accepted && await db.ApprovalRequests.AnyAsync(x => (x.EntityType == nameof(SalesQuote) && x.EntityId == quote.Id || x.EntityType == nameof(Booking) && x.EntityId == quote.ConvertedBookingId) && (x.Status == ApprovalStatus.Pending || x.Status == ApprovalStatus.Rejected), token))
+            return Conflict(new { message = "This quotation is awaiting staff approval. Please wait for the branch to send the approved offer." });
         if (quote.ValidUntil < DateTimeOffset.UtcNow)
         {
             quote.Status = QuoteStatus.Expired;
@@ -670,7 +674,7 @@ public sealed record VerifyEmailRequest([Required, RegularExpression("^[0-9]{6}$
 public sealed record CustomerBookingChangeRequest([MaxLength(1000)] string? Reason);
 public sealed record CustomerExtensionRequest(DateTimeOffset RequestedEndAt, [MaxLength(1000)] string? Reason);
 public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required, MaxLength(2000)] string Description, [MaxLength(500)] string? Location, [MaxLength(100)] string? PoliceReference);
-public sealed record CustomerQuoteDecisionRequest(bool Accepted, [MaxLength(1000)] string? Note);
+public sealed record CustomerQuoteDecisionRequest(bool Accepted, [MaxLength(1000)] string? Note, int? ExpectedVersion);
 public sealed record CustomerQuoteLine(string Description, decimal Quantity, decimal Rate, string Unit);
 public sealed record CustomerProfileRequest([Required, MaxLength(150)] string FullName,
     [Required, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,

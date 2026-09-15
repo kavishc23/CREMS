@@ -3,6 +3,7 @@ using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Identity;
+using CREMS.Api.Domain.Operations;
 using CREMS.Api.Domain.Rentals;
 using CREMS.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -23,24 +24,25 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         CancellationToken cancellationToken = default)
     {
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
+        if (scope is null || (!scope.IsAdministrator && scope.BranchIds.Count == 0)) return Forbid();
         page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 10, 100);
 
         var baseQuery = db.Bookings.AsNoTracking();
         if (!scope.IsAdministrator)
-            baseQuery = baseQuery.Where(x => x.BranchId == scope.BranchId && x.Items.Any(i => i.Asset!.DivisionId == scope.DivisionId));
+            baseQuery = baseQuery.Where(x => scope.BranchIds.Contains(x.BranchId) && x.Items.Any() && x.Items.All(i => i.Asset != null && i.Asset.DivisionId.HasValue && scope.DivisionIds.Contains(i.Asset.DivisionId.Value)));
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
-            baseQuery = baseQuery.Where(x => x.BookingNumber.Contains(term) || x.Customer!.Name.Contains(term) ||
+            baseQuery = baseQuery.Where(x => x.BookingNumber.Contains(term) || db.SalesQuotes.Any(q => q.ConvertedBookingId == x.Id && q.QuoteNumber.Contains(term)) || x.Customer!.Name.Contains(term) ||
                 (x.Customer.Email != null && x.Customer.Email.Contains(term)) ||
                 x.Items.Any(i => i.Asset!.Name.Contains(term) || i.Asset.AssetNumber.Contains(term)));
         }
 
         var draftWithApproval = db.ApprovalRequests.AsNoTracking()
-            .Where(x => x.EntityType == nameof(Booking) && x.Status == ApprovalStatus.Pending).Select(x => x.EntityId);
+            .Where(x => x.Status == ApprovalStatus.Pending && (x.EntityType == nameof(Booking) || x.EntityType == nameof(SalesQuote)))
+            .Select(x => x.EntityType == nameof(Booking) ? x.EntityId : db.SalesQuotes.Where(q => q.Id == x.EntityId).Select(q => q.ConvertedBookingId ?? Guid.Empty).FirstOrDefault());
         var quotedBookings = db.SalesQuotes.AsNoTracking().Where(x => x.ConvertedBookingId != null &&
-            (x.Status == QuoteStatus.Draft || x.Status == QuoteStatus.Sent || x.Status == QuoteStatus.Negotiating))
+            x.Status != QuoteStatus.Converted)
             .Select(x => x.ConvertedBookingId!.Value);
         var equipmentTypes = new[] { AssetType.Equipment, AssetType.HeavyEquipment, AssetType.MaterialHandlingEquipment,
             AssetType.PowerEquipment, AssetType.LightEquipment, AssetType.Scaffolding, AssetType.PortableSanitation, AssetType.WasteContainer };
@@ -64,9 +66,10 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             await baseQuery.CountAsync(x => x.Status == BookingStatus.Confirmed, cancellationToken),
             await baseQuery.CountAsync(x => x.Status == BookingStatus.Cancelled || x.Status == BookingStatus.Expired, cancellationToken));
         var total = await selected.CountAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(search)) { selected = baseQuery; total = await selected.CountAsync(cancellationToken); }
         var rows = await selected.OrderByDescending(x => x.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(x => new BookingWorkQueueRow(
-                x.Id, db.SalesQuotes.Where(q => q.ConvertedBookingId == x.Id).Select(q => q.QuoteNumber).FirstOrDefault() ?? x.BookingNumber,
+                x.Id, x.Status == BookingStatus.Draft ? db.SalesQuotes.Where(q => q.ConvertedBookingId == x.Id && q.Status != QuoteStatus.Accepted && q.Status != QuoteStatus.Converted).Select(q => q.QuoteNumber).FirstOrDefault() ?? x.BookingNumber : x.BookingNumber,
                 x.CreatedAt, x.Status.ToString(), x.CustomerId, x.Customer!.Name,
                 x.Customer.Email, x.Customer.Phone, x.Customer.IsBlocked, x.Customer.Type.ToString(),
                 x.BranchId, x.Branch!.Name,
@@ -142,7 +145,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status != BookingStatus.Draft) return BadRequest(new { message = "Only a new request can be quoted." });
-        if (request.ValidUntil <= DateTimeOffset.UtcNow || request.Lines.Count == 0 || request.Lines.Any(x => string.IsNullOrWhiteSpace(x.Description) || x.Quantity <= 0 || x.Rate < 0 || x.CostRate < 0) || request.Discount < 0 || request.TaxRate is < 0 or > 100)
+        if (request.ValidUntil <= DateTimeOffset.UtcNow || request.Deposit < 0 || request.Lines.Count == 0 || request.Lines.Any(x => string.IsNullOrWhiteSpace(x.Description) || x.Quantity <= 0 || x.Rate < 0 || x.CostRate < 0) || request.Discount < 0 || request.TaxRate is < 0 or > 100)
             return BadRequest(new { message = "Enter valid quotation lines, pricing, tax and a future expiry date." });
         var existing = await db.SalesQuotes.FirstOrDefaultAsync(x => x.ConvertedBookingId == id, cancellationToken);
         var totals = QuotePolicy.Calculate(request.Lines.Select(x => (x.Quantity, x.Rate)), request.Discount, request.TaxRate);
@@ -150,18 +153,26 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var quote = existing ?? new SalesQuote { QuoteNumber = $"QT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}", CustomerId = booking.CustomerId, BranchId = booking.BranchId, DivisionId = booking.Items.FirstOrDefault()?.Asset?.DivisionId, AssignedUserId = scope.UserId, ConvertedBookingId = booking.Id, ValidUntil = request.ValidUntil };
         if (existing is not null)
         {
+            db.QuoteRevisions.Add(new QuoteRevision { SalesQuoteId = quote.Id, Version = quote.Version, SnapshotJson = System.Text.Json.JsonSerializer.Serialize(new { quote.ValidUntil, quote.Subtotal, quote.Discount, quote.Tax, quote.Total, quote.LineItemsJson }), ChangeReason = request.RevisionReason ?? "Quotation pricing revised", ChangedByUserId = scope.UserId });
             quote.Version += 1;
         }
         else db.SalesQuotes.Add(quote);
         quote.ValidUntil = request.ValidUntil; quote.Discount = request.Discount; quote.Subtotal = totals.Subtotal; quote.Tax = totals.Tax; quote.Total = totals.Total; quote.LineItemsJson = System.Text.Json.JsonSerializer.Serialize(request.Lines); quote.Status = QuoteStatus.Draft; quote.UpdatedAt = DateTimeOffset.UtcNow;
         booking.DiscountAmount = request.Discount; booking.TaxRate = request.TaxRate; booking.DepositRequired = Math.Max(0, request.Deposit);
         if (booking.BondAmountHeld == 0) booking.BondStatus = booking.DepositRequired > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired;
-        booking.AdditionalCharges = Math.Max(0, totals.Subtotal - booking.Items.Sum(x => x.DailyRate * Math.Max(1, (decimal)Math.Ceiling((x.EndAt - x.StartAt).TotalDays)))); booking.UpdatedAt = DateTimeOffset.UtcNow;
+        var baseLines = request.Lines.Where(x => x.Category == ChargeCategory.BaseHire).ToList();
+        if (booking.Items.Count != 1 || baseLines.Count != 1) return BadRequest(new { message = "A quotation must contain one asset hire line." });
+        var bookingItem = booking.Items.Single();
+        var days = Math.Max(1, (decimal)Math.Ceiling((bookingItem.EndAt - bookingItem.StartAt).TotalDays));
+        bookingItem.DailyRate = baseLines[0].Quantity * baseLines[0].Rate / days;
+        var services = request.Lines.Where(x => x.Category != ChargeCategory.BaseHire).ToList();
+        db.BookingCharges.RemoveRange(booking.Charges);
+        foreach (var line in services) db.BookingCharges.Add(new BookingCharge { BookingId = booking.Id, AssetId = bookingItem.AssetId, Description = line.Description, Category = line.Category, Unit = line.Unit, Quantity = line.Quantity, UnitRate = line.Rate, UnitCost = line.CostRate });
+        booking.AdditionalCharges = services.Sum(x => x.Quantity * x.Rate); booking.UpdatedAt = DateTimeOffset.UtcNow;
         booking.AdditionalChargesDescription = string.Join(", ", request.Lines.Where(x => x.Category != ChargeCategory.BaseHire).Select(x => x.Description));
-        if (request.Discount > 0 && !await db.ApprovalRequests.AnyAsync(x => x.EntityType == nameof(SalesQuote) && x.EntityId == quote.Id && x.Status == ApprovalStatus.Pending, cancellationToken))
+        foreach (var previous in await db.ApprovalRequests.Where(x => (x.EntityType == nameof(Booking) && x.EntityId == booking.Id || x.EntityType == nameof(SalesQuote) && x.EntityId == quote.Id) && x.Status != ApprovalStatus.Cancelled).ToListAsync(cancellationToken))
         {
-            var approval = new ApprovalRequest { RequestNumber = $"APR-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}", BranchId = booking.BranchId, Type = ApprovalType.Discount, EntityType = nameof(SalesQuote), EntityId = quote.Id, Amount = request.Discount, Reason = $"Discount approval for {quote.QuoteNumber}", RequestedByUserId = scope.UserId };
-            await ApprovalWorkflowService.ConfigureAsync(db, approval, quote.DivisionId, cancellationToken); db.ApprovalRequests.Add(approval);
+            previous.Status = ApprovalStatus.Cancelled; previous.DecisionNote = $"Superseded by quotation revision {quote.Version}.";
         }
         AuditWriter.Record(db, scope, existing is null ? "Quotation prepared" : "Quotation revised", nameof(Booking), booking.Id, $"{quote.QuoteNumber} version {quote.Version} prepared for {booking.BookingNumber}.", booking.BranchId);
         await db.SaveChangesAsync(cancellationToken); return Ok(new { quote.Id, quote.QuoteNumber, quote.Version, quote.Subtotal, quote.Discount, quote.Tax, quote.Total, status = quote.Status.ToString() });
@@ -334,6 +345,9 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
 
         if (request.Status == BookingStatus.Confirmed)
         {
+            var customerQuote = await db.SalesQuotes.FirstOrDefaultAsync(x => x.ConvertedBookingId == booking.Id, cancellationToken);
+            if (customerQuote is not null && customerQuote.Status != QuoteStatus.Accepted && customerQuote.Status != QuoteStatus.Converted)
+                return BadRequest(new { message = "The customer must accept the current quotation before this booking can be confirmed. Use Send quotation for manager review and customer acceptance." });
             var firstItem = booking.Items.FirstOrDefault();
             if (firstItem is not null)
             {
@@ -435,7 +449,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
     private static ApprovalWorkflowService.BookingApprovalContext BuildApprovalContext(Booking booking, decimal amount)
     {
         var equipment = booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.IsEquipment(x.Asset.Type));
-        var personnel = booking.Items.Any(x => x.Asset?.ServiceOffering?.PersonnelRequirement != PersonnelRequirement.None) ||
+        var personnel = booking.Items.Any(x => x.Asset?.PersonnelRequirement == PersonnelRequirement.Required) ||
             booking.Charges.Any(x => x.Category is ChargeCategory.Operator or ChargeCategory.Driver or ChargeCategory.Labour);
         var overtime = booking.Charges.Any(x => x.Description.Contains("overtime", StringComparison.OrdinalIgnoreCase)) ||
             (booking.AdditionalChargesDescription?.Contains("overtime", StringComparison.OrdinalIgnoreCase) ?? false);
