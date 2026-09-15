@@ -1,9 +1,26 @@
 using CREMS.Api.Domain.Assets;
+using CREMS.Api.Domain.Common;
 
 namespace CREMS.Api.Domain.Rentals;
 
 public static class BookingPolicy
 {
+    public static bool RequiresPublicQuotation(bool explicitlyRequested, bool isMotors,
+        bool businessCustomer, bool serviceRequiresQuote, PersonnelRequirement personnelPolicy,
+        bool personnelRequested, bool pricedPersonnelAvailable, bool deliveryRequested,
+        bool pricedTransportAvailable)
+    {
+        if (explicitlyRequested) return true;
+        if (!isMotors)
+            return businessCustomer || serviceRequiresQuote ||
+                personnelPolicy == PersonnelRequirement.Required || personnelRequested;
+
+        return businessCustomer || serviceRequiresQuote ||
+            personnelPolicy == PersonnelRequirement.Required ||
+            personnelRequested && !pricedPersonnelAvailable ||
+            deliveryRequested && !pricedTransportAvailable;
+    }
+
     public static bool PeriodsOverlap(DateTimeOffset firstStart, DateTimeOffset firstEnd,
         DateTimeOffset secondStart, DateTimeOffset secondEnd) => firstStart < secondEnd && firstEnd > secondStart;
 

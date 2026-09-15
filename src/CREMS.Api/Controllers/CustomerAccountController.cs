@@ -99,7 +99,7 @@ public sealed class CustomerAccountController(
         if (customer is null || !customer.IsActive || customer.IsBlocked) return Forbid();
         return Ok(new { user.Id, user.Email, user.FullName, user.CustomerId, customer.CustomerNumber,
             CustomerName = customer.Name, customer.Phone, customer.Address, customer.IdentificationNumber,
-            customer.HirePreferences, user.EmailConfirmed });
+            customer.Type, customer.HirePreferences, user.EmailConfirmed });
     }
 
     [HttpGet("bookings")]

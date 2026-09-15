@@ -271,11 +271,16 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var availableCharges = await db.ChargeDefinitions.AsNoTracking().Where(x => x.IsActive && x.IsCustomerVisible && x.Category != ChargeCategory.BaseHire &&
             x.DivisionId == asset.DivisionId && (!x.ServiceOfferingId.HasValue || x.ServiceOfferingId == asset.ServiceOfferingId))
             .ToListAsync(cancellationToken);
+        var isMotors = string.Equals(asset.Division?.Code, "MOTORS", StringComparison.OrdinalIgnoreCase);
         var personnelPolicy = AssetCategoryPolicy.Personnel(asset);
         if (request.PersonnelRequested && !AssetCategoryPolicy.AllowsPersonnel(asset))
             return BadRequest(new { message = "A driver or operator is not applicable to this asset category." });
         var personnelRequested = personnelPolicy == PersonnelRequirement.Required || request.PersonnelRequested;
-        if (personnelRequested && !availableCharges.Any(x => x.Category is ChargeCategory.Operator or ChargeCategory.Driver))
+        var pricedPersonnelAvailable = availableCharges.Any(x =>
+            (x.Category is ChargeCategory.Operator or ChargeCategory.Driver) && x.DefaultSellingRate > 0);
+        var pricedTransportAvailable = availableCharges.Any(x =>
+            x.Category == ChargeCategory.Transport && x.DefaultSellingRate > 0);
+        if (personnelRequested && !pricedPersonnelAvailable && !isMotors)
             return Conflict(new { message = "Professional personnel is required or selected, but no operator or driver rate is configured for this service. Please contact the branch." });
         var selectedExtras = (request.Extras ?? []).Where(x => x.Quantity > 0 && x.Quantity <= 1000)
             .GroupBy(x => x.ChargeDefinitionId).ToDictionary(x => x.Key, x => x.First().Quantity);
@@ -297,12 +302,16 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var taxRate = asset.Division?.DefaultTaxRate ?? 15m;
         var tax = decimal.Round((baseSubtotal + chargeSubtotal) * taxRate / 100m, 2);
         var total = baseSubtotal + chargeSubtotal + tax;
-        var requiresQuote = request.RequestQuotation || activeCustomer.Type == CustomerType.Business ||
-            asset.ServiceOffering?.RequiresQuote == true || personnelPolicy == PersonnelRequirement.Required || request.PersonnelRequested;
+        var requiresQuote = BookingPolicy.RequiresPublicQuotation(request.RequestQuotation, isMotors,
+            activeCustomer.Type == CustomerType.Business, asset.ServiceOffering?.RequiresQuote == true,
+            personnelPolicy, request.PersonnelRequested, pricedPersonnelAvailable,
+            request.Fulfilment == "Delivery", pricedTransportAvailable);
 
         var booking = new Booking
         {
-            BookingNumber = $"REQ-{Guid.NewGuid():N}"[..16].ToUpperInvariant(), Customer = activeCustomer,
+            BookingNumber = requiresQuote
+                ? $"REQ-{Guid.NewGuid():N}"[..16].ToUpperInvariant()
+                : $"BK-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}",
             BranchId = asset.BranchId, Status = BookingStatus.Draft,
             Notes = BuildRequestNotes(request, personnelRequested) + (requiresQuote ? "\nRequest type: Quotation." : "\nRequest type: Booking."),
             TaxRate = taxRate, DepositRequired = asset.DefaultBondAmount > 0

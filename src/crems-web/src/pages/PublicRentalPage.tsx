@@ -173,6 +173,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [hirePreferences, setHirePreferences] = useState<CustomerPreference[]>([])
   const [showModifySearch, setShowModifySearch] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const [quoteSwitchReason, setQuoteSwitchReason] = useState('')
 
   function changeCataloguePhoto(assetId: string, photoCount: number, direction: number) {
     setPhotoIndexes(current => ({
@@ -257,7 +258,26 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const extrasTotal = checkoutCharges.reduce((sum, charge) => sum + charge.defaultSellingRate * charge.quantity, 0)
   const estimatedTax = (baseHire + extrasTotal) * .15
   const estimatedTotal = baseHire + extrasTotal + estimatedTax
-  const quotationFlow = Boolean(requestQuotation || selected && (selected.requiresQuote || selected.personnelRequirement !== 'None' || booking.personnelRequested))
+  const isMotorsBooking = Boolean(selected && /carpenters motors/i.test(selected.divisionName ?? ''))
+  const quotationFlow = Boolean(requestQuotation || selected && !isMotorsBooking &&
+    (selected.requiresQuote || selected.personnelRequirement !== 'None' || booking.personnelRequested))
+  function unreliableMotorsPriceReason() {
+    if (!isMotorsBooking || requestQuotation) return ''
+    if (booking.customerType === 'Business') return 'Business and negotiated rates require a reviewed quotation.'
+    if (booking.personnelRequested && !checkoutDetail?.charges.some(charge => charge.category === 'Driver' && charge.defaultSellingRate > 0))
+      return 'A professional driver rate is not configured for this vehicle.'
+    if (booking.fulfilment === 'Delivery' && !checkoutDetail?.charges.some(charge => charge.category === 'Transport' && charge.defaultSellingRate > 0))
+      return 'Delivery pricing must be confirmed by the rental team.'
+    return ''
+  }
+  function advanceBooking(event: FormEvent) {
+    event.preventDefault()
+    if (bookingStep === 1) {
+      const reason = unreliableMotorsPriceReason()
+      if (reason) { setQuoteSwitchReason(reason); return }
+    }
+    setBookingStep(step => step + 1)
+  }
   function scrollTo(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }) }
   function openRequest(asset: PublicAsset, details: CheckoutDetail, customerDetails: BookingForm = emptyBooking, quote = false) { setRequestQuotation(quote); setSelected(asset); setCheckoutDetail(details); setSelectedExtras(Object.fromEntries(details.charges.filter(x => x.isRequired).map(x => [x.id, 1]))); setBooking({ ...customerDetails, fulfilment: details.service?.requiresDelivery ? 'Delivery' : customerDetails.fulfilment, personnelRequested: requiresProfessionalPersonnel(asset) || customerDetails.personnelRequested }); setBookingStep(0); setTermsAccepted(false); setReference(''); setError('') }
   async function submitRequest(event: FormEvent) {
@@ -283,9 +303,9 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       return
     }
     try {
-      const account = (await api.get<{ fullName: string; customerName: string; email: string; phone: string | null; address: string | null }>('/customer-account/session')).data
+      const account = (await api.get<{ fullName: string; customerName: string; email: string; phone: string | null; address: string | null; type: 'Individual' | 'Business' }>('/customer-account/session')).data
       const details = (await api.get<CheckoutDetail>(`/public/assets/${asset.id}`, { params: { startDate, endDate } })).data
-      openRequest(asset, details, { ...emptyBooking, fullName: account.fullName, customerType: 'Individual',
+      openRequest(asset, details, { ...emptyBooking, fullName: account.fullName, customerType: account.type,
         companyName: '', email: account.email,
         phone: account.phone ?? '', address: account.address ?? '' }, quote)
     } catch { setError('We could not prepare this checkout. Please refresh availability and try again.') }
@@ -466,7 +486,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
 
     <Dialog disableScrollLock open={Boolean(selected)} onClose={() => !submitting && setCancelConfirmOpen(true)} fullWidth maxWidth="xl" slotProps={{ paper: { sx: { height: 'min(820px, calc(100dvh - 32px))', m: { xs: 1, md: 2 }, overflow: 'hidden' } } }}><DialogTitle sx={{ pr: 7, position: 'relative', py: 1.25 }}>{reference ? 'Request received' : quotationFlow ? 'Request a quotation' : 'Book your vehicle'}{!reference && <IconButton aria-label="Cancel booking" onClick={() => setCancelConfirmOpen(true)} sx={{ position: 'absolute', top: 5, right: 12 }}><CloseOutlined /></IconButton>}</DialogTitle><DialogContent dividers sx={{ p: { xs: 1.5, md: 2.5 }, overflowY: 'auto', overflowX: 'hidden' }}>
       {reference ? <Stack alignItems="center" textAlign="center" py={4}><CheckCircleOutlined color="success" sx={{ fontSize: 70 }} /><Typography variant="h5" fontWeight={750} mt={2}>{responseKind === 'Quotation' ? 'Quotation request submitted' : 'Booking request submitted'}</Typography><Typography color="text.secondary" mt={1}>{responseKind === 'Quotation' ? 'A rental specialist will review transport, personnel and final pricing, normally within one business day.' : 'The branch will verify your details and confirm pickup requirements.'}</Typography><Chip label={`Reference: ${reference}`} sx={{ mt: 3, fontWeight: 700, fontSize: '1rem', py: 2.25 }} /><Button sx={{ mt: 2 }} onClick={() => onCustomerAccount('bookings')}>{responseKind === 'Quotation' ? 'View my quotations' : 'View my bookings'}</Button></Stack> :
-      <Box component="form" id="public-booking-form" onSubmit={bookingStep === 3 ? submitRequest : (event) => { event.preventDefault(); setBookingStep(step => step + 1) }}>
+      <Box component="form" id="public-booking-form" onSubmit={bookingStep === 3 ? submitRequest : advanceBooking}>
         <Stepper activeStep={bookingStep} alternativeLabel sx={{ py: { xs: .5, md: 1 } }}>{['Dates & branch', 'Rental & extras', 'Your details', 'Price & submit'].map(label => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}</Stepper>
         <Grid container spacing={{ xs: 2, md: 2.5 }}>{error && <Grid size={12}><Alert severity="error">{error}</Alert></Grid>}<Grid size={{ xs: 12, md: 8 }}><Stack spacing={{ xs: 1.5, md: 2 }}>
           {bookingStep === 0 && <><Typography variant="h6" fontWeight={750}>When and where?</Typography><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}><TextField fullWidth required type="date" label="Pickup date" InputLabelProps={{ shrink: true }} inputProps={{ min: dateInputValue(0) }} value={startDate} onChange={e => setStartDate(e.target.value)} /><TextField fullWidth required type="date" label="Return date" InputLabelProps={{ shrink: true }} inputProps={{ min: startDate }} value={endDate} onChange={e => setEndDate(e.target.value)} /></Stack><Card variant="outlined"><CardContent><Stack direction="row" gap={1.5}><LocationOnOutlined color="action" /><Box><Typography fontWeight={700}>{selected?.branchName}</Typography><Typography variant="body2" color="text.secondary">This item is supplied by this branch. Search again to choose another location.</Typography></Box></Stack></CardContent></Card><Alert severity="info">Availability and pricing are revalidated when you submit.</Alert></>}
@@ -484,5 +504,6 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       </Box>}
     </DialogContent><DialogActions sx={{ px: { xs: 2, md: 3 }, py: 1.5 }}>{reference ? <Button onClick={() => setSelected(null)}>Close</Button> : <><Button onClick={() => bookingStep === 0 ? setSelected(null) : setBookingStep(step => step - 1)} disabled={submitting}>{bookingStep === 0 ? 'Cancel' : 'Back'}</Button><Box sx={{ flex: 1 }} /><Button form="public-booking-form" type="submit" variant="contained" disabled={submitting || (bookingStep === 3 && !termsAccepted)}>{submitting ? 'Sending…' : bookingStep === 3 ? quotationFlow ? 'Request quotation' : 'Submit booking' : 'Continue'}</Button></>}</DialogActions></Dialog>
     <Dialog disableScrollLock open={cancelConfirmOpen} onClose={() => setCancelConfirmOpen(false)} maxWidth="xs" fullWidth><DialogTitle>Cancel this booking?</DialogTitle><DialogContent><Typography color="text.secondary">Your entered booking details will be deleted and cannot be restored.</Typography></DialogContent><DialogActions><Button onClick={() => setCancelConfirmOpen(false)}>Keep booking</Button><Button color="error" variant="contained" onClick={cancelBooking}>Cancel booking</Button></DialogActions></Dialog>
+    <Dialog open={Boolean(quoteSwitchReason)} onClose={() => setQuoteSwitchReason('')} maxWidth="sm" fullWidth><DialogTitle>Continue as a quotation?</DialogTitle><DialogContent><Typography>{quoteSwitchReason}</Typography><Typography color="text.secondary" mt={1}>Your details will be retained, but the request will use a QUO reference and the team will confirm the final price.</Typography></DialogContent><DialogActions><Button onClick={() => setQuoteSwitchReason('')}>Review options</Button><Button variant="contained" onClick={() => { setRequestQuotation(true); setQuoteSwitchReason(''); setBookingStep(step => step + 1) }}>Continue as quotation</Button></DialogActions></Dialog>
   </Box>
 }
