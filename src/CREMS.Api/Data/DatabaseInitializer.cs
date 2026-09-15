@@ -20,6 +20,8 @@ public static class DatabaseInitializer
         await using var scope = app.Services.CreateAsyncScope();
         var services = scope.ServiceProvider;
         var db = services.GetRequiredService<ApplicationDbContext>();
+        // Initial/demo data repairs are not customer or staff activity.
+        using var notificationSuppression = db.SuppressNotifications();
         var roleManager = services.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
         var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
 

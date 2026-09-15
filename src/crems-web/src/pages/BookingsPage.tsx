@@ -48,7 +48,7 @@ function primaryLabel(queue:QueueKey, row:QueueRow){ if(queue==='NewRequests')re
 
 export function BookingsPage(){
   const [queue,setQueue]=useState<QueueKey>('NewRequests'); const [data,setData]=useState<QueueResponse>({items:[],counts:{newRequests:0,quotationRequired:0,awaitingApproval:0,confirmed:0,closed:0},page:1,pageSize:25,total:0})
-  const [search,setSearch]=useState(''); const [page,setPage]=useState(1); const [loading,setLoading]=useState(true); const [error,setError]=useState('')
+  const [search,setSearch]=useState(() => new URLSearchParams(window.location.search).get('search') ?? ''); const [page,setPage]=useState(1); const [loading,setLoading]=useState(true); const [error,setError]=useState('')
   const [selected,setSelected]=useState<QueueRow|null>(null); const [workspace,setWorkspace]=useState<Workspace|null>(null); const [workspaceLoading,setWorkspaceLoading]=useState(false)
   const [,setMenu]=useState<{anchor:HTMLElement;row:QueueRow}|null>(null)
   const load=useCallback(async()=>{setLoading(true);try{const response=await api.get<QueueResponse>('/bookings/work-queue',{params:{queue,search:search||undefined,page,pageSize:25}});setData(response.data);setError('')}catch(reason){setError(errorText(reason,'Booking requests could not be loaded. Please try again.'))}finally{setLoading(false)}},[queue,search,page])

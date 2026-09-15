@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react'
+import { lazy, Suspense, type ReactNode, useState } from 'react'
 import DashboardOutlined from '@mui/icons-material/DashboardOutlined'
 import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
@@ -41,11 +41,10 @@ import {
   DialogContent,
   DialogTitle,
   Stack,
-  TextField,
-  InputAdornment,
   ThemeProvider,
 } from '@mui/material'
-import SearchOutlined from '@mui/icons-material/SearchOutlined'
+const GlobalSearch = lazy(() => import('../components/GlobalSearch').then(module => ({ default: module.GlobalSearch })))
+const NotificationBell = lazy(() => import('../components/NotificationBell').then(module => ({ default: module.NotificationBell })))
 import { staffTheme } from './staffTheme'
 import { canAccessPage, formatRole, getPrimaryRole, type AppPage } from '../auth/access'
 import { isPageEnabledForDemo } from '../config/demoMode'
@@ -101,7 +100,6 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
   const [open, setOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('crems.staff.navigation.collapsed') === 'true' } catch { return false } })
   const [helpOpen, setHelpOpen] = useState(false)
-  const [navigationSearch, setNavigationSearch] = useState('')
   const activeDrawerWidth = desktop && collapsed ? collapsedDrawerWidth : drawerWidth
   const currentPageLabel = navigation.find((item) => item.id === activePage)?.label ?? 'Home'
 
@@ -114,11 +112,11 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           <Typography variant="caption" sx={{ color: '#d7d3c6', display:'block', mt:.5, whiteSpace:'nowrap', fontSize:10, letterSpacing:'.06em' }}>CARPENTERS FIJI</Typography>
         </Box>
       </Toolbar>
-      {(!collapsed || !desktop) && <Box sx={{px:2, pb:1}}><TextField fullWidth placeholder="Find a workspace…" value={navigationSearch} onChange={event=>setNavigationSearch(event.target.value)} inputProps={{'aria-label':'Find a staff workspace'}} InputProps={{startAdornment:<InputAdornment position="start"><SearchOutlined sx={{color:'#c5bfab',fontSize:18}}/></InputAdornment>}} sx={{'& .MuiOutlinedInput-root':{bgcolor:'#252525',color:'white',fontSize:12},'& fieldset':{borderColor:'#494536'},'& input::placeholder':{opacity:1,color:'#c9c4b5'}}}/></Box>}
+      <Box sx={{px:collapsed&&desktop?1:2,pb:1}}><Suspense fallback={null}><GlobalSearch /></Suspense></Box>
       <List component="nav" aria-label="Staff workspaces" sx={{ px: 1.25, pt: 1, pb: 2, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', '&::-webkit-scrollbar': { width: 5 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#716a52', borderRadius: 8 }, '&::-webkit-scrollbar-track': { bgcolor: 'transparent' } }}>
         {(!collapsed || !desktop) && <Box sx={{ mx: .75, mb: 1.25, p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)' }}><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: .8 }}>Working in</Typography><Typography variant="body2" fontWeight={750} noWrap>{divisionName || 'Carpenters Fiji Group'}</Typography><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.62)' }}>{branchName || 'All branches'}</Typography></Box>}
         {sections.map((section) => {
-          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id) && isPageEnabledForDemo(item.id) && (collapsed && desktop || `${item.label} ${section}`.toLowerCase().includes(navigationSearch.toLowerCase().trim())))
+          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id) && isPageEnabledForDemo(item.id))
           if (!items.length) return null
           return <Box key={section}>{!collapsed || !desktop ? <ListSubheader disableSticky sx={{ bgcolor: 'transparent', color: 'rgba(255,255,255,.42)', fontSize: 11, fontWeight: 800, lineHeight: '32px', letterSpacing: 1.1, textTransform: 'uppercase', px: 2, mt: 1 }}>{section}</ListSubheader> : <Box sx={{ height: 12 }} />}{items.map((item) => {
           const button = (
@@ -188,6 +186,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           )}
           <Box><Typography variant="subtitle1" fontWeight={750} lineHeight={1.15}>{currentPageLabel}</Typography><Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>{divisionName || 'Carpenters Fiji Group'}{branchName ? ` · ${branchName}` : ' · Group-wide access'}</Typography></Box>
           <Box sx={{ flexGrow: 1 }} />
+          <Suspense fallback={null}><NotificationBell key={userName} canSend={canAccessPage(userRoles, 'bookings')} /></Suspense>
           <Button size="small" color="inherit" startIcon={<HelpOutlineOutlined />} onClick={() => setHelpOpen(true)} sx={{ mr: 1, display: { xs: 'none', sm: 'inline-flex' } }}>Help</Button>
           <Typography variant="body2" fontWeight={600} sx={{ display: { xs: 'none', lg: 'block' } }}>{userName}</Typography>
           <Chip

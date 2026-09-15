@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NotificationBell } from './NotificationBell'
 import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
@@ -62,6 +63,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
           </Box>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
+          {authenticated && <NotificationBell customer key={accountName}/> }
           <Box sx={{ display: { xs: 'none', lg: 'block' } }}>{desktopNavigation}</Box>
           <IconButton color="inherit" aria-label="Open navigation" sx={{ display: { lg: 'none' } }} onClick={() => setMobileOpen(true)}><MenuOutlined /></IconButton>
         </Toolbar>

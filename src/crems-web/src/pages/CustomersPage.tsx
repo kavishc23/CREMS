@@ -54,7 +54,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form, setForm] = useState<CustomerForm>(emptyForm)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') ?? '')
   const [statusFilter, setStatusFilter] = useState<'All' | 'Verified' | 'Pending' | 'Blocked'>('All')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')

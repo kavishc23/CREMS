@@ -17,6 +17,25 @@ namespace CREMS.Api.Data;
 public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
     : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>(options)
 {
+    public DbSet<InAppNotification> InAppNotifications => Set<InAppNotification>();
+    public DbSet<NotificationRead> NotificationReads => Set<NotificationRead>();
+    private bool notificationsSuppressed;
+    public IDisposable SuppressNotifications()
+    {
+        var previous = notificationsSuppressed;
+        notificationsSuppressed = true;
+        return new NotificationSuppression(this, previous);
+    }
+    private sealed class NotificationSuppression(ApplicationDbContext context, bool previous) : IDisposable
+    {
+        public void Dispose() => context.notificationsSuppressed = previous;
+    }
+
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        if (!notificationsSuppressed) await CREMS.Api.Services.NotificationEvents.CaptureAsync(this, cancellationToken);
+        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
     private static readonly JsonSerializerOptions HirePreferenceJsonOptions = new()
     {
         Converters = { new JsonStringEnumConverter() },
@@ -97,6 +116,15 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        builder.Entity<InAppNotification>(e => {
+            e.Property(x => x.Audience).HasMaxLength(16); e.Property(x => x.Kind).HasMaxLength(32);
+            e.Property(x => x.Title).HasMaxLength(160); e.Property(x => x.Message).HasMaxLength(2000);
+            e.Property(x => x.Url).HasMaxLength(600); e.Property(x => x.RequiredRole).HasMaxLength(64);
+            e.Property(x => x.EventKey).HasMaxLength(450); e.HasIndex(x => x.EventKey).IsUnique();
+            e.HasIndex(x => new { x.Audience, x.CustomerId, x.CreatedAt });
+            e.HasIndex(x => new { x.Audience, x.BranchId, x.DivisionId, x.CreatedAt });
+        });
+        builder.Entity<NotificationRead>(e => { e.HasKey(x => new { x.NotificationId, x.UserId }); e.HasOne(x => x.Notification).WithMany().HasForeignKey(x => x.NotificationId); });
 
         builder.Entity<Branch>(entity =>
         {

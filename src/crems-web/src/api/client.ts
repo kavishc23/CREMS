@@ -24,7 +24,15 @@ api.interceptors.request.use((config) => {
 })
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const method = response.config.method?.toLowerCase()
+    const url = response.config.url ?? ''
+    if (method && !['get', 'head', 'options'].includes(method) && !url.includes('/notifications/read') && !url.includes('/auth/') && !url.includes('/session')) {
+      window.dispatchEvent(new Event('crems:data-changed'))
+      if (!url.includes('/notifications/send')) window.dispatchEvent(new CustomEvent('crems:toast', { detail: { severity: 'success', message: response.status === 202 ? 'Submitted for review.' : 'Changes saved.' } }))
+    }
+    return response
+  },
   (error) => {
     const status = error?.response?.status
     const requestUrl = String(error?.config?.url ?? '')
@@ -34,6 +42,10 @@ api.interceptors.response.use(
         ? 'crems:customer-session-expired'
         : 'crems:staff-session-expired'
       window.dispatchEvent(new CustomEvent(eventName))
+    }
+    if (!axios.isCancel(error) && !['get', 'head'].includes(error?.config?.method ?? 'get') && status !== 401 && !requestUrl.includes('/notifications/read')) {
+      const message = status >= 500 ? 'The server could not complete this action. Please try again.' : error?.response?.data?.message ?? 'The action could not be completed. Check the details and try again.'
+      window.dispatchEvent(new CustomEvent('crems:toast', { detail: { severity: 'error', message } }))
     }
     return Promise.reject(error)
   },

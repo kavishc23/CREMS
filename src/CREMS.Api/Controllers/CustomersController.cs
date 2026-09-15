@@ -25,11 +25,12 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
     public async Task<ActionResult<IReadOnlyList<CustomerResponse>>> GetAll(CancellationToken cancellationToken)
     {
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
+        if (scope is null || (!scope.IsAdministrator && scope.BranchIds.Count == 0)) return Forbid();
         var query = db.Customers.AsNoTracking();
         if (!scope.IsAdministrator)
             query = query.Where(customer => db.Bookings.Any(booking =>
-                booking.CustomerId == customer.Id && booking.BranchId == scope.BranchId));
+                booking.CustomerId == customer.Id && scope.BranchIds.Contains(booking.BranchId) && booking.Items.Any() &&
+                booking.Items.All(i => i.Asset != null && i.Asset.DivisionId.HasValue && scope.DivisionIds.Contains(i.Asset.DivisionId.Value))));
 
         var customers = await query
             .OrderBy(customer => customer.Name)

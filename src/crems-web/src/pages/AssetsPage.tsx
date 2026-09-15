@@ -64,7 +64,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState<Asset | null>(null)
   const [form, setForm] = useState<AssetForm>(emptyForm)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') ?? '')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [page, setPage] = useState(1)
   const [totalAssets, setTotalAssets] = useState(0)
