@@ -83,4 +83,21 @@ public sealed class BookingPolicyTests
     public void Motors_delivery_only_quotes_without_a_configured_rate(bool pricedTransport, bool expected) =>
         Assert.Equal(expected, BookingPolicy.RequiresPublicQuotation(false, true, false, false,
             CREMS.Api.Domain.Common.PersonnelRequirement.None, false, false, true, pricedTransport));
+
+    [Fact]
+    public void Asset_category_configuration_controls_operator_requirement()
+    {
+        var asset = new Asset
+        {
+            AssetNumber = "EQP-TEST", Name = "Configured equipment",
+            PersonnelRequirement = CREMS.Api.Domain.Common.PersonnelRequirement.Optional,
+            AssetCategory = new CREMS.Api.Domain.Common.AssetCategory
+            {
+                Code = "CONFIGURED", Name = "Configured category",
+                PersonnelRequirement = CREMS.Api.Domain.Common.PersonnelRequirement.Required,
+            },
+        };
+
+        Assert.Equal(CREMS.Api.Domain.Common.PersonnelRequirement.Required, AssetCategoryPolicy.Personnel(asset));
+    }
 }

@@ -196,7 +196,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
 
         return Ok(new
         {
-            asset.Id, asset.Name, asset.Type, asset.Category, asset.DailyRate, asset.PersonnelRequirement,
+            asset.Id, asset.Name, asset.Type, asset.Category, asset.DailyRate,
+            PersonnelRequirement = AssetCategoryPolicy.Personnel(asset),
             asset.Manufacturer, asset.Model, asset.ModelYear, asset.PhotoUrlsJson,
             Division = asset.Division is null ? null : new { asset.Division.Id, asset.Division.Code, asset.Division.Name },
             Branch = new { asset.BranchId, asset.Branch!.Name, asset.Branch.Address, asset.Branch.Phone,
@@ -236,7 +237,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             return ValidationProblem(ModelState);
         }
 
-        var asset = await db.Assets.Include(item => item.Branch).Include(item => item.Division).Include(item => item.ServiceOffering)
+        var asset = await db.Assets.Include(item => item.Branch).Include(item => item.Division)
+            .Include(item => item.ServiceOffering).Include(item => item.AssetCategory)
             .FirstOrDefaultAsync(item => item.Id == request.AssetId && item.IsActive, cancellationToken);
         if (asset is null || asset.Branch is null || !asset.Branch.IsActive ||
             asset.Status is AssetStatus.Maintenance or AssetStatus.OutOfService or AssetStatus.Retired)
