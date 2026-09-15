@@ -59,7 +59,6 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
           <Box component="img" src="/brand/carpenters-logo.png" alt="Carpenters Fiji" sx={{ width: { xs: 42, md: 48 }, height: { xs: 42, md: 48 }} } />
           <Box sx={{ minWidth: 0 }}>
             <Typography fontWeight={800} lineHeight={1.05} noWrap>Carpenters Rentals &amp; Hire</Typography>
-            <Typography variant="caption" color="secondary.main" noWrap>Vehicles, equipment and site services</Typography>
           </Box>
           </Box>
           <Box sx={{ flexGrow: 1 }} />

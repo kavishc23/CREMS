@@ -71,10 +71,6 @@ function assetPhotoUrls(asset: PublicAsset) {
   } catch { return [] }
 }
 
-function isEquipmentDivision(division: PublicDivision) {
-  return /carptrac|shipping/i.test(`${division.code} ${division.name}`)
-}
-
 function catalogueFeatures(asset: PublicAsset) {
   const features = (asset.attributes ?? []).map(attribute => attribute.code === 'SEATS'
     ? `${attribute.value} seats`
@@ -174,6 +170,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [photoIndexes, setPhotoIndexes] = useState<Record<string, number>>({})
   const [galleryOffsets, setGalleryOffsets] = useState<Record<string, number>>({})
+  const [hirePreferences, setHirePreferences] = useState<CustomerPreference[]>([])
   const [showModifySearch, setShowModifySearch] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
 
@@ -219,6 +216,12 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   }, [])
 
   const displayedAssets = useMemo(() => (searched ? assets : catalogueAssets).filter((asset) => {
+    if (!searched && hirePreferences.length > 0 && hirePreferences.length < 3) {
+      const preferred = (hirePreferences.includes('Vehicles') && /carpenters motors/i.test(asset.divisionName ?? '')) ||
+        (hirePreferences.includes('Equipment') && /carptrac/i.test(asset.divisionName ?? '')) ||
+        (hirePreferences.includes('WasteAndSiteHire') && /carpenters shipping/i.test(asset.divisionName ?? ''))
+      if (!preferred) return false
+    }
     if (divisionId && asset.divisionId !== divisionId) return false
     if (branchId && asset.branchId !== branchId) return false
     if (type && asset.type !== type) return false
@@ -236,7 +239,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     if (category === 'Lifting') return /crane|forklift|telehandler|scissor/.test(value)
     if (category === 'Power & site') return /generator|compressor|compactor|mixer|scaffold|toilet|portaloo|bin/.test(value)
     return true
-  }), [assets, availableOnly, branchId, catalogueAssets, category, divisionId, priceFilter, searched, seatFilter, transmissionFilter, type])
+  }), [assets, availableOnly, branchId, catalogueAssets, category, divisionId, hirePreferences, priceFilter, searched, seatFilter, transmissionFilter, type])
   const seatOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'SEATS')).filter(Boolean).map(Number))].sort((a, b) => a - b), [catalogueAssets])
   const transmissionOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'TRANSMISSION')).filter(Boolean))].sort(), [catalogueAssets])
   const sortedAssets = useMemo(() => [...displayedAssets].sort((left, right) => {
@@ -323,13 +326,9 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     if (!customerAuthenticated) return
     void api.get<CustomerPreferenceSession>('/customer-account/session').then(({ data }) => {
       const preferences = Array.isArray(data.hirePreferences) ? data.hirePreferences : data.hirePreference && data.hirePreference !== 'NoPreference' ? [data.hirePreference] : []
-      if (preferences.length === 1 && preferences[0] === 'Vehicles') { const motors = divisions.find(item => /motors|rental/i.test(`${item.code} ${item.name}`) && !/shipping|carptrac/i.test(`${item.code} ${item.name}`)); setDivisionId(motors?.id ?? ''); setType(''); setCategory('All') }
-      else if (preferences.includes('Equipment') || preferences.includes('WasteAndSiteHire')) {
-        setType('')
-        setCategory(preferences.length === 1 ? 'Power & site' : 'All')
-      }
+      setHirePreferences(preferences)
     }).catch(() => undefined)
-  }, [customerAuthenticated, divisions])
+  }, [customerAuthenticated])
 
   function renderSearchForm(compact = false) {
     return <Box>
@@ -352,7 +351,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   ], [])
 
   function moveGallery(key: string, total: number, direction: number) {
-    setGalleryOffsets(current => ({ ...current, [key]: ((current[key] ?? 0) + direction + total) % total }))
+    setGalleryOffsets(current => ({ ...current, [key]: Math.max(0, Math.min((current[key] ?? 0) + direction, Math.max(0, total - 4))) }))
   }
 
   function resetToSearch() {
@@ -391,12 +390,12 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     <Container id="rentals" maxWidth={false} sx={{ py: { xs: 5, md: 6 }, px: { xs: 2, md: 5, lg: 7 } }}>
       {error && !selected && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
       {searched && <Card variant="outlined" sx={{ mb: 3, bgcolor: 'white', borderRadius: 3 }}><CardContent sx={{ p: 2.5 }}><Stack direction="row" gap={1.25} alignItems="center" flexWrap="wrap" sx={{ '& > .MuiFormControl-root': { flex: '1 1 145px' } }}>
-        <FormControl size="small" sx={{ minWidth: 175 }}><InputLabel>Division</InputLabel><Select label="Division" value={divisionId} onChange={event => { const value = event.target.value; setDivisionId(value); setType('') }}><MenuItem value="">All divisions</MenuItem>{divisions.map(division => <MenuItem key={division.id} value={division.id}>{division.name}</MenuItem>)}</Select></FormControl>
-        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Rental category</InputLabel><Select label="Rental category" value={category} onChange={event => setCategory(event.target.value)}>{['All', 'Cars & SUVs', 'Vans & trucks', 'Earthmoving', 'Lifting', 'Power & site'].map(item => <MenuItem key={item} value={item}>{item === 'All' ? 'All categories' : item}</MenuItem>)}</Select></FormControl>
-        {seatOptions.length > 0 && <FormControl size="small" sx={{ minWidth: 125 }}><InputLabel>Seats</InputLabel><Select label="Seats" value={seatFilter} onChange={event => setSeatFilter(event.target.value)}><MenuItem value="">Any seats</MenuItem>{seatOptions.map(seats => <MenuItem key={seats} value={String(seats)}>{seats}+ seats</MenuItem>)}</Select></FormControl>}
-        {transmissionOptions.length > 0 && <FormControl size="small" sx={{ minWidth: 150 }}><InputLabel>Transmission</InputLabel><Select label="Transmission" value={transmissionFilter} onChange={event => setTransmissionFilter(event.target.value)}><MenuItem value="">Any</MenuItem>{transmissionOptions.map(option => <MenuItem key={option} value={option}>{option}</MenuItem>)}</Select></FormControl>}
-        <FormControl size="small" sx={{ minWidth: 145 }}><InputLabel>Daily price</InputLabel><Select label="Daily price" value={priceFilter} onChange={event => setPriceFilter(event.target.value)}><MenuItem value="">Any price</MenuItem><MenuItem value="under-200">Under FJD 200</MenuItem><MenuItem value="200-500">FJD 200–500</MenuItem><MenuItem value="over-500">Over FJD 500</MenuItem></Select></FormControl>
-        <FormControl size="small" sx={{ minWidth: 180 }}><InputLabel>Sort by</InputLabel><Select label="Sort by" value={sort} onChange={event => setSort(event.target.value as CatalogueSort)}><MenuItem value="recommended">Recommended</MenuItem><MenuItem value="price-low">Price: low to high</MenuItem><MenuItem value="price-high">Price: high to low</MenuItem></Select></FormControl>
+        <FormControl size="small" sx={{ minWidth: 175 }}><InputLabel>Division</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Division" value={divisionId} onChange={event => { const value = event.target.value; setDivisionId(value); setType('') }}><MenuItem value="">All divisions</MenuItem>{divisions.map(division => <MenuItem key={division.id} value={division.id}>{division.name}</MenuItem>)}</Select></FormControl>
+        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Rental category</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Rental category" value={category} onChange={event => setCategory(event.target.value)}>{['All', 'Cars & SUVs', 'Vans & trucks', 'Earthmoving', 'Lifting', 'Power & site'].map(item => <MenuItem key={item} value={item}>{item === 'All' ? 'All categories' : item}</MenuItem>)}</Select></FormControl>
+        {seatOptions.length > 0 && <FormControl size="small" sx={{ minWidth: 125 }}><InputLabel>Seats</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Seats" value={seatFilter} onChange={event => setSeatFilter(event.target.value)}><MenuItem value="">Any seats</MenuItem>{seatOptions.map(seats => <MenuItem key={seats} value={String(seats)}>{seats}+ seats</MenuItem>)}</Select></FormControl>}
+        {transmissionOptions.length > 0 && <FormControl size="small" sx={{ minWidth: 150 }}><InputLabel>Transmission</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Transmission" value={transmissionFilter} onChange={event => setTransmissionFilter(event.target.value)}><MenuItem value="">Any</MenuItem>{transmissionOptions.map(option => <MenuItem key={option} value={option}>{option}</MenuItem>)}</Select></FormControl>}
+        <FormControl size="small" sx={{ minWidth: 145 }}><InputLabel>Daily price</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Daily price" value={priceFilter} onChange={event => setPriceFilter(event.target.value)}><MenuItem value="">Any price</MenuItem><MenuItem value="under-200">Under FJD 200</MenuItem><MenuItem value="200-500">FJD 200–500</MenuItem><MenuItem value="over-500">Over FJD 500</MenuItem></Select></FormControl>
+        <FormControl size="small" sx={{ minWidth: 180 }}><InputLabel>Sort by</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Sort by" value={sort} onChange={event => setSort(event.target.value as CatalogueSort)}><MenuItem value="recommended">Recommended</MenuItem><MenuItem value="price-low">Price: low to high</MenuItem><MenuItem value="price-high">Price: high to low</MenuItem></Select></FormControl>
         {(divisionId || category !== 'All' || seatFilter || transmissionFilter || priceFilter) && <Button size="small" onClick={() => { setDivisionId(''); setType(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter(''); setAvailableOnly(false) }}>Clear</Button>}
       </Stack></CardContent></Card>}
       {searched && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1.5} mb={3}><Box><Typography fontWeight={800}>{sortedAssets.length} {sortedAssets.length === 1 ? 'rental' : 'rentals'} found</Typography><Typography variant="body2" color="text.secondary">Live availability for your selected dates · Prices in FJD</Typography></Box><FormControlLabel control={<Switch checked={availableOnly} onChange={event => setAvailableOnly(event.target.checked)} />} label="Available only" /></Stack>}
@@ -439,12 +438,12 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       </Grid>}
       {!loading && divisionGalleries.map(gallery => {
         const galleryAssets = sortedAssets.filter(gallery.matches)
-        const offset = galleryOffsets[gallery.key] ?? 0
-        const visibleAssets = galleryAssets.length <= 4 ? galleryAssets : Array.from({ length: 4 }, (_, index) => galleryAssets[(offset + index) % galleryAssets.length])
+        const offset = Math.min(galleryOffsets[gallery.key] ?? 0, Math.max(0, galleryAssets.length - 4))
+        const visibleAssets = galleryAssets.slice(offset, offset + 4)
         if (galleryAssets.length === 0) return null
         if (searched && divisionId && !gallery.matches({ divisionName: divisions.find(division => division.id === divisionId)?.name ?? '' } as PublicAsset)) return null
-        if (searched && divisionId) return <Box key={gallery.key} sx={{ mb: 5 }}><Typography variant="h5" fontWeight={850} mb={2}>{gallery.title}</Typography>{galleryAssets.length ? <Grid container spacing={2}>{galleryAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 4 }}>{renderRentalCard(asset)}</Grid>)}</Grid> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals match this search.</Typography></CardContent></Card>}</Box>
-        return <Box key={gallery.key} sx={{ mb: 5 }}><Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}><Box><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length ? `${galleryAssets.length} rental${galleryAssets.length === 1 ? '' : 's'} to explore` : 'Rental preview'}</Typography></Box></Stack>{visibleAssets.length ? <Stack direction="row" alignItems="center" gap={1.5}><IconButton aria-label={`Previous ${gallery.title} rentals`} disabled={galleryAssets.length < 2} onClick={() => moveGallery(gallery.key, galleryAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ flex: 1, overflow: 'hidden', '& > *': { width: { sm: 'calc((100% - 48px) / 4)' }, minWidth: { sm: 0 } } }}>{visibleAssets.map(renderRentalCard)}</Stack><IconButton aria-label={`Next ${gallery.title} rentals`} disabled={galleryAssets.length < 2} onClick={() => moveGallery(gallery.key, galleryAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals are currently listed for this division.</Typography></CardContent></Card>}</Box>
+        if ((searched && divisionId) || (!searched && hirePreferences.length === 1)) return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length} rental{galleryAssets.length === 1 ? '' : 's'} to explore</Typography></Stack><Grid container spacing={2}>{galleryAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 3 }}>{renderRentalCard(asset)}</Grid>)}</Grid></Box>
+        return <Box key={gallery.key} sx={{ mb: 5 }}><Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}><Box><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length ? `${galleryAssets.length} rental${galleryAssets.length === 1 ? '' : 's'} to explore` : 'Rental preview'}</Typography></Box></Stack>{visibleAssets.length ? <Stack direction="row" alignItems="center" gap={1.5}><IconButton aria-label={`Previous ${gallery.title} rentals`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, galleryAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ flex: 1, overflow: 'hidden', '& > *': { width: { sm: 'calc((100% - 48px) / 4)' }, minWidth: { sm: 0 } } }}>{visibleAssets.map(renderRentalCard)}</Stack><IconButton aria-label={`Next ${gallery.title} rentals`} disabled={offset >= Math.max(0, galleryAssets.length - 4)} onClick={() => moveGallery(gallery.key, galleryAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals are currently listed for this division.</Typography></CardContent></Card>}</Box>
       })}
     </Container>
 

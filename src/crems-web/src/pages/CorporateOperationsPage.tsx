@@ -14,6 +14,7 @@ import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined'
 import { api } from '../api/client'
 import { QuoteWorkspace } from '../components/QuoteWorkspace'
 import { ApprovalWorkspace } from '../components/ApprovalWorkspace'
+import { useAuth } from '../auth/AuthContext'
 
 type Row = Record<string, unknown> & { id?: string }
 type Workspace = Record<string, Row[]>
@@ -52,8 +53,18 @@ const value = (field: string, input: unknown) => {
 }
 
 export function CorporateOperationsPage({ embedded = false }: { embedded?: boolean }) {
+  const { user } = useAuth()
   const [overview,setOverview]=useState<Overview|null>(null),[workspace,setWorkspace]=useState<Workspace|null>(null),[selected,setSelected]=useState('tasks'),[mode,setMode]=useState<'daily'|'tools'>('daily'),[loading,setLoading]=useState(true),[error,setError]=useState('')
-  async function load(){setLoading(true);try{const[o,w,b]=await Promise.all([api.get<Overview>('/corporate-operations/overview'),api.get<Workspace>('/corporate-operations/workspace'),api.get<Workspace>('/business-operations/workspace')]);setOverview(o.data);setWorkspace({...w.data,...b.data});setError('')}catch{setError('Management information could not be loaded. Restart the updated API and try again.')}finally{setLoading(false)}}
+  async function load(){
+    setLoading(true);setError('')
+    const results=await Promise.allSettled([api.get<Overview>('/corporate-operations/overview'),api.get<Workspace>('/corporate-operations/workspace'),api.get<Workspace>('/business-operations/workspace')])
+    const [overviewResult,operationsResult,businessResult]=results
+    setOverview(overviewResult.status==='fulfilled'?overviewResult.value.data as Overview:null)
+    setWorkspace({...operationsResult.status==='fulfilled'?operationsResult.value.data as Workspace:{},...businessResult.status==='fulfilled'?businessResult.value.data as Workspace:{}})
+    const failed=results.flatMap((result,index)=>result.status==='rejected'?[['Summary','Daily operations','Business tools'][index]]:[])
+    if(failed.length)setError(`${failed.join(', ')} could not be loaded. Use Refresh to retry. Available sections are shown below.`)
+    setLoading(false)
+  }
   // Load the operational workspace once when the page opens.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(()=>{void load()},[])
@@ -62,11 +73,12 @@ export function CorporateOperationsPage({ embedded = false }: { embedded?: boole
   const rows=workspace?.[section.key]??[]
   const columns=rows.length?Object.keys(rows[0]).filter(key=>!hidden.has(key)&&!key.toLowerCase().endsWith('id')).slice(0,6):[]
   const switchMode=(next:'daily'|'tools')=>{setMode(next);setSelected(next==='daily'?'tasks':'personnel')}
-  if(!loading&&!error&&section.key==='quotes')return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1600,mx:'auto'}}><PageHeading title="Customer quotations" subtitle="Build accurate, division-scoped quotes and follow them through approval." back={()=>switchMode('daily')} /><QuoteWorkspace quotes={rows as never[]} reload={load}/></Box>
-  if(!loading&&!error&&section.key==='approvals')return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1300,mx:'auto'}}><PageHeading title="Manager approvals" subtitle="Review the current approval stage, supporting reason and financial value." back={()=>switchMode('daily')} /><ApprovalWorkspace approvals={rows as never[]} reload={load}/></Box>
+  if(!loading&&workspace?.quotes&&section.key==='quotes')return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1600,mx:'auto'}}><PageHeading title="Customer quotations" subtitle="Quotations within your assigned branch and division." back={()=>switchMode('daily')} /><QuoteWorkspace quotes={rows as never[]} reload={load}/></Box>
+  if(!loading&&workspace?.approvals&&section.key==='approvals')return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1300,mx:'auto'}}><PageHeading title="Approval decisions" subtitle="Review scoped requests. Decision buttons appear when the current stage is assigned to your role." back={()=>switchMode('daily')} /><ApprovalWorkspace approvals={rows as never[]} reload={load}/></Box>
   const metricKeys=['activeRentals','overdueRentals','todayDispatches','pendingApprovals','outstandingReceivables','utilizationPercent']
   return <Box sx={{p:{xs:2,sm:3,lg:4},pt:embedded?3:undefined,maxWidth:1600,mx:'auto'}}>
     <Stack direction={{xs:'column',md:'row'}} justifyContent="space-between" gap={2} mb={3}><Box>{!embedded&&<><Typography variant="h4" fontWeight={850}>Operations centre</Typography><Typography color="text.secondary" mt={.5}>Start with today’s work. Open business tools only when you need to maintain supporting records.</Typography></>}</Box><Stack direction="row" gap={1}><Button variant={mode==='daily'?'contained':'outlined'} onClick={()=>switchMode('daily')}>Today’s work</Button><Button variant={mode==='tools'?'contained':'outlined'} onClick={()=>switchMode('tools')}>Business tools</Button><Button aria-label="Refresh" startIcon={<RefreshOutlined/>} onClick={()=>void load()}>Refresh</Button></Stack></Stack>
+    <Alert severity="info" sx={{mb:2}}>{user?.divisionName ?? 'Allocated divisions'} · {user?.branchName ?? 'Allocated branches'}. Rental officers review and prepare requests; the assigned branch manager decides manager approval stages.</Alert>
     {error&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
     {loading?<Box sx={{minHeight:420,display:'grid',placeItems:'center'}}><CircularProgress/></Box>:<>
       {mode==='daily'&&<Grid container spacing={2} mb={3}>{metricKeys.map(key=>{const number=overview?.[key]??0;const attention=key==='overdueRentals'&&number>0||key==='pendingApprovals'&&number>0;return <Grid key={key} size={{xs:6,md:4,lg:2}}><Card variant="outlined" sx={{height:'100%',borderTop:3,borderTopColor:attention?'error.main':'secondary.main'}}><CardContent><Typography variant="caption" color="text.secondary">{heading(key)}</Typography><Typography variant="h4" fontWeight={850} mt={.5}>{key.includes('Receivables')?`$${number.toLocaleString('en-FJ')}`:key.includes('Percent')?`${number}%`:number.toLocaleString('en-FJ')}</Typography></CardContent></Card></Grid>})}</Grid>}
