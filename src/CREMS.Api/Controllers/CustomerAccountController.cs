@@ -448,8 +448,8 @@ public sealed class CustomerAccountController(
         var booking = await db.Bookings.Include(x => x.Items)
             .FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
         if (booking is null) return NotFound();
-        if (booking.Status != BookingStatus.Draft)
-            return Conflict(new { message = "Dates can only be changed while the request is awaiting review." });
+        if (booking.Status is not (BookingStatus.Draft or BookingStatus.Confirmed))
+            return Conflict(new { message = "Dates can only be changed for awaiting-review or confirmed bookings." });
         if (request.EndAt <= request.StartAt || request.StartAt < DateTimeOffset.UtcNow.Date)
             return BadRequest(new { message = "Choose a valid future pickup and return date." });
         var assetIds = booking.Items.Select(x => x.AssetId).ToList();
@@ -457,6 +457,17 @@ public sealed class CustomerAccountController(
             assetIds.Contains(x.AssetId) && x.StartAt < request.EndAt && x.EndAt > request.StartAt &&
             (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
         if (conflict) return Conflict(new { message = "The rental is unavailable for those dates. Contact the branch for an alternative." });
+        if (booking.Status == BookingStatus.Confirmed)
+        {
+            var subject = $"Date change request — {booking.BookingNumber}";
+            if (await db.CustomerCases.AnyAsync(x => x.CustomerId == user.CustomerId && x.Subject == subject && x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed, token))
+                return Conflict(new { message = "A date change request for this booking is already awaiting branch review." });
+            var currentStart = booking.Items.Min(x => x.StartAt);
+            var currentEnd = booking.Items.Max(x => x.EndAt);
+            db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Enquiry, Priority = CasePriority.Normal, Subject = subject, Description = $"Current dates: {currentStart:u} – {currentEnd:u}. Requested dates: {request.StartAt:u} – {request.EndAt:u}.", DueAt = DateTimeOffset.UtcNow.AddHours(4) });
+            await db.SaveChangesAsync(token);
+            return Accepted(new { status = "Date change requested" });
+        }
         foreach (var item in booking.Items) { item.StartAt = request.StartAt; item.EndAt = request.EndAt; }
         booking.Notes = Append(booking.Notes, $"Customer changed requested dates online to {request.StartAt:u} – {request.EndAt:u}.");
         await db.SaveChangesAsync(token);
