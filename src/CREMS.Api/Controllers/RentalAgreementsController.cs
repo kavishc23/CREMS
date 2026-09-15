@@ -66,6 +66,8 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         if (await db.RentalAgreements.AnyAsync(item => item.BookingId == bookingId, cancellationToken))
             return Conflict(new { message = "This booking already has an approved rental agreement." });
 
+        if (request.MeterReading.HasValue && booking.Items.Any(x => x.Asset != null && x.Asset.CurrentMeterReading.HasValue && request.MeterReading < x.Asset.CurrentMeterReading))
+            return BadRequest(new { message = "The pickup meter reading cannot be lower than the asset's recorded reading." });
         var draft = BuildAgreementData(booking);
         var now = DateTimeOffset.UtcNow;
         var agreement = new RentalAgreement
@@ -80,7 +82,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         };
         db.RentalAgreements.Add(agreement);
         booking.RentalAgreement = agreement;
-        booking.Inspections.Add(new RentalInspection
+        db.RentalInspections.Add(new RentalInspection
         {
             BookingId = booking.Id, Type = InspectionType.Handover,
             IdentificationVerified = request.IdentificationVerified,
@@ -88,12 +90,12 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             MeterReading = request.MeterReading, FuelLevelPercent = request.FuelLevelPercent,
             ConditionNotes = Normalize(request.ConditionNotes), DamageNotes = Normalize(request.DamageNotes),
             SignatureName = request.CustomerSignatureName.Trim(), SignatureDataUrl = request.CustomerSignatureDataUrl,
-            PaymentVerified = request.PaymentVerified, EvidenceJson = JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [] }, SnapshotJson),
+            PaymentVerified = request.PaymentVerified, EvidenceJson = JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes }, SnapshotJson),
             CompletedByUserId = scope.UserId,
             CompletedByName = scope.UserName, CompletedAt = now,
         });
         if (customerWillDrive)
-            booking.AuthorizedDrivers.Add(new AuthorizedDriver
+            db.AuthorizedDrivers.Add(new AuthorizedDriver
             {
                 BookingId = booking.Id, FullName = request.CustomerSignatureName.Trim(), LicenceNumber = request.LicenceNumber!.Trim(),
                 LicenceClass = Normalize(request.LicenceClass), LicenceExpiry = request.LicenceExpiry!.Value,
@@ -101,7 +103,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             });
         if (request.AmountCollected > 0)
         {
-            booking.Payments.Add(new RentalPayment
+            db.RentalPayments.Add(new RentalPayment
             {
                 BookingId = booking.Id, Type = PaymentType.BondCollection, Method = request.PaymentMethod,
                 Amount = request.AmountCollected, ReceiptNumber = string.IsNullOrWhiteSpace(request.ReceiptNumber)
@@ -118,6 +120,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         {
             var asset = item.Asset!; var fromStatus = asset.Status; asset.Status = CREMS.Api.Domain.Assets.AssetStatus.Rented;
             db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = asset.Id, BookingId = booking.Id, Type = AssetLifecycleEventType.CheckedOut, FromStatus = fromStatus, ToStatus = asset.Status, MeterReading = request.MeterReading, Notes = $"Checked out on {agreement.AgreementNumber}", RecordedByUserId = scope.UserId, RecordedByName = scope.UserName });
+            if (request.MeterReading.HasValue) asset.CurrentMeterReading = request.MeterReading;
             if (request.MeterReading.HasValue) db.AssetMeterReadings.Add(new AssetMeterReading { AssetId = asset.Id, BookingId = booking.Id, Type = asset.MeterUnit?.Contains("hour", StringComparison.OrdinalIgnoreCase) == true ? MeterType.EngineHours : MeterType.Odometer, Unit = asset.MeterUnit ?? "unit", Reading = request.MeterReading.Value, FuelPercent = request.FuelLevelPercent, Source = MeterReadingSource.PreHireInspection, RecordedByUserId = scope.UserId });
         }
         AuditWriter.Record(db, scope, "Rental pickup completed", "Booking", booking.Id,
@@ -241,4 +244,4 @@ public sealed record PickupRentalRequest(
     string? DamageNotes,
     IReadOnlyList<string>? EvidenceDataUrls,
     IReadOnlyList<string>? DamageZones,
-    IReadOnlyList<string>? ChecklistItems);
+    IReadOnlyList<string>? ChecklistItems, string? AccessoryNotes);

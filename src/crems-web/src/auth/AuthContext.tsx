@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const stopMonitoring = monitorInactivity(() => {
       void api.post('/auth/logout').catch(() => undefined).finally(() => setUser(null))
-    })
+    }, () => { void api.get('/auth/session').catch(() => undefined) })
     const sessionExpired = () => setUser(null)
 
     window.addEventListener('crems:staff-session-expired', sessionExpired)

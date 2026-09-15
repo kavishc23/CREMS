@@ -1,3 +1,4 @@
+using CREMS.Api.Services;
 using System.ComponentModel.DataAnnotations;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Assets;
@@ -19,7 +20,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
     [HttpGet("work-queue")]
     public async Task<ActionResult<RentalWorkQueueResponse>> GetWorkQueue(
         [FromQuery] string queue = "PickupToday", [FromQuery] string? search = null,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 25,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 25, [FromQuery] Guid? bookingId = null,
         CancellationToken cancellationToken = default)
     {
         var scope = await staffScope.GetAsync(User);
@@ -35,6 +36,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             baseQuery = baseQuery.Where(x => x.BookingNumber.Contains(term) || x.Customer!.Name.Contains(term) ||
                 (x.Customer.Phone != null && x.Customer.Phone.Contains(term)) || x.Items.Any(i => i.Asset!.Name.Contains(term) || i.Asset.AssetNumber.Contains(term)));
         }
+        if (bookingId.HasValue) baseQuery = baseQuery.Where(x => x.Id == bookingId);
         IQueryable<Booking> selected = queue switch
         {
             "OnHire" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayEnd)),
@@ -44,6 +46,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             "RecentlyCompleted" => baseQuery.Where(x => x.Status == BookingStatus.Completed && x.UpdatedAt >= recent),
             _ => baseQuery.Where(x => x.Status == BookingStatus.Confirmed && x.Items.Any(i => i.StartAt < todayEnd)),
         };
+        if (bookingId.HasValue) selected = baseQuery;
         var counts = new RentalQueueCounts(
             await baseQuery.CountAsync(x => x.Status == BookingStatus.Confirmed && x.Items.Any(i => i.StartAt < todayEnd), cancellationToken),
             await baseQuery.CountAsync(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayEnd), cancellationToken),
@@ -81,6 +84,50 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         return Ok(ToResponse(booking));
     }
 
+    [HttpPost("{bookingId:guid}/pre-hire-inspection")]
+    public async Task<ActionResult> SavePreHireInspection(Guid bookingId, PreHireInspectionRequest request, CancellationToken cancellationToken)
+    {
+        var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset)
+            .Include(x => x.Inspections).FirstOrDefaultAsync(x => x.Id == bookingId, cancellationToken);
+        if (booking is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        var asset = booking.Items.FirstOrDefault()?.Asset;
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, asset?.DivisionId)) return Forbid();
+        if (booking.Status != BookingStatus.Confirmed) return BadRequest(new { message = "Only a confirmed booking can have a pre-hire inspection prepared." });
+        if (asset is null || !string.Equals(asset.AssetNumber, request.ScannedAssetNumber?.Trim(), StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "Scan or enter the asset allocated to this booking." });
+        if (string.IsNullOrWhiteSpace(request.ConditionNotes) || request.ChecklistItems is null || request.ChecklistItems.Count == 0 || request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
+            return BadRequest(new { message = "Complete the checklist, condition notes and at least one inspection photo." });
+        if (request.MeterReading < 0 || request.FuelLevelPercent is < 0 or > 100 || request.MeterReading.HasValue && asset.CurrentMeterReading.HasValue && request.MeterReading < asset.CurrentMeterReading)
+            return BadRequest(new { message = "Check the meter and fuel readings. The meter cannot decrease and fuel must be between 0 and 100 percent." });
+        var inspection = RentalInspectionPersistence.GetOrCreatePreparation(db, booking, scope.UserName);
+        inspection.MeterReading = request.MeterReading;
+        inspection.FuelLevelPercent = request.FuelLevelPercent;
+        inspection.ConditionNotes = Normalize(request.ConditionNotes);
+        inspection.DamageNotes = Normalize(request.DamageNotes);
+        inspection.EvidenceJson = System.Text.Json.JsonSerializer.Serialize(new { checklist = request.ChecklistItems, photos = request.EvidenceDataUrls, damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes });
+        inspection.CompletedAt = DateTimeOffset.UtcNow;
+        inspection.CompletedByUserId = scope.UserId;
+        inspection.CompletedByName = scope.UserName;
+        AuditWriter.Record(db, scope, "Pre-hire inspection saved", "Booking", booking.Id, $"Pre-hire inspection prepared for {booking.BookingNumber}; asset release remains pending.", booking.BranchId);
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(new { inspection.Id, message = "Pre-hire inspection saved. Complete agreement signing and checkout at handover." });
+    }
+    [HttpGet("{bookingId:guid}/inspection-context")]
+    public async Task<ActionResult> InspectionContext(Guid bookingId, CancellationToken cancellationToken)
+    {
+        var booking = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset)
+            .Include(x => x.Inspections).FirstOrDefaultAsync(x => x.Id == bookingId, cancellationToken);
+        if (booking is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
+        var categoryId = booking.Items.FirstOrDefault()?.Asset?.AssetCategoryId;
+        var templates = await db.InspectionTemplates.AsNoTracking()
+            .Where(x => x.IsActive && x.AssetCategoryId == categoryId && (x.Stage == InspectionStage.PreHire || x.Stage == InspectionStage.PostHire))
+            .OrderBy(x => x.Name).Select(x => new { x.Id, x.Name, x.Stage, x.ChecklistJson }).ToListAsync(cancellationToken);
+        var preHire = booking.Inspections.Where(x => x.Type == InspectionType.Handover).OrderByDescending(x => x.CompletedAt).FirstOrDefault();
+        return Ok(new { templates, preHire = preHire is null ? null : new { preHire.ConditionNotes, preHire.DamageNotes, preHire.EvidenceJson, preHire.MeterReading, preHire.FuelLevelPercent } });
+    }
     [HttpPost("{bookingId:guid}/handover")]
     public async Task<ActionResult> Handover(Guid bookingId, InspectionRequest request, CancellationToken cancellationToken)
     {
@@ -101,7 +148,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (!request.IdentificationVerified || !request.DriverLicenceVerified || string.IsNullOrWhiteSpace(request.SignatureName))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Identification, driver licence and customer signature are required."] }));
 
-        booking.Inspections.Add(CreateInspection(booking.Id, InspectionType.Handover, request, scope));
+        db.RentalInspections.Add(CreateInspection(booking.Id, InspectionType.Handover, request, scope));
         booking.Status = BookingStatus.ConvertedToRental;
         booking.UpdatedAt = DateTimeOffset.UtcNow;
         foreach (var item in booking.Items.Where(item => item.Asset is not null)) { var asset=item.Asset!;var from=asset.Status;asset.Status=AssetStatus.Rented;db.AssetLifecycleEvents.Add(new AssetLifecycleEvent{AssetId=asset.Id,BookingId=booking.Id,Type=AssetLifecycleEventType.CheckedOut,FromStatus=from,ToStatus=asset.Status,MeterReading=request.MeterReading,Notes=$"Checked out on {booking.BookingNumber}",RecordedByUserId=scope.UserId,RecordedByName=scope.UserName});if(request.MeterReading.HasValue)db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=asset.MeterUnit?.Contains("hour",StringComparison.OrdinalIgnoreCase)==true?MeterType.EngineHours:MeterType.Odometer,Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PreHireInspection,RecordedByUserId=scope.UserId});}
@@ -134,7 +181,16 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["photos"] = ["Attach at least one return inspection photograph."] }));
 
-        booking.Inspections.Add(CreateInspection(booking.Id, InspectionType.Return, request, scope));
+        if (string.IsNullOrWhiteSpace(request.SignatureName) || string.IsNullOrWhiteSpace(request.SignatureDataUrl))
+            return BadRequest(new { message = "Record the customer acknowledgement name and drawn signature before completing the return." });
+        if (request.MeterReading < 0 || request.FuelLevelPercent is < 0 or > 100)
+            return BadRequest(new { message = "Meter readings cannot be negative and fuel must be between 0 and 100 percent." });
+        var lastReading = booking.Inspections.Where(x => x.Type == InspectionType.Handover).Select(x => x.MeterReading)
+            .Concat(booking.Items.Where(x => x.Asset != null).Select(x => x.Asset!.CurrentMeterReading)).Max();
+        if (request.MeterReading.HasValue && lastReading.HasValue && request.MeterReading < lastReading)
+            return BadRequest(new { message = "The return meter reading cannot be lower than the recorded starting reading." });
+
+        db.RentalInspections.Add(CreateInspection(booking.Id, InspectionType.Return, request, scope));
         booking.AdditionalCharges = request.AdditionalCharges + request.LateFee + request.ExcessUsageCharge + request.RefuellingCharge + request.CleaningCharge + request.DamageCharge;
         booking.AdditionalChargesDescription = Normalize(request.AdditionalChargesDescription);
         booking.Status = BookingStatus.Completed;
@@ -147,7 +203,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             : booking.BondRefundAmount == booking.BondAmountHeld ? BondStatus.Refunded
             : booking.BondRefundAmount > 0 ? BondStatus.PartiallyRefunded : BondStatus.Retained;
         if (booking.BondRefundAmount > 0)
-            booking.Payments.Add(new RentalPayment { BookingId = booking.Id, Type = PaymentType.BondRefund,
+            db.RentalPayments.Add(new RentalPayment { BookingId = booking.Id, Type = PaymentType.BondRefund,
                 Method = request.BondRefundMethod, Amount = booking.BondRefundAmount,
                 ReceiptNumber = $"BRF-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
                 Note = booking.BondDeductionAmount > 0 ? $"Bond refund after deduction: {booking.BondDeductionReason}" : "Full refundable bond returned.",
@@ -193,7 +249,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         FuelLevelPercent = request.FuelLevelPercent, ConditionNotes = Normalize(request.ConditionNotes),
         DamageNotes = Normalize(request.DamageNotes), SignatureName = Normalize(request.SignatureName),
         SignatureDataUrl = request.SignatureDataUrl, PaymentVerified = request.PaymentVerified,
-        EvidenceJson = System.Text.Json.JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [] }),
+        EvidenceJson = System.Text.Json.JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes }),
         CompletedByUserId = scope.UserId, CompletedByName = scope.UserName,
     };
 
@@ -224,6 +280,7 @@ public record InspectionRequest(
     string? SignatureName)
 {
     public string? SignatureDataUrl { get; init; }
+    public string? AccessoryNotes { get; init; }
     public bool PaymentVerified { get; init; }
     public IReadOnlyList<string>? EvidenceDataUrls { get; init; }
     public IReadOnlyList<string>? DamageZones { get; init; }
@@ -259,3 +316,7 @@ public sealed record RentalWorkQueueRow(Guid Id, string BookingNumber, string St
     string BondStatus, decimal BondAmountHeld, decimal BondDeductionAmount, decimal BondRefundAmount,
     bool PreHireInspectionComplete, bool ReturnInspectionComplete, string? PreHireCondition,
     decimal? PreHireMeterReading, int? PreHireFuelLevelPercent, string? Warning);
+
+public sealed record PreHireInspectionRequest(string? ScannedAssetNumber, decimal? MeterReading, int? FuelLevelPercent,
+    string? ConditionNotes, string? DamageNotes, IReadOnlyList<string>? ChecklistItems,
+    IReadOnlyList<string>? EvidenceDataUrls, IReadOnlyList<string>? DamageZones, string? AccessoryNotes);

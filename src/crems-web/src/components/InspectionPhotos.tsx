@@ -1,7 +1,8 @@
-import { useState, type ChangeEvent } from 'react'
+import { useRef, useState, type ChangeEvent } from 'react'
 import { Alert, Box, Button, Stack, Typography } from '@mui/material'
 
-export function InspectionPhotos({ photos, onChange }: { photos: string[]; onChange: (photos: string[]) => void }) {
+export function InspectionPhotos({ photos, onChange, onBusyChange }: { photos: string[]; onChange: (photos: string[]) => void; onBusyChange?: (busy: boolean) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null)
   const [reading, setReading] = useState(false)
   const [error, setError] = useState('')
   async function attach(event: ChangeEvent<HTMLInputElement>) {
@@ -11,26 +12,42 @@ export function InspectionPhotos({ photos, onChange }: { photos: string[]; onCha
     setError('')
     if (photos.length + files.length > 5) { setError('Attach up to five photos. Remove an existing photo first.'); return }
     if (files.some(file => !file.type.startsWith('image/'))) { setError('Choose image files only.'); return }
-    if (files.some(file => file.size > 3 * 1024 * 1024)) { setError('Each photo must be 3 MB or smaller. Resize larger photos and try again.'); return }
-    setReading(true)
+    if (files.some(file => file.size > 20 * 1024 * 1024)) { setError('Each source photo must be 20 MB or smaller.'); return }
+    setReading(true); onBusyChange?.(true)
     try {
-      const added = await Promise.all(files.map(file => new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result))
-        reader.onerror = () => reject(new Error('A photo could not be read. Please select it again.'))
-        reader.onabort = () => reject(new Error('Photo reading was interrupted. Please try again.'))
-        reader.readAsDataURL(file)
-      })))
+      const added = await Promise.all(files.map(async file => {
+        const url = URL.createObjectURL(file)
+        try {
+          const image = new Image()
+          image.src = url
+          await image.decode()
+          const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight))
+          const canvas = document.createElement('canvas')
+          canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+          canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+          const context = canvas.getContext('2d')
+          if (!context) throw new Error('Image processing is unavailable in this browser.')
+          context.fillStyle = '#fff'
+          context.fillRect(0, 0, canvas.width, canvas.height)
+          context.drawImage(image, 0, 0, canvas.width, canvas.height)
+          const encoded = canvas.toDataURL('image/jpeg', 0.82)
+          if (encoded.length > 3 * 1024 * 1024) throw new Error('This photo is too large after resizing. Choose a smaller image.')
+          return encoded
+        } catch {
+          throw new Error('This photo could not be opened. Choose a JPEG, PNG or WebP image. Convert HEIC photos to JPEG first.')
+        } finally { URL.revokeObjectURL(url) }
+      }))
       onChange([...photos, ...added])
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Photos could not be attached. Please try again.') }
-    finally { setReading(false) }
+    finally { setReading(false); onBusyChange?.(false) }
   }
   return <Stack spacing={1}>
-    <Button component="label" variant="outlined" disabled={reading || photos.length >= 5}>
+    <Button type="button" variant="outlined" onClick={() => inputRef.current?.click()} disabled={reading || photos.length >= 5}>
       {reading ? 'Reading photos…' : 'Attach inspection photos'}
-      <input hidden multiple type="file" accept="image/*" onChange={event => void attach(event)} />
+
     </Button>
-    <Typography variant="caption">{photos.length} of 5 photos attached · maximum 3 MB each</Typography>
+    <input ref={inputRef} aria-label="Inspection photo files" hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={event => void attach(event)} />
+    <Typography variant="caption">{photos.length} of 5 photos attached · up to 20 MB each; photos are resized for upload</Typography>
     {error && <Alert severity="error">{error}</Alert>}
     <Stack direction="row" gap={1} flexWrap="wrap">
       {photos.map((photo, index) => <Box key={index}>
