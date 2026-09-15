@@ -263,11 +263,11 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     (selected.requiresQuote || selected.personnelRequirement !== 'None' || booking.personnelRequested))
   function unreliableMotorsPriceReason() {
     if (!isMotorsBooking || requestQuotation) return ''
-    if (booking.customerType === 'Business') return 'Business and negotiated rates require a reviewed quotation.'
+    if (booking.customerType === 'Business') return "We'll confirm your business rate with you."
     if (booking.personnelRequested && !checkoutDetail?.charges.some(charge => charge.category === 'Driver' && charge.defaultSellingRate > 0))
-      return 'A professional driver rate is not configured for this vehicle.'
+      return "We'll confirm the driver price with you."
     if (booking.fulfilment === 'Delivery' && !checkoutDetail?.charges.some(charge => charge.category === 'Transport' && charge.defaultSellingRate > 0))
-      return 'Delivery pricing must be confirmed by the rental team.'
+      return "We'll confirm the delivery price with you."
     return ''
   }
   function advanceBooking(event: FormEvent) {
@@ -376,7 +376,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
 
   function resetToSearch() {
     setSearched(false); setShowModifySearch(false); setDivisionId(''); setBranchId(''); setType(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter(''); setAvailableOnly(false)
-    window.setTimeout(() => { document.getElementById('search')?.scrollIntoView({ behavior: 'smooth' }); (document.querySelector('#search input') as HTMLInputElement | null)?.focus() }, 0)
+    window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0)
   }
 
   function cancelBooking() {
@@ -504,6 +504,6 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       </Box>}
     </DialogContent><DialogActions sx={{ px: { xs: 2, md: 3 }, py: 1.5 }}>{reference ? <Button onClick={() => setSelected(null)}>Close</Button> : <><Button onClick={() => bookingStep === 0 ? setSelected(null) : setBookingStep(step => step - 1)} disabled={submitting}>{bookingStep === 0 ? 'Cancel' : 'Back'}</Button><Box sx={{ flex: 1 }} /><Button form="public-booking-form" type="submit" variant="contained" disabled={submitting || (bookingStep === 3 && !termsAccepted)}>{submitting ? 'Sending…' : bookingStep === 3 ? quotationFlow ? 'Request quotation' : 'Submit booking' : 'Continue'}</Button></>}</DialogActions></Dialog>
     <Dialog disableScrollLock open={cancelConfirmOpen} onClose={() => setCancelConfirmOpen(false)} maxWidth="xs" fullWidth><DialogTitle>Cancel this booking?</DialogTitle><DialogContent><Typography color="text.secondary">Your entered booking details will be deleted and cannot be restored.</Typography></DialogContent><DialogActions><Button onClick={() => setCancelConfirmOpen(false)}>Keep booking</Button><Button color="error" variant="contained" onClick={cancelBooking}>Cancel booking</Button></DialogActions></Dialog>
-    <Dialog open={Boolean(quoteSwitchReason)} onClose={() => setQuoteSwitchReason('')} maxWidth="sm" fullWidth><DialogTitle>Continue as a quotation?</DialogTitle><DialogContent><Typography>{quoteSwitchReason}</Typography><Typography color="text.secondary" mt={1}>Your details will be retained, but the request will use a QUO reference and the team will confirm the final price.</Typography></DialogContent><DialogActions><Button onClick={() => setQuoteSwitchReason('')}>Review options</Button><Button variant="contained" onClick={() => { setRequestQuotation(true); setQuoteSwitchReason(''); setBookingStep(step => step + 1) }}>Continue as quotation</Button></DialogActions></Dialog>
+    <Dialog open={Boolean(quoteSwitchReason)} onClose={() => setQuoteSwitchReason('')} maxWidth="sm" fullWidth><DialogTitle>Price confirmation needed</DialogTitle><DialogContent><Typography>{quoteSwitchReason}</Typography><Typography color="text.secondary" mt={1}>Continue with a quote request, or go back to change your options.</Typography></DialogContent><DialogActions><Button onClick={() => setQuoteSwitchReason('')}>Go back</Button><Button variant="contained" onClick={() => { setRequestQuotation(true); setQuoteSwitchReason(''); setBookingStep(step => step + 1) }}>Request a quote</Button></DialogActions></Dialog>
   </Box>
 }
