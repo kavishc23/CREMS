@@ -38,6 +38,7 @@ public sealed class Asset : Entity
     public string? SpecificationsJson { get; set; }
     public ICollection<AssetAttributeValue> AttributeValues { get; set; } = [];
     public PersonnelRequirement PersonnelRequirement { get; set; }
+    public bool RequiresDelivery { get; set; }
     public decimal DailyRate { get; set; }
     public decimal DefaultBondAmount { get; set; }
     public DateOnly? NextServiceDate { get; set; }

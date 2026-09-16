@@ -521,7 +521,7 @@ public static class DatabaseInitializer
             if (!branches.TryGetValue(seed.BranchCode, out var branch)) continue;
             if (!existingAssets.TryGetValue(seed.AssetNumber, out var asset))
             {
-                asset = new Asset { AssetNumber = seed.AssetNumber, Name = seed.Name };
+                asset = new Asset { AssetNumber = seed.AssetNumber, Name = seed.Name, RequiresDelivery = seed.Type != AssetType.Vehicle };
                 db.Assets.Add(asset);
             }
             asset.Name = seed.Name;

@@ -116,7 +116,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.PersonnelRequirement,
                 ServiceName = asset.ServiceOffering != null ? asset.ServiceOffering.Name : null,
                 RequiresQuote = asset.ServiceOffering != null && asset.ServiceOffering.RequiresQuote,
-                RequiresDelivery = asset.ServiceOffering != null && asset.ServiceOffering.RequiresDelivery,
+                asset.RequiresDelivery,
                 asset.PhotoUrlsJson,
                 Attributes = asset.AttributeValues
                     .Where(value => value.AttributeDefinition != null &&
@@ -208,7 +208,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.ServiceOffering.Description, asset.ServiceOffering.Type,
                 asset.ServiceOffering.PersonnelRequirement, asset.ServiceOffering.IsBookableOnline,
                 asset.ServiceOffering.RequiresQuote, asset.ServiceOffering.DefaultHireUnit,
-                asset.ServiceOffering.RequiresDelivery, asset.ServiceOffering.DefaultDepositAmount,
+                RequiresDelivery = asset.RequiresDelivery, asset.ServiceOffering.DefaultDepositAmount,
                 RequiredDocuments = ParseJsonArray(asset.ServiceOffering.RequiredDocumentsJson),
             },
             Specifications = customerAttributes, Charges = visibleCharges, IsAvailable = isAvailable,
@@ -243,15 +243,15 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (asset is null || asset.Branch is null || !asset.Branch.IsActive ||
             asset.Status is AssetStatus.Maintenance or AssetStatus.OutOfService or AssetStatus.Retired)
             return NotFound("The selected rental item is no longer available.");
-        if (asset.ServiceOffering?.RequiresDelivery == true &&
+        if (asset.RequiresDelivery &&
             !string.Equals(request.Fulfilment, "Delivery", StringComparison.OrdinalIgnoreCase))
         {
             ModelState.AddModelError(nameof(request.Fulfilment), "This rental must be delivered to the worksite.");
             return ValidationProblem(ModelState);
         }
-        if (asset.ServiceOffering?.RequiresDelivery == true && string.IsNullOrWhiteSpace(request.Address))
+        if (asset.RequiresDelivery && string.IsNullOrWhiteSpace(request.DeliveryAddress))
         {
-            ModelState.AddModelError(nameof(request.Address), "Enter the delivery or worksite address.");
+            ModelState.AddModelError(nameof(request.DeliveryAddress), "Enter the delivery or worksite address.");
             return ValidationProblem(ModelState);
         }
 
@@ -295,11 +295,15 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             x.Category == ChargeCategory.Transport && x.DefaultSellingRate > 0);
         if (personnelRequested && !pricedPersonnelAvailable && !isMotors)
             return Conflict(new { message = "Professional personnel is required or selected, but no operator or driver rate is configured for this service. Please contact the branch." });
+        var requiresQuote = BookingPolicy.RequiresPublicQuotation(request.RequestQuotation, isMotors,
+            activeCustomer.Type == CustomerType.Business, asset.ServiceOffering?.RequiresQuote == true,
+            personnelPolicy, request.PersonnelRequested, pricedPersonnelAvailable,
+            request.Fulfilment == "Delivery", pricedTransportAvailable);
         var selectedExtras = (request.Extras ?? []).Where(x => x.Quantity > 0 && x.Quantity <= 1000)
             .GroupBy(x => x.ChargeDefinitionId).ToDictionary(x => x.Key, x => x.First().Quantity);
-        var charges = availableCharges.Where(x => x.IsRequired || selectedExtras.ContainsKey(x.Id) ||
+        var charges = availableCharges.Where(x => !(requiresQuote && asset.RequiresDelivery && x.Category == ChargeCategory.Transport) && (x.IsRequired || selectedExtras.ContainsKey(x.Id) ||
                 request.Fulfilment == "Delivery" && x.Category == ChargeCategory.Transport ||
-                personnelRequested && x.Category is ChargeCategory.Operator or ChargeCategory.Driver)
+                personnelRequested && x.Category is ChargeCategory.Operator or ChargeCategory.Driver))
             .Select(x => new
             {
                 Definition = x,
@@ -315,11 +319,6 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var taxRate = asset.Division?.DefaultTaxRate ?? 15m;
         var tax = decimal.Round((baseSubtotal + chargeSubtotal) * taxRate / 100m, 2);
         var total = baseSubtotal + chargeSubtotal + tax;
-        var requiresQuote = BookingPolicy.RequiresPublicQuotation(request.RequestQuotation, isMotors,
-            activeCustomer.Type == CustomerType.Business, asset.ServiceOffering?.RequiresQuote == true,
-            personnelPolicy, request.PersonnelRequested, pricedPersonnelAvailable,
-            request.Fulfilment == "Delivery", pricedTransportAvailable);
-
         var booking = new Booking
         {
             BookingNumber = requiresQuote
