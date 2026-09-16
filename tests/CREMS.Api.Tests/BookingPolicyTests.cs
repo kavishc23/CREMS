@@ -91,6 +91,7 @@ public sealed class BookingPolicyTests
         {
             AssetNumber = "EQP-TEST", Name = "Configured equipment",
             PersonnelRequirement = CREMS.Api.Domain.Common.PersonnelRequirement.Optional,
+            PersonnelOverride = CREMS.Api.Domain.Common.PersonnelRequirement.Optional,
             AssetCategory = new CREMS.Api.Domain.Common.AssetCategory
             {
                 Code = "CONFIGURED", Name = "Configured category",

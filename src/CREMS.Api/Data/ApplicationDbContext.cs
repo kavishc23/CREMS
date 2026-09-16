@@ -140,6 +140,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(x => x.Code).HasMaxLength(30);
             entity.Property(x => x.Name).HasMaxLength(150);
             entity.Property(x => x.DefaultTaxRate).HasPrecision(5, 2);
+            entity.Property(x => x.DefaultBondAmount).HasPrecision(18, 2);
         });
         builder.Entity<BranchDivision>(entity =>
         {

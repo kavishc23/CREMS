@@ -13,6 +13,7 @@ public sealed class Division : Entity
     public string BrandingJson { get; set; } = "{}";
     public string DefaultCurrency { get; set; } = "FJD";
     public decimal DefaultTaxRate { get; set; } = 15m;
+    public decimal DefaultBondAmount { get; set; }
     public string? DefaultRentalTerms { get; set; }
     public Guid? DefaultApprovalWorkflowId { get; set; }
     public string CustomerBookingConfigurationJson { get; set; } = "{}";
@@ -47,6 +48,7 @@ public sealed class ServiceOffering : Entity
     public bool RequiresDelivery { get; set; }
     public string RequiredDocumentsJson { get; set; } = "[]";
     public decimal DefaultDepositAmount { get; set; }
+    public bool InheritBond { get; set; }
     public string InspectionRequirementsJson { get; set; } = "{}";
     public string? MeterType { get; set; }
     public string MaintenanceRulesJson { get; set; } = "{}";

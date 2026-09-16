@@ -10,6 +10,7 @@ const staffRoutes: Record<AppPage, string> = {
   dashboard: '/staff/dashboard',
   bookings: '/staff/bookings',
   rentals: '/staff/hire-operations',
+  availability: '/staff/availability',
   assets: '/staff/assets',
   customers: '/staff/customers',
   scan: '/staff/scan',
@@ -49,6 +50,7 @@ const MaintenancePage = lazyNamed(() => import('./pages/MaintenancePage'), 'Main
 const ReportsPage = lazyNamed(() => import('./pages/ReportsPage'), 'ReportsPage')
 const ChangePasswordPage = lazyNamed(() => import('./pages/ChangePasswordPage'), 'ChangePasswordPage')
 const AssetsPage = lazy(() => import('./pages/AssetsPage').then(module => ({ default: module.AssetsPage })))
+const PlanningCalendarPage = lazy(() => import('./pages/PlanningCalendarPage').then(module => ({ default: module.PlanningCalendarPage })))
 const ManagementPage = lazyNamed(() => import('./pages/ManagementPage'), 'ManagementPage')
 const FinancePage = lazyNamed(() => import('./pages/FinancePage'), 'FinancePage')
 const AssetQrPage = lazyNamed(() => import('./pages/AssetQrPage'), 'AssetQrPage')
@@ -155,6 +157,7 @@ export default function App() {
     : activePage === 'customers' ? <CustomersPage />
     : activePage === 'bookings' ? <BookingsPage />
     : activePage === 'rentals' ? <RentalsPage />
+    : activePage === 'availability' ? <PlanningCalendarPage />
     : activePage === 'scan' ? <AssetQrPage />
     : activePage === 'maintenance' ? <MaintenancePage />
     : activePage === 'operations' ? <ManagementPage />

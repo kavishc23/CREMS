@@ -138,7 +138,32 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
     [HttpPut("{id:guid}/services")]
     [Authorize(Policy = SystemPermissions.BranchesConfigure)]
     public async Task<ActionResult> SaveServices(Guid id, IReadOnlyList<BranchServiceRequest> items, CancellationToken token)
-    { var scope = await staffScope.GetAsync(User); if (scope is null || !scope.HasBranchAccess(id)) return Forbid(); var existing = await db.BranchDivisionServices.Where(x => x.BranchId == id).ToListAsync(token); db.BranchDivisionServices.RemoveRange(existing); foreach (var x in items) db.BranchDivisionServices.Add(new BranchDivisionService { BranchId = id, DivisionId = x.DivisionId, ServiceOfferingId = x.ServiceOfferingId, IsActive = x.IsActive, IsBookable = x.IsBookable }); await db.SaveChangesAsync(token); return NoContent(); }
+    {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasBranchAccess(id)) return Forbid();
+        if (!await db.Branches.AnyAsync(x => x.Id == id && x.IsActive, token)) return NotFound();
+        if (items.GroupBy(x => x.ServiceOfferingId).Any(x => x.Count() > 1))
+            return BadRequest(new { message = "A service can only be assigned once at a branch." });
+        foreach (var item in items)
+        {
+            if (!scope.HasAssetAccess(id, item.DivisionId)) return Forbid();
+            if (!await db.BranchDivisions.AnyAsync(x => x.BranchId == id && x.DivisionId == item.DivisionId && x.IsActive, token) ||
+                !await db.ServiceOfferings.AnyAsync(x => x.Id == item.ServiceOfferingId && x.DivisionId == item.DivisionId && x.IsActive, token))
+                return BadRequest(new { message = "Services must belong to an active division operating at this branch." });
+        }
+        var existing = await db.BranchDivisionServices.Where(x => x.BranchId == id).ToListAsync(token);
+        foreach (var row in existing.Where(x => scope.HasAssetAccess(id, x.DivisionId)))
+        {
+            var input = items.FirstOrDefault(x => x.ServiceOfferingId == row.ServiceOfferingId && x.DivisionId == row.DivisionId);
+            row.IsActive = input?.IsActive ?? false;
+            row.IsBookable = input?.IsBookable ?? false;
+            row.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+        foreach (var item in items.Where(x => !existing.Any(e => e.DivisionId == x.DivisionId && e.ServiceOfferingId == x.ServiceOfferingId)))
+            db.BranchDivisionServices.Add(new BranchDivisionService { BranchId = id, DivisionId = item.DivisionId, ServiceOfferingId = item.ServiceOfferingId, IsActive = item.IsActive, IsBookable = item.IsBookable });
+        await db.SaveChangesAsync(token);
+        return NoContent();
+    }
 
     [HttpPut("{branchId:guid}/divisions/{divisionId:guid}")]
     [Authorize(Policy = SystemPermissions.BranchesConfigure)]

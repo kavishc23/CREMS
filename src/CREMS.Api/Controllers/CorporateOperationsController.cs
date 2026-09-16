@@ -44,11 +44,13 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
             transfers = await TransferScope(scope).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(token),
             pricing = await db.PricingRules.AsNoTracking().Where(x => scope.IsAdministrator || (!x.BranchId.HasValue || scope.BranchIds.Contains(x.BranchId.Value)) && (!x.DivisionId.HasValue || scope.DivisionIds.Contains(x.DivisionId.Value))).OrderBy(x => x.Name).ToListAsync(token),
             approvals = await ApprovalScope(scope).OrderByDescending(x => x.CreatedAt).Take(100).Select(x => new {
-                x.Id, x.RequestNumber, x.Status, x.Type, x.EntityType, x.Amount, x.Reason, x.CreatedAt, x.CurrentStage, x.TotalStages,
+                x.Id, x.RequestNumber, x.Status, x.Type, x.EntityType, x.Amount, x.Reason, x.CreatedAt, x.CurrentStage, x.TotalStages, x.DecisionNote, x.DecidedAt,
+                decidedByName = x.DecidedByUserId.HasValue ? db.Users.Where(u => u.Id == x.DecidedByUserId.Value).Select(u => u.FullName).FirstOrDefault() : null,
                 canDecide = x.Status == ApprovalStatus.Pending && x.StageDecisions.Any(s => s.StageNumber == x.CurrentStage && s.Status == ApprovalStatus.Pending &&
                     s.AssignedRole == SystemRoles.BranchManager && User.IsInRole(SystemRoles.BranchManager) &&
                     (x.EntityType == nameof(Booking) || x.EntityType == nameof(SalesQuote) || x.RequestedByUserId != scope.UserId && (!s.AssignedUserId.HasValue || s.AssignedUserId == scope.UserId))),
-                stageDecisions = x.StageDecisions.OrderBy(s => s.StageNumber).Select(s => new { s.StageNumber, s.StageName, s.AssignedRole, s.Status, s.DecisionNote, s.DecidedAt })
+                stageDecisions = x.StageDecisions.OrderBy(s => s.StageNumber).Select(s => new { s.StageNumber, s.StageName, s.AssignedRole, s.Status, s.DecisionNote, s.DecidedAt,
+                    decidedByName = s.DecidedByUserId.HasValue ? db.Users.Where(u => u.Id == s.DecidedByUserId.Value).Select(u => u.FullName).FirstOrDefault() : null })
             }).ToListAsync(token),
             parts = await Scoped(db.InventoryParts.AsNoTracking(), scope, x => x.BranchId).OrderBy(x => x.Name).ToListAsync(token),
             purchaseOrders = await Scoped(db.PurchaseOrders.AsNoTracking(), scope, x => x.BranchId).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(token),
@@ -172,11 +174,11 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         if (quote.ValidUntil <= DateTimeOffset.UtcNow) return Validation("expiry", "Revise the expired quotation before sending it.");
         if (quote.ConvertedBookingId is Guid bookingId)
         {
-            var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == bookingId, token);
+            var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.AssetCategory).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == bookingId, token);
             if (booking is null || booking.Status != BookingStatus.Draft) return Validation("booking", "Only an open rental request can be quoted.");
             var match = await ApprovalWorkflowService.MatchBookingAsync(db, new(booking.BranchId, quote.DivisionId, quote.Total,
                 booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.IsEquipment(x.Asset.Type)),
-                booking.Items.Any(x => x.Asset!.PersonnelRequirement == PersonnelRequirement.Required) || booking.Charges.Any(x => x.Category == ChargeCategory.Operator || x.Category == ChargeCategory.Driver || x.Category == ChargeCategory.Labour),
+                booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.RequiresPersonnel(x.Asset)) || booking.Charges.Any(x => x.Category == ChargeCategory.Operator || x.Category == ChargeCategory.Driver || x.Category == ChargeCategory.Labour),
                 booking.Charges.Any(x => x.Description.ToLower().Contains("overtime"))), token);
             if (match is not null)
             {

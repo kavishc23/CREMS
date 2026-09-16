@@ -12,6 +12,7 @@ export type AppPage =
   | 'customers'
   | 'bookings'
   | 'rentals'
+  | 'availability'
   | 'scan'
   | 'maintenance'
   | 'operations'
@@ -29,6 +30,7 @@ const pageRoles: Record<AppPage, readonly string[]> = {
   customers: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer],
   bookings: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer],
   rentals: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer],
+  availability: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer],
   scan: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.rentalOfficer, roles.maintenanceOfficer],
   maintenance: [roles.superAdministrator, roles.administrator, roles.branchManager, roles.maintenanceOfficer],
   operations: [roles.superAdministrator, roles.administrator, roles.branchManager],

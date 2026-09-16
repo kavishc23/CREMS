@@ -126,6 +126,7 @@ public sealed class CustomerAccountController(
         var booking = await db.Bookings.AsNoTracking()
             .Include(x => x.Branch).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division)
             .Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering)
+            .Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.AssetCategory)
             .Include(x => x.Charges).Include(x => x.Payments).Include(x => x.Inspections)
             .Include(x => x.Incidents).Include(x => x.Invoice).ThenInclude(x => x!.Lines)
             .Include(x => x.RentalAgreement).ThenInclude(x => x!.Addendums)
@@ -157,7 +158,7 @@ public sealed class CustomerAccountController(
         var bondPaid = booking.DepositRequired <= 0 || booking.BondAmountHeld >= booking.DepositRequired;
         var agreementReady = booking.RentalAgreement is not null && booking.RentalAgreement.Status != AgreementStatus.Draft;
         var preHireComplete = booking.Inspections.Any(x => x.Type == InspectionType.Handover);
-        var personnelRequired = booking.Items.Any(x => x.Asset!.PersonnelRequirement == Domain.Common.PersonnelRequirement.Required) ||
+        var personnelRequired = booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.RequiresPersonnel(x.Asset)) ||
             booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator);
         var personnelReady = !personnelRequired || await db.BookingPersonnelAssignments.AsNoTracking()
             .AnyAsync(x => x.BookingId == booking.Id && x.Status != Domain.Operations.AssignmentStatus.Cancelled, token);
@@ -186,7 +187,7 @@ public sealed class CustomerAccountController(
             {
                 x.AssetId, x.Asset!.Name, x.Asset.Type, x.Asset.Category, x.StartAt, x.EndAt, x.DailyRate,
                 DivisionName = x.Asset.Division != null ? x.Asset.Division.Name : null,
-                x.Asset.PersonnelRequirement,
+                PersonnelRequirement = AssetCategoryPolicy.Personnel(x.Asset),
             }),
             Pricing = new { BaseSubtotal = baseSubtotal, booking.DiscountAmount, Charges = visibleCharges,
                 ChargeTotal = chargeTotal, booking.TaxRate, TaxAmount = tax, Total = taxable + tax,

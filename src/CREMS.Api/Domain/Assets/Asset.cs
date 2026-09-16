@@ -41,6 +41,8 @@ public sealed class Asset : Entity
     public bool RequiresDelivery { get; set; }
     public decimal DailyRate { get; set; }
     public decimal DefaultBondAmount { get; set; }
+    public bool InheritBond { get; set; }
+    public PersonnelRequirement? PersonnelOverride { get; set; }
     public DateOnly? NextServiceDate { get; set; }
     public bool IsActive { get; set; } = true;
 }

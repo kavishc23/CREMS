@@ -77,7 +77,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
     public async Task<ActionResult> Get(Guid bookingId, CancellationToken cancellationToken)
     {
         var booking = await db.Bookings.AsNoTracking().Include(item => item.Items).ThenInclude(item => item.Asset)
-            .Include(item => item.Inspections).FirstOrDefaultAsync(item => item.Id == bookingId, cancellationToken);
+            .Include(item => item.Inspections).Include(item => item.Charges).FirstOrDefaultAsync(item => item.Id == bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
@@ -132,7 +132,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
     public async Task<ActionResult> Handover(Guid bookingId, InspectionRequest request, CancellationToken cancellationToken)
     {
         var booking = await db.Bookings.Include(item => item.Customer).Include(item => item.Items).ThenInclude(item => item.Asset)
-            .Include(item => item.Inspections).FirstOrDefaultAsync(item => item.Id == bookingId, cancellationToken);
+            .Include(item => item.Inspections).Include(item => item.Charges).FirstOrDefaultAsync(item => item.Id == bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
@@ -140,12 +140,12 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["Only a confirmed booking can be handed over."] }));
         if (!await db.RentalAgreements.AnyAsync(item => item.BookingId == bookingId, cancellationToken))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["agreement"] = ["The customer rental agreement must be signed and approved before handover."] }));
-        if (!await db.AuthorizedDrivers.AnyAsync(item => item.BookingId == bookingId && item.Verified && item.LicenceExpiry > DateOnly.FromDateTime(DateTime.UtcNow), cancellationToken))
+        var customerWillDrive = booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.IsVehicle(x.Asset.Type)) && !booking.Charges.Any(x => x.Category is CREMS.Api.Domain.Common.ChargeCategory.Driver or CREMS.Api.Domain.Common.ChargeCategory.Operator);
+        if (customerWillDrive && !await db.AuthorizedDrivers.AnyAsync(item => item.BookingId == bookingId && item.Verified && item.LicenceExpiry > DateOnly.FromDateTime(DateTime.UtcNow), cancellationToken))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["driver"] = ["At least one authorized driver with a current verified licence is required."] }));
-        var recordedPayments = await db.RentalPayments.Where(item => item.BookingId == bookingId && item.Status == PaymentStatus.Recorded).SumAsync(item => (decimal?)item.Amount, cancellationToken) ?? 0;
-        if (!request.PaymentVerified || recordedPayments < booking.DepositRequired)
+        if (!request.PaymentVerified || booking.BondAmountHeld < booking.DepositRequired)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["payment"] = [$"The required refundable bond of FJD {booking.DepositRequired:0.00} must be recorded and verified before handover."] }));
-        if (!request.IdentificationVerified || !request.DriverLicenceVerified || string.IsNullOrWhiteSpace(request.SignatureName))
+        if (!request.IdentificationVerified || customerWillDrive && !request.DriverLicenceVerified || string.IsNullOrWhiteSpace(request.SignatureName))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Identification, driver licence and customer signature are required."] }));
 
         db.RentalInspections.Add(CreateInspection(booking.Id, InspectionType.Handover, request, scope));

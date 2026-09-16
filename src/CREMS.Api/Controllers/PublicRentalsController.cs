@@ -83,6 +83,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
 
         var query = db.Assets.AsNoTracking()
             .Where(asset => asset.IsActive && asset.Branch!.IsActive &&
+                asset.Division != null && asset.Division.IsActive && asset.Division.IsPublic &&
+                (asset.ServiceOffering == null || asset.ServiceOffering.IsActive && asset.ServiceOffering.IsBookableOnline && db.BranchDivisionServices.Any(s => s.BranchId == asset.BranchId && s.DivisionId == asset.DivisionId && s.ServiceOfferingId == asset.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
+                db.BranchDivisions.Any(b => b.BranchId == asset.BranchId && b.DivisionId == asset.DivisionId && b.IsActive) &&
                 asset.Status != AssetStatus.Maintenance &&
                 asset.Status != AssetStatus.OutOfService &&
                 asset.Status != AssetStatus.Retired);
@@ -113,7 +116,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.RegistrationNumber, asset.SerialNumber, asset.DivisionId,
                 DivisionName = asset.Division != null ? asset.Division.Name : null,
                 asset.Category, CategoryCode = asset.AssetCategory != null ? asset.AssetCategory.Code : null,
-                asset.PersonnelRequirement,
+                PersonnelRequirement = asset.PersonnelOverride ?? (asset.AssetCategory != null ? asset.AssetCategory.PersonnelRequirement : asset.ServiceOffering != null ? asset.ServiceOffering.PersonnelRequirement : asset.PersonnelRequirement),
+                BondAmount = !asset.InheritBond ? asset.DefaultBondAmount : asset.ServiceOffering != null && !asset.ServiceOffering.InheritBond ? asset.ServiceOffering.DefaultDepositAmount : asset.Division != null ? asset.Division.DefaultBondAmount : 0m,
                 ServiceName = asset.ServiceOffering != null ? asset.ServiceOffering.Name : null,
                 RequiresQuote = asset.ServiceOffering != null && asset.ServiceOffering.RequiresQuote,
                 asset.RequiresDelivery,
@@ -138,7 +142,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.Attributes,
             startDate.HasValue
                 ? !unavailableAssetIds.Contains(asset.Id)
-                : asset.Status == AssetStatus.Available)).ToList());
+                : asset.Status == AssetStatus.Available, asset.BondAmount)).ToList());
     }
 
     [HttpGet("assets/{assetId:guid}")]
@@ -164,6 +168,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             .Include(x => x.Branch).Include(x => x.Division).Include(x => x.ServiceOffering)
             .Include(x => x.AssetCategory).Include(x => x.AttributeValues).ThenInclude(x => x.AttributeDefinition)
             .FirstOrDefaultAsync(x => x.Id == assetId && x.IsActive && x.Branch!.IsActive &&
+                x.Division != null && x.Division.IsActive && x.Division.IsPublic &&
+                (x.ServiceOffering == null || x.ServiceOffering.IsActive && x.ServiceOffering.IsBookableOnline && db.BranchDivisionServices.Any(s => s.BranchId == x.BranchId && s.DivisionId == x.DivisionId && s.ServiceOfferingId == x.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
+                db.BranchDivisions.Any(b => b.BranchId == x.BranchId && b.DivisionId == x.DivisionId && b.IsActive) &&
                 x.Status != AssetStatus.Maintenance && x.Status != AssetStatus.OutOfService &&
                 x.Status != AssetStatus.Retired, cancellationToken);
         if (asset is null) return NotFound();
@@ -186,18 +193,20 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             .OrderBy(x => x.AttributeDefinition!.DisplayOrder)
             .Select(x => new { x.AttributeDefinition!.Name, x.Value, x.AttributeDefinition.Unit })
             .ToList();
-        var visibleCharges = asset.ServiceOffering is null ? [] : await db.ChargeDefinitions.AsNoTracking()
+        var personnelAllowed = AssetCategoryPolicy.AllowsPersonnel(asset);
+        var visibleCharges = await db.ChargeDefinitions.AsNoTracking()
             .Where(x => x.IsActive && x.IsCustomerVisible && x.Category != ChargeCategory.BaseHire &&
                 x.DivisionId == asset.DivisionId &&
                 (!x.ServiceOfferingId.HasValue || x.ServiceOfferingId == asset.ServiceOfferingId))
+            .Where(x => personnelAllowed || x.Category != ChargeCategory.Driver && x.Category != ChargeCategory.Operator)
             .OrderBy(x => x.Category).ThenBy(x => x.Name)
-            .Select(x => new { x.Id, x.Name, x.Category, x.Unit, x.DefaultSellingRate, x.IsRequired })
+            .Select(x => new { x.Id, x.Name, x.Category, x.Unit, x.DefaultSellingRate, x.IsRequired, x.IsTaxable })
             .ToListAsync(cancellationToken);
 
         return Ok(new
         {
-            asset.Id, asset.Name, asset.Type, asset.Category, asset.DailyRate,
-            PersonnelRequirement = AssetCategoryPolicy.Personnel(asset),
+            asset.Id, asset.Name, asset.Type, asset.Category, asset.DailyRate, PersonnelRequirement = AssetCategoryPolicy.Personnel(asset),
+            BondAmount = AssetCategoryPolicy.Bond(asset), TaxRate = asset.Division?.DefaultTaxRate ?? 15m,
             asset.Manufacturer, asset.Model, asset.ModelYear, asset.PhotoUrlsJson,
             Division = asset.Division is null ? null : new { asset.Division.Id, asset.Division.Code, asset.Division.Name },
             Branch = new { asset.BranchId, asset.Branch!.Name, asset.Branch.Address, asset.Branch.Phone,
@@ -208,7 +217,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.ServiceOffering.Description, asset.ServiceOffering.Type,
                 asset.ServiceOffering.PersonnelRequirement, asset.ServiceOffering.IsBookableOnline,
                 asset.ServiceOffering.RequiresQuote, asset.ServiceOffering.DefaultHireUnit,
-                RequiresDelivery = asset.RequiresDelivery, DefaultDepositAmount = asset.ServiceOffering.DefaultDepositAmount,
+                RequiresDelivery = asset.RequiresDelivery, DefaultDepositAmount = AssetCategoryPolicy.Bond(asset),
                 RequiredDocuments = ParseJsonArray(asset.ServiceOffering.RequiredDocumentsJson),
             },
             Specifications = customerAttributes, Charges = visibleCharges, IsAvailable = isAvailable,
@@ -241,6 +250,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             .Include(item => item.ServiceOffering).Include(item => item.AssetCategory)
             .FirstOrDefaultAsync(item => item.Id == request.AssetId && item.IsActive, cancellationToken);
         if (asset is null || asset.Branch is null || !asset.Branch.IsActive ||
+            asset.Division is not { IsActive: true, IsPublic: true } ||
+            asset.ServiceOffering is { IsActive: false } or { IsBookableOnline: false } ||
             asset.Status is AssetStatus.Maintenance or AssetStatus.OutOfService or AssetStatus.Retired)
             return NotFound("The selected rental item is no longer available.");
         if (asset.RequiresDelivery &&
@@ -254,6 +265,10 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             ModelState.AddModelError(nameof(request.DeliveryAddress), "Enter the delivery or worksite address.");
             return ValidationProblem(ModelState);
         }
+
+        if (!await db.BranchDivisions.AnyAsync(x => x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId && x.IsActive, cancellationToken) ||
+            asset.ServiceOfferingId.HasValue && !await db.BranchDivisionServices.AnyAsync(x => x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId && x.ServiceOfferingId == asset.ServiceOfferingId && x.IsActive && x.IsBookable, cancellationToken))
+            return BadRequest(new { message = "This service is not currently bookable at the selected branch." });
 
         var start = new DateTimeOffset(request.StartDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var end = new DateTimeOffset(request.EndDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
@@ -301,7 +316,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             request.Fulfilment == "Delivery", pricedTransportAvailable);
         var selectedExtras = (request.Extras ?? []).Where(x => x.Quantity > 0 && x.Quantity <= 1000)
             .GroupBy(x => x.ChargeDefinitionId).ToDictionary(x => x.Key, x => x.First().Quantity);
-        var charges = availableCharges.Where(x => !(requiresQuote && asset.RequiresDelivery && x.Category == ChargeCategory.Transport) && (x.IsRequired || selectedExtras.ContainsKey(x.Id) ||
+        var charges = availableCharges.Where(x => x.Category is not (ChargeCategory.Operator or ChargeCategory.Driver) || personnelRequested)
+            .Where(x => !(requiresQuote && asset.RequiresDelivery && x.Category == ChargeCategory.Transport) && (x.IsRequired || selectedExtras.ContainsKey(x.Id) ||
                 request.Fulfilment == "Delivery" && x.Category == ChargeCategory.Transport ||
                 personnelRequested && x.Category is ChargeCategory.Operator or ChargeCategory.Driver))
             .Select(x => new
@@ -317,7 +333,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var baseSubtotal = hireDays * asset.DailyRate;
         var chargeSubtotal = charges.Sum(x => x.Quantity * x.Definition.DefaultSellingRate);
         var taxRate = asset.Division?.DefaultTaxRate ?? 15m;
-        var tax = decimal.Round((baseSubtotal + chargeSubtotal) * taxRate / 100m, 2);
+        var tax = decimal.Round((baseSubtotal + charges.Where(x => x.Definition.IsTaxable).Sum(x => x.Quantity * x.Definition.DefaultSellingRate)) * taxRate / 100m, 2);
         var total = baseSubtotal + chargeSubtotal + tax;
         var booking = new Booking
         {
@@ -326,8 +342,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 : $"BK-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}",
             BranchId = asset.BranchId, Status = BookingStatus.Draft,
             Notes = BuildRequestNotes(request, personnelRequested) + (requiresQuote ? "\nRequest type: Quotation." : "\nRequest type: Booking."),
-            TaxRate = taxRate, DepositRequired = asset.DefaultBondAmount,
-            BondStatus = asset.DefaultBondAmount > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired,
+            TaxRate = taxRate, DepositRequired = AssetCategoryPolicy.Bond(asset),
+            BondStatus = AssetCategoryPolicy.Bond(asset) > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired,
             Items = [new BookingItem { AssetId = asset.Id, StartAt = start, EndAt = end, DailyRate = asset.DailyRate }],
         };
         foreach (var charge in charges)
@@ -495,7 +511,7 @@ public sealed record PublicAssetResponse(
     string? RegistrationNumber, string? SerialNumber, Guid? DivisionId,
     string? DivisionName, string? Category, string? CategoryCode, PersonnelRequirement PersonnelRequirement,
     string? ServiceName, bool RequiresQuote, bool RequiresDelivery, string PhotoUrlsJson,
-    IReadOnlyList<PublicAssetAttributeResponse> Attributes, bool IsAvailable);
+    IReadOnlyList<PublicAssetAttributeResponse> Attributes, bool IsAvailable, decimal BondAmount);
 public sealed record PublicAssetAttributeResponse(string Code, string Name, string Value, string? Unit);
 public sealed record PublicBookingRequest(
     Guid AssetId,

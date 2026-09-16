@@ -20,6 +20,8 @@ const demoPages = new Set<AppPage>([
   'scan',
   'operations',
   'configuration',
+  'divisions',
+  'branches',
 ])
 
 export function isPageEnabledForDemo(page: AppPage) {

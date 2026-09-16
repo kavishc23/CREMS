@@ -198,7 +198,6 @@ public static class DatabaseInitializer
                 new NotificationTemplate { Key = "invoice.final", Name = "Final invoice", Channel = "Email", Subject = "Final invoice {{invoiceNumber}}", Body = "Your rental is complete. Total {{total}}; balance due {{balanceDue}}." });
         }
         await db.SaveChangesAsync(cancellationToken);
-        await PurgeRemovedDevelopmentDataAsync(db, cancellationToken);
 
         var divisionSeeds = new[]
         {
@@ -224,11 +223,6 @@ public static class DatabaseInitializer
                     Capabilities = seed.Capabilities, IsPublic = true, IsActive = true };
                 db.Divisions.Add(division);
             }
-            else
-            {
-                division.Name = seed.Name; division.Description = seed.Description;
-                division.Capabilities = seed.Capabilities; division.IsActive = true; division.IsPublic = true;
-            }
             foreach (var service in seed.Services.Where(service => division.ServiceOfferings.All(x => x.Code != service.Code)))
             {
                 var offering = new ServiceOffering { Division = division, DivisionId = division.Id, Code = service.Code, Name = service.Name, Type = service.Type,
@@ -238,24 +232,9 @@ public static class DatabaseInitializer
                 db.ServiceOfferings.Add(offering);
                 division.ServiceOfferings.Add(offering);
             }
-            foreach (var service in division.ServiceOfferings.Where(x => seed.Services.Any(s => s.Code == x.Code)))
-            {
-                var serviceSeed = seed.Services.Single(x => x.Code == service.Code);
-                service.Name = serviceSeed.Name; service.Type = serviceSeed.Type;
-                service.PersonnelRequirement = serviceSeed.PersonnelRequirement;
-                service.IsBookableOnline = serviceSeed.IsBookableOnline; service.RequiresQuote = serviceSeed.RequiresQuote;
-                service.DefaultHireUnit = serviceSeed.DefaultHireUnit; service.RequiresDelivery = serviceSeed.RequiresDelivery;
-                service.IsActive = true;
-            }
         }
         var shippingDivision = await db.Divisions.Include(x => x.ServiceOfferings)
             .SingleAsync(x => x.Code == "SHIPPING", cancellationToken);
-        var shippingServiceCodes = divisionSeeds.Single(x => x.Code == "SHIPPING").Services.Select(x => x.Code).ToHashSet();
-        foreach (var obsoleteService in shippingDivision.ServiceOfferings.Where(x => !shippingServiceCodes.Contains(x.Code)))
-        {
-            obsoleteService.IsActive = false;
-            obsoleteService.IsBookableOnline = false;
-        }
         await db.SaveChangesAsync(cancellationToken);
 
         var branchSeeds = new[]
@@ -285,8 +264,9 @@ public static class DatabaseInitializer
         var branches = await db.Branches
             .Where(branch => branchSeeds.Select(seed => seed.Code).Contains(branch.Code))
             .ToDictionaryAsync(branch => branch.Code, cancellationToken);
-        var divisions = await db.Divisions.Where(x => x.IsActive).ToDictionaryAsync(x => x.Code, cancellationToken);
-        var services = await db.ServiceOfferings.Where(x => x.IsActive).ToDictionaryAsync(x => x.Code, cancellationToken);
+        var divisions = await db.Divisions.Where(x => divisionSeeds.Select(s => s.Code).Contains(x.Code)).ToDictionaryAsync(x => x.Code, cancellationToken);
+        var seedServiceCodes = divisionSeeds.SelectMany(x => x.Services).Select(x => x.Code).ToArray();
+        var services = await db.ServiceOfferings.Where(x => seedServiceCodes.Contains(x.Code) && divisions.Values.Select(d => d.Id).Contains(x.DivisionId)).ToDictionaryAsync(x => x.Code, cancellationToken);
         foreach (var branch in branches.Values)
         {
             var operatingDivisionCodes = branch.Code is "SUV" or "LAU"
@@ -300,10 +280,6 @@ public static class DatabaseInitializer
             }
         }
         var shippingBranchIds = new[] { branches["SUV"].Id, branches["LAU"].Id };
-        var staleShippingBranches = await db.BranchDivisions
-            .Where(x => x.DivisionId == shippingDivision.Id && !shippingBranchIds.Contains(x.BranchId))
-            .ToListAsync(cancellationToken);
-        foreach (var assignment in staleShippingBranches) assignment.IsActive = false;
         var obsoleteShippingServiceIds = shippingDivision.ServiceOfferings.Where(x => !x.IsActive).Select(x => x.Id).ToArray();
         var obsoleteShippingBranchServices = await db.BranchDivisionServices
             .Where(x => obsoleteShippingServiceIds.Contains(x.ServiceOfferingId))
@@ -319,7 +295,6 @@ public static class DatabaseInitializer
                 if (assignment is null)
                     db.BranchDivisionServices.Add(new BranchDivisionService { BranchId = branchId,
                         DivisionId = shippingDivision.Id, ServiceOfferingId = service.Id, IsActive = true, IsBookable = true });
-                else { assignment.IsActive = true; assignment.IsBookable = true; }
             }
         }
         await db.SaveChangesAsync(cancellationToken);
@@ -351,7 +326,7 @@ public static class DatabaseInitializer
         var categorySeeds = new[]
         {
             new AssetCategorySeed("RENTAL_VEHICLE", "Rental vehicle", "MOTORS", "VEHICLE_RENTAL", "Odometer",
-                PersonnelRequirement.None,
+                PersonnelRequirement.Optional,
                 [
                     new("SEATS", "Seats", AttributeDataType.Integer, null, true, true),
                     new("TRANSMISSION", "Transmission", AttributeDataType.Choice, null, true, true, OptionsJson: "[\"Automatic\",\"Manual\"]"),
@@ -424,12 +399,6 @@ public static class DatabaseInitializer
                     DefaultMeterType = seed.MeterType, PersonnelRequirement = seed.PersonnelRequirement, IsActive = true };
                 db.AssetCategories.Add(category);
             }
-            else
-            {
-                category.Name = seed.Name; category.ServiceOfferingId = service.Id;
-                category.DefaultMeterType = seed.MeterType; category.PersonnelRequirement = seed.PersonnelRequirement;
-                category.IsActive = true;
-            }
             foreach (var attribute in seed.Attributes.Where(attribute => category.AttributeDefinitions.All(x => x.Code != attribute.Code)))
                 category.AttributeDefinitions.Add(new AssetAttributeDefinition { Code = attribute.Code, Name = attribute.Name,
                     DataType = attribute.DataType, Unit = attribute.Unit, IsRequired = attribute.IsRequired,
@@ -441,11 +410,6 @@ public static class DatabaseInitializer
         var categories = await db.AssetCategories
             .Where(x => categorySeeds.Select(seed => seed.Code).Contains(x.Code))
             .ToDictionaryAsync(x => x.Code, cancellationToken);
-        var allowedShippingCategoryCodes = new[] { "PORTABLE_TOILET", "SCAFFOLD", "BIG_BIN" };
-        var obsoleteShippingCategories = await db.AssetCategories
-            .Where(x => x.DivisionId == shippingDivision.Id && !allowedShippingCategoryCodes.Contains(x.Code))
-            .ToListAsync(cancellationToken);
-        foreach (var category in obsoleteShippingCategories) category.IsActive = false;
         var templateSeeds = CreateCarpentersInspectionTemplates();
         foreach (var seed in templateSeeds)
         {
@@ -521,6 +485,8 @@ public static class DatabaseInitializer
         foreach (var seed in assetSeeds)
         {
             if (!branches.TryGetValue(seed.BranchCode, out var branch)) continue;
+            // Seeding must never overwrite an asset edited by staff.
+            if (existingAssets.ContainsKey(seed.AssetNumber)) continue;
             if (!existingAssets.TryGetValue(seed.AssetNumber, out var asset))
             {
                 asset = new Asset { AssetNumber = seed.AssetNumber, Name = seed.Name, RequiresDelivery = seed.Type != AssetType.Vehicle };
@@ -596,12 +562,6 @@ public static class DatabaseInitializer
             asset.IsActive = true;
         }
 
-        var allowedShippingCategoryIds = new[] { categories["PORTABLE_TOILET"].Id, categories["SCAFFOLD"].Id, categories["BIG_BIN"].Id };
-        var obsoleteShippingAssets = await db.Assets
-            .Where(x => x.DivisionId == shippingDivision.Id &&
-                (!x.AssetCategoryId.HasValue || !allowedShippingCategoryIds.Contains(x.AssetCategoryId.Value)))
-            .ToListAsync(cancellationToken);
-        foreach (var asset in obsoleteShippingAssets) { asset.IsActive = false; asset.Status = AssetStatus.Retired; }
         await db.SaveChangesAsync(cancellationToken);
 
         var vehicleAttributeSeeds = new Dictionary<string, (string Seats, string Transmission, string FuelType)>
@@ -654,7 +614,6 @@ public static class DatabaseInitializer
             }
         }
         await db.SaveChangesAsync(cancellationToken);
-        await PurgeRetiredAssetsAsync(db, cancellationToken);
 
         var legacyCustomerNumbers = new Dictionary<string, string>
         {
@@ -1337,139 +1296,6 @@ public static class DatabaseInitializer
         .Select(character => char.IsLetterOrDigit(character) ? character : '_'))
         .Trim('_');
 
-    private static async Task PurgeRemovedDevelopmentDataAsync(ApplicationDbContext db, CancellationToken token)
-    {
-        var removedCodes = new[] { "HARDWARE", "PROPERTY", "PROPERTIES", "MH" };
-        var divisionIds = await db.Divisions.Where(x => removedCodes.Contains(x.Code)).Select(x => x.Id).ToArrayAsync(token);
-        if (divisionIds.Length > 0)
-        {
-            var divisionAssetIds = await db.Assets
-                .Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value))
-                .Select(x => x.Id).ToArrayAsync(token);
-            await PurgeAssetsAsync(db, divisionAssetIds, token);
-
-            await db.Users.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value))
-                .ExecuteUpdateAsync(update => update.SetProperty(x => x.DivisionId, (Guid?)null), token);
-            await db.UserAccessScopes.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
-            await db.ApprovalDelegations.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
-
-            var personnelIds = await db.Personnel.Where(x => divisionIds.Contains(x.DivisionId)).Select(x => x.Id).ToArrayAsync(token);
-            var assignmentIds = await db.BookingPersonnelAssignments.Where(x => personnelIds.Contains(x.PersonnelId)).Select(x => x.Id).ToArrayAsync(token);
-            await db.PersonnelTimesheets.Where(x => assignmentIds.Contains(x.AssignmentId)).ExecuteDeleteAsync(token);
-            await db.BookingPersonnelAssignments.Where(x => personnelIds.Contains(x.PersonnelId)).ExecuteDeleteAsync(token);
-            await db.PersonnelQualifications.Where(x => personnelIds.Contains(x.PersonnelId)).ExecuteDeleteAsync(token);
-            await db.Personnel.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
-
-            var quoteIds = await db.SalesQuotes.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).Select(x => x.Id).ToArrayAsync(token);
-            await db.QuoteRevisions.Where(x => quoteIds.Contains(x.SalesQuoteId)).ExecuteDeleteAsync(token);
-            await db.SalesQuotes.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
-
-            var workflowIds = await db.ApprovalWorkflows.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).Select(x => x.Id).ToArrayAsync(token);
-            await db.ApprovalRequests.Where(x => x.WorkflowId.HasValue && workflowIds.Contains(x.WorkflowId.Value))
-                .ExecuteUpdateAsync(update => update.SetProperty(x => x.WorkflowId, (Guid?)null), token);
-            await db.ApprovalWorkflowStages.Where(x => workflowIds.Contains(x.WorkflowId)).ExecuteDeleteAsync(token);
-            await db.ApprovalWorkflows.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
-
-            var alertRuleIds = await db.BusinessAlertRules.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).Select(x => x.Id).ToArrayAsync(token);
-            await db.BusinessAlerts.Where(x =>
-                x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value) ||
-                x.RuleId.HasValue && alertRuleIds.Contains(x.RuleId.Value)).ExecuteDeleteAsync(token);
-            await db.BusinessAlertRules.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
-            await db.DeliveryZones.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
-            await db.PricingRules.Where(x => x.DivisionId.HasValue && divisionIds.Contains(x.DivisionId.Value)).ExecuteDeleteAsync(token);
-
-            var categoryIds = await db.AssetCategories.Where(x => divisionIds.Contains(x.DivisionId)).Select(x => x.Id).ToArrayAsync(token);
-            var definitionIds = await db.AssetAttributeDefinitions.Where(x => categoryIds.Contains(x.AssetCategoryId)).Select(x => x.Id).ToArrayAsync(token);
-            var templateIds = await db.InspectionTemplates.Where(x => categoryIds.Contains(x.AssetCategoryId)).Select(x => x.Id).ToArrayAsync(token);
-            await db.AssetInspections.Where(x => x.TemplateId.HasValue && templateIds.Contains(x.TemplateId.Value)).ExecuteDeleteAsync(token);
-            await db.AssetAttributeValues.Where(x => definitionIds.Contains(x.AttributeDefinitionId)).ExecuteDeleteAsync(token);
-            await db.InspectionTemplates.Where(x => categoryIds.Contains(x.AssetCategoryId)).ExecuteDeleteAsync(token);
-            await db.AssetAttributeDefinitions.Where(x => categoryIds.Contains(x.AssetCategoryId)).ExecuteDeleteAsync(token);
-            await db.AssetCategories.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
-
-            var chargeIds = await db.ChargeDefinitions.Where(x => divisionIds.Contains(x.DivisionId)).Select(x => x.Id).ToArrayAsync(token);
-            await db.BookingCharges.Where(x => x.ChargeDefinitionId.HasValue && chargeIds.Contains(x.ChargeDefinitionId.Value)).ExecuteDeleteAsync(token);
-            await db.BranchDivisionServices.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
-            await db.BranchDivisions.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
-            await db.ChargeDefinitions.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
-            await db.ServiceOfferings.Where(x => divisionIds.Contains(x.DivisionId)).ExecuteDeleteAsync(token);
-            await db.AuditEvents.Where(x => divisionIds.Contains(x.EntityId)).ExecuteDeleteAsync(token);
-            await db.DocumentRecords.Where(x => divisionIds.Contains(x.EntityId)).ExecuteDeleteAsync(token);
-            await db.Divisions.Where(x => removedCodes.Contains(x.Code)).ExecuteDeleteAsync(token);
-        }
-
-        var shippingId = await db.Divisions.Where(x => x.Code == "SHIPPING").Select(x => (Guid?)x.Id).SingleOrDefaultAsync(token);
-        if (shippingId.HasValue)
-        {
-            var allowedServiceCodes = new[] { "PORTABLE_TOILET_HIRE", "SCAFFOLDING_HIRE", "BIG_BIN_HIRE" };
-            var obsoleteServiceIds = await db.ServiceOfferings
-                .Where(x => x.DivisionId == shippingId.Value && !allowedServiceCodes.Contains(x.Code))
-                .Select(x => x.Id).ToArrayAsync(token);
-            if (obsoleteServiceIds.Length > 0)
-            {
-                var obsoleteAssetIds = await db.Assets.Where(x => x.ServiceOfferingId.HasValue && obsoleteServiceIds.Contains(x.ServiceOfferingId.Value))
-                    .Select(x => x.Id).ToArrayAsync(token);
-                await PurgeAssetsAsync(db, obsoleteAssetIds, token);
-
-                var obsoleteCategoryIds = await db.AssetCategories
-                    .Where(x => x.ServiceOfferingId.HasValue && obsoleteServiceIds.Contains(x.ServiceOfferingId.Value))
-                    .Select(x => x.Id).ToArrayAsync(token);
-                var obsoleteDefinitionIds = await db.AssetAttributeDefinitions.Where(x => obsoleteCategoryIds.Contains(x.AssetCategoryId))
-                    .Select(x => x.Id).ToArrayAsync(token);
-                var obsoleteTemplateIds = await db.InspectionTemplates.Where(x => obsoleteCategoryIds.Contains(x.AssetCategoryId))
-                    .Select(x => x.Id).ToArrayAsync(token);
-                await db.AssetInspections.Where(x => x.TemplateId.HasValue && obsoleteTemplateIds.Contains(x.TemplateId.Value)).ExecuteDeleteAsync(token);
-                await db.AssetAttributeValues.Where(x => obsoleteDefinitionIds.Contains(x.AttributeDefinitionId)).ExecuteDeleteAsync(token);
-                await db.InspectionTemplates.Where(x => obsoleteCategoryIds.Contains(x.AssetCategoryId)).ExecuteDeleteAsync(token);
-                await db.AssetAttributeDefinitions.Where(x => obsoleteCategoryIds.Contains(x.AssetCategoryId)).ExecuteDeleteAsync(token);
-                await db.PricingRules.Where(x =>
-                    x.ServiceOfferingId.HasValue && obsoleteServiceIds.Contains(x.ServiceOfferingId.Value) ||
-                    x.AssetCategoryId.HasValue && obsoleteCategoryIds.Contains(x.AssetCategoryId.Value)).ExecuteDeleteAsync(token);
-                await db.AssetCategories.Where(x => obsoleteCategoryIds.Contains(x.Id)).ExecuteDeleteAsync(token);
-
-                var obsoleteChargeIds = await db.ChargeDefinitions
-                    .Where(x => x.ServiceOfferingId.HasValue && obsoleteServiceIds.Contains(x.ServiceOfferingId.Value))
-                    .Select(x => x.Id).ToArrayAsync(token);
-                await db.BookingCharges.Where(x => x.ChargeDefinitionId.HasValue && obsoleteChargeIds.Contains(x.ChargeDefinitionId.Value)).ExecuteDeleteAsync(token);
-                await db.PricingRules.Where(x => x.ChargeDefinitionId.HasValue && obsoleteChargeIds.Contains(x.ChargeDefinitionId.Value)).ExecuteDeleteAsync(token);
-                await db.ChargeDefinitions.Where(x => x.ServiceOfferingId.HasValue && obsoleteServiceIds.Contains(x.ServiceOfferingId.Value)).ExecuteDeleteAsync(token);
-                await db.BranchDivisionServices.Where(x => obsoleteServiceIds.Contains(x.ServiceOfferingId)).ExecuteDeleteAsync(token);
-                await db.ServiceOfferings.Where(x => obsoleteServiceIds.Contains(x.Id)).ExecuteDeleteAsync(token);
-            }
-        }
-
-        await PurgeRetiredAssetsAsync(db, token);
-    }
-
-    private static async Task PurgeRetiredAssetsAsync(ApplicationDbContext db, CancellationToken token)
-    {
-        var assetIds = await db.Assets.Where(x => x.Status == AssetStatus.Retired).Select(x => x.Id).ToArrayAsync(token);
-        await PurgeAssetsAsync(db, assetIds, token);
-    }
-
-    private static async Task PurgeAssetsAsync(ApplicationDbContext db, Guid[] assetIds, CancellationToken token)
-    {
-        if (assetIds.Length == 0) return;
-        var maintenanceJobIds = await db.MaintenanceJobs.Where(x => assetIds.Contains(x.AssetId)).Select(x => x.Id).ToArrayAsync(token);
-        await db.MaintenancePartUsages.Where(x => maintenanceJobIds.Contains(x.MaintenanceJobId)).ExecuteDeleteAsync(token);
-        await db.AssetAttributeValues.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
-        await db.AssetCostEntries.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
-        await db.AssetInspections.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
-        await db.AssetLifecycleEvents.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
-        await db.AssetMeterReadings.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
-        await db.AssetTransfers.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
-        await db.TelematicsSnapshots.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
-        await db.PricingRules.Where(x => x.AssetId.HasValue && assetIds.Contains(x.AssetId.Value)).ExecuteDeleteAsync(token);
-        await db.BookingCharges.Where(x => x.AssetId.HasValue && assetIds.Contains(x.AssetId.Value)).ExecuteDeleteAsync(token);
-        await db.BookingItems.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
-        await db.MaintenanceJobs.Where(x => assetIds.Contains(x.AssetId)).ExecuteDeleteAsync(token);
-        await db.BusinessAlerts.Where(x => x.EntityId.HasValue && assetIds.Contains(x.EntityId.Value)).ExecuteDeleteAsync(token);
-        await db.ManagementTasks.Where(x => x.SourceEntityId.HasValue && assetIds.Contains(x.SourceEntityId.Value)).ExecuteDeleteAsync(token);
-        await db.ApprovalRequests.Where(x => assetIds.Contains(x.EntityId)).ExecuteDeleteAsync(token);
-        await db.AuditEvents.Where(x => assetIds.Contains(x.EntityId)).ExecuteDeleteAsync(token);
-        await db.DocumentRecords.Where(x => assetIds.Contains(x.EntityId)).ExecuteDeleteAsync(token);
-        await db.Assets.Where(x => assetIds.Contains(x.Id)).ExecuteDeleteAsync(token);
-    }
 
     private sealed record BranchSeed(string Code, string Name, string Address, string Phone);
     private sealed record AssetCategorySeed(string Code, string Name, string DivisionCode, string ServiceCode,

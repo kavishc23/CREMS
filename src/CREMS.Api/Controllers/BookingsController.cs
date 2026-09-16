@@ -98,6 +98,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var booking = await db.Bookings.AsNoTracking().AsSplitQuery().Include(x => x.Customer).Include(x => x.Branch)
             .Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division)
             .Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering)
+            .Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.AssetCategory)
             .Include(x => x.Charges).Include(x => x.Inspections).Include(x => x.Payments).Include(x => x.Invoice)
             .Include(x => x.RentalAgreement).ThenInclude(x => x!.Addendums).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (booking is null) return NotFound();
@@ -126,7 +127,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             booking.Id, booking.BookingNumber, status = booking.Status.ToString(), booking.CreatedAt, booking.Notes,
             customer = new { booking.CustomerId, booking.Customer!.CustomerNumber, booking.Customer.Name, type = booking.Customer.Type.ToString(), booking.Customer.Email, booking.Customer.Phone, booking.Customer.Address, booking.Customer.IdentificationNumber, booking.Customer.IsBlocked },
             branch = new { booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone },
-            item = item is null ? null : new { item.Id, item.AssetId, item.Asset!.AssetNumber, item.Asset.Name, item.Asset.Category, assetStatus = item.Asset.Status.ToString(), personnelRequirement = item.Asset.PersonnelRequirement.ToString(), item.Asset.DivisionId, division = item.Asset.Division?.Name, item.Asset.ServiceOfferingId, service = item.Asset.ServiceOffering?.Name, item.StartAt, item.EndAt, item.DailyRate, item.Asset.CurrentMeterReading, item.Asset.MeterUnit },
+            item = item is null ? null : new { item.Id, item.AssetId, item.Asset!.AssetNumber, item.Asset.Name, item.Asset.Category, assetStatus = item.Asset.Status.ToString(), personnelRequirement = AssetCategoryPolicy.Personnel(item.Asset).ToString(), item.Asset.DivisionId, division = item.Asset.Division?.Name, item.Asset.ServiceOfferingId, service = item.Asset.ServiceOffering?.Name, item.StartAt, item.EndAt, item.DailyRate, item.Asset.CurrentMeterReading, item.Asset.MeterUnit },
             pricing = new { duration = days, hire, booking.DiscountAmount, booking.AdditionalCharges, booking.AdditionalChargesDescription, booking.TaxRate, tax = subtotal * booking.TaxRate / 100m, total = subtotal * (1 + booking.TaxRate / 100m), booking.DepositRequired, paid, balance = Math.Max(0, subtotal * (1 + booking.TaxRate / 100m) - paid), internalCost = booking.Charges.Sum(x => x.Quantity * x.UnitCost), charges = booking.Charges.Select(x => new { x.Description, category = x.Category.ToString(), unit = x.Unit.ToString(), x.Quantity, x.UnitRate, x.UnitCost, x.IsTaxable }) },
             bond = new { required = booking.DepositRequired, held = booking.BondAmountHeld, deduction = booking.BondDeductionAmount, booking.BondDeductionReason, refund = booking.BondRefundAmount, status = booking.BondStatus.ToString(), booking.BondSettledAt },
             readiness = new { confirmed = booking.Status == BookingStatus.Confirmed, assetAllocated = item != null, customerEligible = !booking.Customer.IsBlocked && booking.Customer.IsActive, identificationVerified = booking.Inspections.Any(x => x.Type == InspectionType.Handover && x.IdentificationVerified), licenceVerified = booking.Inspections.Any(x => x.Type == InspectionType.Handover && x.DriverLicenceVerified), paymentSatisfied = booking.DepositRequired <= 0 || booking.BondAmountHeld >= booking.DepositRequired, preHireInspectionComplete = booking.Inspections.Any(x => x.Type == InspectionType.Handover), agreementSigned = booking.RentalAgreement != null },
@@ -140,13 +141,16 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
     [HttpPost("{id:guid}/quotation")]
     public async Task<ActionResult> PrepareQuotation(Guid id, PrepareBookingQuotationRequest request, CancellationToken cancellationToken)
     {
-        var booking = await db.Bookings.Include(x => x.Customer).Include(x => x.Items).ThenInclude(x => x.Asset).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var booking = await db.Bookings.Include(x => x.Customer).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.AssetCategory).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status != BookingStatus.Draft) return BadRequest(new { message = "Only a new request can be quoted." });
         if (request.ValidUntil <= DateTimeOffset.UtcNow || request.Deposit < 0 || request.Lines.Count == 0 || request.Lines.Any(x => string.IsNullOrWhiteSpace(x.Description) || x.Quantity <= 0 || x.Rate < 0 || x.CostRate < 0) || request.Discount < 0 || request.TaxRate is < 0 or > 100)
             return BadRequest(new { message = "Enter valid quotation lines, pricing, tax and a future expiry date." });
+        if (request.Lines.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator) && booking.Items.Any(x => x.Asset != null && !AssetCategoryPolicy.AllowsPersonnel(x.Asset)))
+            return BadRequest(new { message = "Driver/operator charges are disabled for this asset. Change its personnel policy in the asset register first." });
+        if (request.Deposit < booking.BondAmountHeld) return BadRequest(new { message = "The required bond cannot be reduced below the amount already held. Settle the held bond through the return process." });
         var existing = await db.SalesQuotes.FirstOrDefaultAsync(x => x.ConvertedBookingId == id, cancellationToken);
         var totals = QuotePolicy.Calculate(request.Lines.Select(x => (x.Quantity, x.Rate)), request.Discount, request.TaxRate);
         if (request.Discount > totals.Subtotal) return BadRequest(new { message = "Discount cannot exceed the quotation subtotal." });
@@ -159,7 +163,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         else db.SalesQuotes.Add(quote);
         quote.ValidUntil = request.ValidUntil; quote.Discount = request.Discount; quote.Subtotal = totals.Subtotal; quote.Tax = totals.Tax; quote.Total = totals.Total; quote.LineItemsJson = System.Text.Json.JsonSerializer.Serialize(request.Lines); quote.Status = QuoteStatus.Draft; quote.UpdatedAt = DateTimeOffset.UtcNow;
         booking.DiscountAmount = request.Discount; booking.TaxRate = request.TaxRate; booking.DepositRequired = Math.Max(0, request.Deposit);
-        if (booking.BondAmountHeld == 0) booking.BondStatus = booking.DepositRequired > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired;
+        if (!booking.BondSettledAt.HasValue) booking.BondStatus = booking.DepositRequired <= 0 ? BondStatus.NotRequired : booking.BondAmountHeld >= booking.DepositRequired ? BondStatus.Held : BondStatus.AwaitingPayment;
         var baseLines = request.Lines.Where(x => x.Category == ChargeCategory.BaseHire).ToList();
         if (booking.Items.Count != 1 || baseLines.Count != 1) return BadRequest(new { message = "A quotation must contain one asset hire line." });
         var bookingItem = booking.Items.Single();
@@ -302,12 +306,13 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         if (editConflict)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["availability"] = ["This asset is already held or booked for part of the selected period."] }));
 
+        if (request.DepositRequired < booking.BondAmountHeld) return BadRequest(new { message = "The required bond cannot be reduced below the amount already held." });
         var previous = $"Branch: {booking.BranchId}; Customer: {booking.CustomerId}; Asset: {booking.Items.FirstOrDefault()?.AssetId}";
         booking.BranchId = branch.Id; booking.Branch = branch; booking.CustomerId = customer.Id; booking.Customer = customer;
         booking.Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
         booking.DiscountAmount = request.DiscountAmount; booking.TaxRate = request.TaxRate;
         booking.DepositRequired = request.DepositRequired; booking.AdditionalCharges = request.AdditionalCharges;
-        if (booking.BondAmountHeld == 0) booking.BondStatus = booking.DepositRequired > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired;
+        if (!booking.BondSettledAt.HasValue) booking.BondStatus = booking.DepositRequired <= 0 ? BondStatus.NotRequired : booking.BondAmountHeld >= booking.DepositRequired ? BondStatus.Held : BondStatus.AwaitingPayment;
         booking.AdditionalChargesDescription = string.IsNullOrWhiteSpace(request.AdditionalChargesDescription) ? null : request.AdditionalChargesDescription.Trim();
         var item = booking.Items.FirstOrDefault();
         if (item is null) { item = new BookingItem(); booking.Items.Add(item); }
@@ -449,7 +454,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
     private static ApprovalWorkflowService.BookingApprovalContext BuildApprovalContext(Booking booking, decimal amount)
     {
         var equipment = booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.IsEquipment(x.Asset.Type));
-        var personnel = booking.Items.Any(x => x.Asset?.PersonnelRequirement == PersonnelRequirement.Required) ||
+        var personnel = booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.RequiresPersonnel(x.Asset)) ||
             booking.Charges.Any(x => x.Category is ChargeCategory.Operator or ChargeCategory.Driver or ChargeCategory.Labour);
         var overtime = booking.Charges.Any(x => x.Description.Contains("overtime", StringComparison.OrdinalIgnoreCase)) ||
             (booking.AdditionalChargesDescription?.Contains("overtime", StringComparison.OrdinalIgnoreCase) ?? false);

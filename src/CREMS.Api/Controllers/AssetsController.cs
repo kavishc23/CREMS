@@ -62,7 +62,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
                 asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
                 asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType,
                 asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-                asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.PersonnelRequirement, asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson))
+                asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.PersonnelRequirement, asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride))
             .ToListAsync(cancellationToken);
         return Ok(assets);
     }
@@ -133,12 +133,12 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             AcquisitionDate = request.AcquisitionDate, AcquisitionCost = request.AcquisitionCost, CurrentBookValue = request.CurrentBookValue,
             OwnershipType = Normalize(request.OwnershipType), InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber), InsuranceExpiry = request.InsuranceExpiry, WarrantyExpiry = request.WarrantyExpiry,
             DailyRate = request.DailyRate,
-            DefaultBondAmount = request.DefaultBondAmount,
+            DefaultBondAmount = request.DefaultBondAmount, InheritBond = request.InheritBond, PersonnelOverride = request.PersonnelOverride ?? request.PersonnelRequirement,
             NextServiceDate = request.NextServiceDate,
             CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name,
             PhotoUrlsJson = request.PhotoUrlsJson ?? "[]",
             IsActive = true,
-            PersonnelRequirement = request.PersonnelRequirement ?? classification?.PersonnelRequirement ?? PersonnelRequirement.None,
+            PersonnelRequirement = request.PersonnelOverride ?? request.PersonnelRequirement ?? classification?.PersonnelRequirement ?? PersonnelRequirement.None,
             RequiresDelivery = request.RequiresDelivery,
         };
         db.Assets.Add(asset);
@@ -189,7 +189,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.DivisionId = request.DivisionId;
         asset.ServiceOfferingId = request.ServiceOfferingId;
         asset.AssetCategoryId = request.AssetCategoryId;
-        asset.PersonnelRequirement = request.PersonnelRequirement ?? classification?.PersonnelRequirement ?? PersonnelRequirement.None;
+        asset.PersonnelRequirement = request.PersonnelOverride ?? request.PersonnelRequirement ?? classification?.PersonnelRequirement ?? PersonnelRequirement.None;
         asset.RequiresDelivery = request.RequiresDelivery;
         asset.BranchId = branch.Id;
         asset.RegistrationNumber = Normalize(request.RegistrationNumber);
@@ -200,6 +200,8 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber); asset.InsuranceExpiry = request.InsuranceExpiry; asset.WarrantyExpiry = request.WarrantyExpiry;
         asset.DailyRate = request.DailyRate;
         asset.DefaultBondAmount = request.DefaultBondAmount;
+        asset.InheritBond = request.InheritBond; asset.PersonnelOverride = request.PersonnelOverride ?? request.PersonnelRequirement;
+        asset.UpdatedAt = DateTimeOffset.UtcNow;
         asset.NextServiceDate = request.NextServiceDate;
         asset.CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name;
         asset.PhotoUrlsJson = request.PhotoUrlsJson ?? "[]";
@@ -344,7 +346,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
     {
         if (!request.DivisionId.HasValue) return false;
         if (request.ServiceOfferingId.HasValue && !await db.BranchDivisionServices.AnyAsync(x => x.BranchId == request.BranchId && x.DivisionId == request.DivisionId && x.ServiceOfferingId == request.ServiceOfferingId && x.IsActive, token)) return false;
-        if (request.AssetCategoryId.HasValue && !await db.AssetCategories.AnyAsync(x => x.Id == request.AssetCategoryId && x.DivisionId == request.DivisionId && x.IsActive && (!request.ServiceOfferingId.HasValue || x.ServiceOfferingId == request.ServiceOfferingId), token)) return false;
+        if (request.AssetCategoryId.HasValue && !await db.AssetCategories.AnyAsync(x => x.Id == request.AssetCategoryId && x.DivisionId == request.DivisionId && x.IsActive && (!request.ServiceOfferingId.HasValue || (!x.ServiceOfferingId.HasValue || x.ServiceOfferingId == request.ServiceOfferingId)), token)) return false;
         return true;
     }
 
@@ -354,7 +356,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.BranchId, branchName, asset.RegistrationNumber, asset.SerialNumber,
         asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear, asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
         asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType, asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.PersonnelRequirement, asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson);
+        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.PersonnelRequirement, asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride);
 }
 
 public sealed record SaveAssetRequest(
@@ -389,7 +391,8 @@ public sealed record SaveAssetRequest(
     string? CurrentLocation = null,
     string? PhotoUrlsJson = "[]",
     PersonnelRequirement? PersonnelRequirement = null,
-    bool RequiresDelivery = false);
+    bool RequiresDelivery = false, bool InheritBond = false,
+    [EnumDataType(typeof(PersonnelRequirement))] PersonnelRequirement? PersonnelOverride = null);
 
 public sealed record SetAssetStatusRequest(AssetStatus Status, bool IsActive);
 public sealed record AssetResponse(
@@ -398,5 +401,5 @@ public sealed record AssetResponse(
     Guid BranchId, string BranchName, string? RegistrationNumber, string? SerialNumber,
     string? Category, string? Manufacturer, string? Model, int? ModelYear, string? VinOrChassisNumber, string? EngineNumber, string? MeterUnit, decimal? CurrentMeterReading,
     DateOnly? AcquisitionDate, decimal AcquisitionCost, decimal? CurrentBookValue, string? OwnershipType, string? InsurancePolicyNumber, DateOnly? InsuranceExpiry, DateOnly? WarrantyExpiry,
-    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, PersonnelRequirement PersonnelRequirement, bool RequiresDelivery, string? CurrentLocation, string PhotoUrlsJson);
+    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, PersonnelRequirement PersonnelRequirement, bool RequiresDelivery, string? CurrentLocation, string PhotoUrlsJson, bool InheritBond, PersonnelRequirement? PersonnelOverride);
 public sealed record SaveAssetCostRequest(Guid? BookingId, AssetCostCategory Category, [Required, MaxLength(300)] string Description, [Range(0.01, 100000000)] decimal Amount, DateOnly OccurredOn, string? Supplier, string? ReferenceNumber);

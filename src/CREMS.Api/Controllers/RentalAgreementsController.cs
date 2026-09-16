@@ -149,7 +149,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
     }
 
     private async Task<Booking?> LoadBooking(Guid id, CancellationToken cancellationToken) => await db.Bookings
-        .Include(item => item.Customer).Include(item => item.Branch).Include(item => item.Items).ThenInclude(item => item.Asset).Include(item => item.Charges)
+        .Include(item => item.Customer).Include(item => item.Branch).Include(item => item.Items).ThenInclude(item => item.Asset).ThenInclude(asset => asset!.Division).Include(item => item.Charges)
         .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
 
     private static object BuildDraft(Booking booking)
@@ -194,7 +194,9 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             new AssetAgreementSnapshot(item.AssetId, item.Asset!.AssetNumber, item.Asset.Name, item.Asset.Type.ToString(), item.Asset.RegistrationNumber, item.Asset.SerialNumber),
             new RentalAgreementSnapshot(booking.Id, booking.BookingNumber, booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone, item.StartAt, item.EndAt, days),
             new PricingAgreementSnapshot(item.DailyRate, subtotal, booking.DiscountAmount, booking.AdditionalCharges, booking.AdditionalChargesDescription, booking.TaxRate, tax, taxable + tax, booking.DepositRequired),
-            DefaultTerms());
+            string.IsNullOrWhiteSpace(item.Asset.Division?.DefaultRentalTerms)
+                ? DefaultTerms()
+                : [new AgreementTerm("Rental terms", item.Asset.Division.DefaultRentalTerms)]);
     }
 
     private static IReadOnlyList<AgreementTerm> DefaultTerms() =>
