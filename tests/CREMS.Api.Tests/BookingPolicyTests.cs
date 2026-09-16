@@ -58,4 +58,46 @@ public sealed class BookingPolicyTests
     [InlineData(BookingStatus.ConvertedToRental, BookingStatus.Completed, true)]
     public void Lifecycle_allows_only_supported_transitions(BookingStatus current, BookingStatus next, bool expected) =>
         Assert.Equal(expected, BookingPolicy.IsValidTransition(current, next));
+
+    [Theory]
+    [InlineData(false, true, true, false)]
+    [InlineData(false, false, false, true)]
+    [InlineData(true, true, false, true)]
+    public void Motors_optional_driver_only_quotes_when_requested_or_unpriced(
+        bool explicitlyRequested, bool pricedDriver, bool expectedBooking, bool expectedQuotation)
+    {
+        var result = BookingPolicy.RequiresPublicQuotation(explicitlyRequested, true, false, false,
+            CREMS.Api.Domain.Common.PersonnelRequirement.None, true, pricedDriver, false, false);
+        Assert.Equal(expectedQuotation, result);
+        Assert.Equal(expectedBooking, !result);
+    }
+
+    [Fact]
+    public void Existing_non_motors_personnel_rule_remains_quote_only() =>
+        Assert.True(BookingPolicy.RequiresPublicQuotation(false, false, false, false,
+            CREMS.Api.Domain.Common.PersonnelRequirement.None, true, true, false, false));
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Motors_delivery_only_quotes_without_a_configured_rate(bool pricedTransport, bool expected) =>
+        Assert.Equal(expected, BookingPolicy.RequiresPublicQuotation(false, true, false, false,
+            CREMS.Api.Domain.Common.PersonnelRequirement.None, false, false, true, pricedTransport));
+
+    [Fact]
+    public void Asset_configuration_controls_operator_requirement()
+    {
+        var asset = new Asset
+        {
+            AssetNumber = "EQP-TEST", Name = "Configured equipment",
+            PersonnelRequirement = CREMS.Api.Domain.Common.PersonnelRequirement.Optional,
+            AssetCategory = new CREMS.Api.Domain.Common.AssetCategory
+            {
+                Code = "CONFIGURED", Name = "Configured category",
+                PersonnelRequirement = CREMS.Api.Domain.Common.PersonnelRequirement.Required,
+            },
+        };
+
+        Assert.Equal(CREMS.Api.Domain.Common.PersonnelRequirement.Optional, AssetCategoryPolicy.Personnel(asset));
+    }
 }

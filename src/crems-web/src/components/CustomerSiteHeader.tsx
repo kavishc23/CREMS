@@ -38,7 +38,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
 
   const accountLabel = authenticated ? accountName ?? 'My account' : 'Sign in'
   const desktopNavigation = <Stack direction="row" spacing={.5} alignItems="center">
-    <Button variant="contained" color="secondary" onClick={() => navigate('search')} sx={{ color: '#111' }}>Book a rental</Button>
+    <Button variant="contained" color="secondary" onClick={() => navigate('top')} sx={{ color: '#111' }}>Book a rental</Button>
     {authenticated && <Button color="inherit" onClick={() => onAccountSection?.('bookings')} sx={{ color: 'rgba(255,255,255,.82)', px: 1.25 }}>Manage bookings</Button>}
     {links.map(link => <Button key={link.section} color="inherit" onClick={() => navigate(link.section)} sx={{ color: 'rgba(255,255,255,.82)', px: 1.25 }}>{link.label}</Button>)}
     <Button
@@ -82,7 +82,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
         </Stack>
         <Divider sx={{ mb: 2 }} />
         <Stack spacing={.5} alignItems="stretch">
-          <Button variant="contained" color="secondary" onClick={() => navigate('search')} sx={{ justifyContent: 'flex-start', color: '#111' }}>Book a rental</Button>
+          <Button variant="contained" color="secondary" onClick={() => navigate('top')} sx={{ justifyContent: 'flex-start', color: '#111' }}>Book a rental</Button>
           {authenticated && <Button onClick={() => { setMobileOpen(false); onAccountSection?.('bookings') }} sx={{ justifyContent: 'flex-start', color: 'text.primary', py: 1.2 }}>Manage bookings</Button>}
           {links.map(link => <Button key={link.section} onClick={() => navigate(link.section)} sx={{ justifyContent: 'flex-start', color: 'text.primary', py: 1.2 }}>{link.label}</Button>)}
           <Divider sx={{ my: 1 }} />

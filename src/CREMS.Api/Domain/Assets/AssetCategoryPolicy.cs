@@ -10,8 +10,7 @@ public static class AssetCategoryPolicy
     public static string Code(Asset asset) => asset.AssetCategory?.Code?.ToUpperInvariant() ??
         (IsVehicle(asset.Type) ? "RENTAL_VEHICLE" : "GENERAL_EQUIPMENT");
 
-    public static PersonnelRequirement Personnel(Asset asset) =>
-        asset.AssetCategory?.PersonnelRequirement ?? asset.PersonnelRequirement;
+    public static PersonnelRequirement Personnel(Asset asset) => asset.PersonnelRequirement;
 
     public static bool AllowsPersonnel(Asset asset) => IsVehicle(asset.Type) || Personnel(asset) != PersonnelRequirement.None;
     public static bool RequiresPersonnel(Asset asset) => Personnel(asset) == PersonnelRequirement.Required;

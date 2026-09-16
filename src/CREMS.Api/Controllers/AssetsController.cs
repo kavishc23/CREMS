@@ -62,7 +62,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
                 asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
                 asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType,
                 asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-                asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.CurrentLocation, asset.PhotoUrlsJson))
+                asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.PersonnelRequirement, asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson))
             .ToListAsync(cancellationToken);
         return Ok(assets);
     }
@@ -138,7 +138,8 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name,
             PhotoUrlsJson = request.PhotoUrlsJson ?? "[]",
             IsActive = true,
-            PersonnelRequirement = classification?.PersonnelRequirement ?? PersonnelRequirement.None,
+            PersonnelRequirement = request.PersonnelRequirement ?? classification?.PersonnelRequirement ?? PersonnelRequirement.None,
+            RequiresDelivery = request.RequiresDelivery,
         };
         db.Assets.Add(asset);
         AuditWriter.Record(db, scope, "Asset created", "Asset", asset.Id,
@@ -188,7 +189,8 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.DivisionId = request.DivisionId;
         asset.ServiceOfferingId = request.ServiceOfferingId;
         asset.AssetCategoryId = request.AssetCategoryId;
-        asset.PersonnelRequirement = classification?.PersonnelRequirement ?? PersonnelRequirement.None;
+        asset.PersonnelRequirement = request.PersonnelRequirement ?? classification?.PersonnelRequirement ?? PersonnelRequirement.None;
+        asset.RequiresDelivery = request.RequiresDelivery;
         asset.BranchId = branch.Id;
         asset.RegistrationNumber = Normalize(request.RegistrationNumber);
         asset.SerialNumber = Normalize(request.SerialNumber);
@@ -352,7 +354,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.BranchId, branchName, asset.RegistrationNumber, asset.SerialNumber,
         asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear, asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
         asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType, asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.CurrentLocation, asset.PhotoUrlsJson);
+        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.PersonnelRequirement, asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson);
 }
 
 public sealed record SaveAssetRequest(
@@ -385,7 +387,9 @@ public sealed record SaveAssetRequest(
     Guid? ServiceOfferingId = null,
     Guid? AssetCategoryId = null,
     string? CurrentLocation = null,
-    string? PhotoUrlsJson = "[]");
+    string? PhotoUrlsJson = "[]",
+    PersonnelRequirement? PersonnelRequirement = null,
+    bool RequiresDelivery = false);
 
 public sealed record SetAssetStatusRequest(AssetStatus Status, bool IsActive);
 public sealed record AssetResponse(
@@ -394,5 +398,5 @@ public sealed record AssetResponse(
     Guid BranchId, string BranchName, string? RegistrationNumber, string? SerialNumber,
     string? Category, string? Manufacturer, string? Model, int? ModelYear, string? VinOrChassisNumber, string? EngineNumber, string? MeterUnit, decimal? CurrentMeterReading,
     DateOnly? AcquisitionDate, decimal AcquisitionCost, decimal? CurrentBookValue, string? OwnershipType, string? InsurancePolicyNumber, DateOnly? InsuranceExpiry, DateOnly? WarrantyExpiry,
-    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, string? CurrentLocation, string PhotoUrlsJson);
+    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, PersonnelRequirement PersonnelRequirement, bool RequiresDelivery, string? CurrentLocation, string PhotoUrlsJson);
 public sealed record SaveAssetCostRequest(Guid? BookingId, AssetCostCategory Category, [Required, MaxLength(300)] string Description, [Range(0.01, 100000000)] decimal Amount, DateOnly OccurredOn, string? Supplier, string? ReferenceNumber);

@@ -4,6 +4,7 @@ using CREMS.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CREMS.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916005706_AddAssetDeliveryConfiguration")]
+    partial class AddAssetDeliveryConfiguration
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2302,75 +2305,6 @@ namespace CREMS.Api.Data.Migrations
                     b.ToTable("EmailVerificationOtps");
                 });
 
-            modelBuilder.Entity("CREMS.Api.Domain.Identity.InAppNotification", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Audience")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("nvarchar(16)");
-
-                    b.Property<Guid?>("BranchId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<Guid?>("CustomerId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("DivisionId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("EventKey")
-                        .IsRequired()
-                        .HasMaxLength(450)
-                        .HasColumnType("nvarchar(450)");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
-
-                    b.Property<string>("Message")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<string>("RequiredRole")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<Guid?>("SentByUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("nvarchar(160)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("Url")
-                        .HasMaxLength(600)
-                        .HasColumnType("nvarchar(600)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("EventKey")
-                        .IsUnique();
-
-                    b.HasIndex("Audience", "CustomerId", "CreatedAt");
-
-                    b.HasIndex("Audience", "BranchId", "DivisionId", "CreatedAt");
-
-                    b.ToTable("InAppNotifications");
-                });
-
             modelBuilder.Entity("CREMS.Api.Domain.Identity.MfaChallenge", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2412,22 +2346,6 @@ namespace CREMS.Api.Data.Migrations
                     b.HasIndex("UserId", "ExpiresAt");
 
                     b.ToTable("MfaChallenges");
-                });
-
-            modelBuilder.Entity("CREMS.Api.Domain.Identity.NotificationRead", b =>
-                {
-                    b.Property<Guid>("NotificationId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTimeOffset>("ReadAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.HasKey("NotificationId", "UserId");
-
-                    b.ToTable("NotificationReads");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Identity.NotificationTemplate", b =>
@@ -4656,17 +4574,6 @@ namespace CREMS.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("CREMS.Api.Domain.Identity.NotificationRead", b =>
-                {
-                    b.HasOne("CREMS.Api.Domain.Identity.InAppNotification", "Notification")
-                        .WithMany()
-                        .HasForeignKey("NotificationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Notification");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Identity.PasswordResetOtp", b =>
