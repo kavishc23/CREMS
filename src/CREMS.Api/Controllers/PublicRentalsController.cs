@@ -113,7 +113,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.RegistrationNumber, asset.SerialNumber, asset.DivisionId,
                 DivisionName = asset.Division != null ? asset.Division.Name : null,
                 asset.Category, CategoryCode = asset.AssetCategory != null ? asset.AssetCategory.Code : null,
-                PersonnelRequirement = asset.AssetCategory != null ? asset.AssetCategory.PersonnelRequirement : asset.PersonnelRequirement,
+                asset.PersonnelRequirement,
                 ServiceName = asset.ServiceOffering != null ? asset.ServiceOffering.Name : null,
                 RequiresQuote = asset.ServiceOffering != null && asset.ServiceOffering.RequiresQuote,
                 RequiresDelivery = asset.ServiceOffering != null && asset.ServiceOffering.RequiresDelivery,
@@ -243,6 +243,17 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (asset is null || asset.Branch is null || !asset.Branch.IsActive ||
             asset.Status is AssetStatus.Maintenance or AssetStatus.OutOfService or AssetStatus.Retired)
             return NotFound("The selected rental item is no longer available.");
+        if (asset.ServiceOffering?.RequiresDelivery == true &&
+            !string.Equals(request.Fulfilment, "Delivery", StringComparison.OrdinalIgnoreCase))
+        {
+            ModelState.AddModelError(nameof(request.Fulfilment), "This rental must be delivered to the worksite.");
+            return ValidationProblem(ModelState);
+        }
+        if (asset.ServiceOffering?.RequiresDelivery == true && string.IsNullOrWhiteSpace(request.Address))
+        {
+            ModelState.AddModelError(nameof(request.Address), "Enter the delivery or worksite address.");
+            return ValidationProblem(ModelState);
+        }
 
         var start = new DateTimeOffset(request.StartDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var end = new DateTimeOffset(request.EndDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);

@@ -203,7 +203,7 @@ public static class DatabaseInitializer
             new DivisionSeed("MOTORS", "Carpenters Motors & Rentals", "Vehicle rental, fleet operations, servicing and parts.", DivisionCapabilities.Rental | DivisionCapabilities.Maintenance,
                 new[] { new ServiceSeed("VEHICLE_RENTAL", "Vehicle rental", ServiceOfferingType.VehicleRental, PersonnelRequirement.None, true, false) }),
             new DivisionSeed("CARPTRAC", "Carptrac", "Caterpillar construction equipment, forklifts, power generation and technical support.", DivisionCapabilities.Maintenance | DivisionCapabilities.PersonnelSupportedHire,
-                new[] { new ServiceSeed("EQUIPMENT_HIRE", "Equipment hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.Optional, false, true) }),
+                new[] { new ServiceSeed("EQUIPMENT_HIRE", "Equipment hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.Optional, false, true, ChargeUnit.Day, true) }),
             new DivisionSeed("SHIPPING", "Carpenters Shipping", "Portable toilets, scaffolding and big-bin hire with delivery and collection support.", DivisionCapabilities.Rental | DivisionCapabilities.Logistics | DivisionCapabilities.Maintenance,
                 new[]
                 {
@@ -331,6 +331,7 @@ public static class DatabaseInitializer
             new { Division = "CARPTRAC", Service = "EQUIPMENT_HIRE", Code = "EQUIPMENT_DELIVERY", Name = "Equipment delivery / collection", Category = ChargeCategory.Transport, Unit = ChargeUnit.Trip, Sell = 250m, Cost = 165m, Required = false },
             new { Division = "SHIPPING", Service = "PORTABLE_TOILET_HIRE", Code = "PORTABLE_TOILET_UNIT", Name = "Portable toilet hire", Category = ChargeCategory.BaseHire, Unit = ChargeUnit.Unit, Sell = 0m, Cost = 0m, Required = true },
             new { Division = "SHIPPING", Service = "SCAFFOLDING_HIRE", Code = "SCAFFOLD_SQM", Name = "Scaffolding hire", Category = ChargeCategory.BaseHire, Unit = ChargeUnit.SquareMetre, Sell = 0m, Cost = 0m, Required = true },
+            new { Division = "SHIPPING", Service = "SCAFFOLDING_HIRE", Code = "SCAFFOLD_OPERATOR_HOUR", Name = "Qualified scaffold installer", Category = ChargeCategory.Operator, Unit = ChargeUnit.Hour, Sell = 42m, Cost = 27m, Required = false },
             new { Division = "SHIPPING", Service = "BIG_BIN_HIRE", Code = "BIG_BIN_UNIT", Name = "Big-bin hire", Category = ChargeCategory.BaseHire, Unit = ChargeUnit.Unit, Sell = 0m, Cost = 0m, Required = true },
             new { Division = "SHIPPING", Service = "BIG_BIN_HIRE", Code = "SHIPPING_DELIVERY", Name = "Delivery and collection", Category = ChargeCategory.Transport, Unit = ChargeUnit.Trip, Sell = 0m, Cost = 0m, Required = true },
         };
@@ -357,7 +358,7 @@ public static class DatabaseInitializer
                     new("FIRST_REGISTERED", "Date first registered", AttributeDataType.Date, null, false, false),
                 ]),
             new AssetCategorySeed("FORKLIFT", "Forklift", "CARPTRAC", "EQUIPMENT_HIRE", "EngineHours",
-                PersonnelRequirement.Optional,
+                PersonnelRequirement.Required,
                 [
                     new("LIFT_CAPACITY", "Lift capacity", AttributeDataType.Number, "tonne", true, true),
                     new("MAX_LIFT_HEIGHT", "Maximum lift height", AttributeDataType.Number, "m", false, true),
@@ -392,7 +393,7 @@ public static class DatabaseInitializer
                     new("WASTE_CAPACITY", "Waste tank capacity", AttributeDataType.Number, "L", false, false),
                 ]),
             new AssetCategorySeed("SCAFFOLD", "Scaffolding", "SHIPPING", "SCAFFOLDING_HIRE", "Units",
-                PersonnelRequirement.None,
+                PersonnelRequirement.Required,
                 [
                     new("SYSTEM_TYPE", "Scaffold system", AttributeDataType.Choice, null, true, true, OptionsJson: "[\"Frame\",\"Ringlock\",\"Mobile tower\"]"),
                     new("COVERAGE", "Coverage", AttributeDataType.Number, "m²", true, true),

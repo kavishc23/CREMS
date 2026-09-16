@@ -85,7 +85,7 @@ public sealed class BookingPolicyTests
             CREMS.Api.Domain.Common.PersonnelRequirement.None, false, false, true, pricedTransport));
 
     [Fact]
-    public void Asset_category_configuration_controls_operator_requirement()
+    public void Asset_configuration_controls_operator_requirement()
     {
         var asset = new Asset
         {
@@ -98,6 +98,6 @@ public sealed class BookingPolicyTests
             },
         };
 
-        Assert.Equal(CREMS.Api.Domain.Common.PersonnelRequirement.Required, AssetCategoryPolicy.Personnel(asset));
+        Assert.Equal(CREMS.Api.Domain.Common.PersonnelRequirement.Optional, AssetCategoryPolicy.Personnel(asset));
     }
 }
