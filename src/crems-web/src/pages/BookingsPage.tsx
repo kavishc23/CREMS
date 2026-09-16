@@ -47,11 +47,11 @@ const errorText = (reason:unknown, fallback:string) => { const data=axios.isAxio
 function primaryLabel(queue:QueueKey, row:QueueRow){ if(queue==='NewRequests')return 'Review request'; if(queue==='QuotationRequired')return 'Prepare quotation'; if(queue==='AwaitingApproval')return 'Review approval'; if(queue==='Confirmed')return 'Prepare pickup'; return 'View record' }
 
 export function BookingsPage(){
-  const [queue,setQueue]=useState<QueueKey>('NewRequests'); const [data,setData]=useState<QueueResponse>({items:[],counts:{newRequests:0,quotationRequired:0,awaitingApproval:0,confirmed:0,closed:0},page:1,pageSize:25,total:0})
+  const [queue,setQueue]=useState<QueueKey>('NewRequests'); const [data,setData]=useState<QueueResponse>({items:[],counts:{newRequests:0,quotationRequired:0,awaitingApproval:0,confirmed:0,closed:0},page:1,pageSize:20,total:0})
   const [search,setSearch]=useState(() => new URLSearchParams(window.location.search).get('search') ?? ''); const [page,setPage]=useState(1); const [loading,setLoading]=useState(true); const [error,setError]=useState('')
   const [selected,setSelected]=useState<QueueRow|null>(null); const [workspace,setWorkspace]=useState<Workspace|null>(null); const [workspaceLoading,setWorkspaceLoading]=useState(false)
   const [,setMenu]=useState<{anchor:HTMLElement;row:QueueRow}|null>(null)
-  const load=useCallback(async()=>{setLoading(true);try{const response=await api.get<QueueResponse>('/bookings/work-queue',{params:{queue,search:search||undefined,page,pageSize:25}});setData(response.data);setError('')}catch(reason){setError(errorText(reason,'Booking requests could not be loaded. Please try again.'))}finally{setLoading(false)}},[queue,search,page])
+  const load=useCallback(async()=>{setLoading(true);try{const response=await api.get<QueueResponse>('/bookings/work-queue',{params:{queue,search:search||undefined,page,pageSize:20}});setData(response.data);setError('')}catch(reason){setError(errorText(reason,'Booking requests could not be loaded. Please try again.'))}finally{setLoading(false)}},[queue,search,page])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),search?300:0);return()=>window.clearTimeout(timer)},[load,search])
   async function open(row:QueueRow){setSelected(row);setWorkspace(null);setWorkspaceLoading(true);setError('');try{setWorkspace((await api.get<Workspace>(`/bookings/${row.id}/workspace`)).data)}catch(reason){setError(errorText(reason,'The booking workspace could not be loaded.'))}finally{setWorkspaceLoading(false)}}
   const pageCount=Math.max(1,Math.ceil(data.total/data.pageSize))

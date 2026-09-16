@@ -11,7 +11,7 @@ import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, FormControl, IconButton,
   InputAdornment, InputLabel, MenuItem, Select, Stack, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography,
+  TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography, Pagination,
   Grid,
 } from '@mui/material'
 import { api } from '../api/client'
@@ -56,6 +56,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   const [form, setForm] = useState<CustomerForm>(emptyForm)
   const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') ?? '')
   const [statusFilter, setStatusFilter] = useState<'All' | 'Verified' | 'Pending' | 'Blocked'>('All')
+  const [page, setPage] = useState(1)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [activity, setActivity] = useState<CustomerActivity | null>(null)
@@ -88,6 +89,8 @@ export function CustomersPage({ administrationView = false }: { administrationVi
       return matchesSearch && matchesStatus
     })
   }, [customers, search, statusFilter])
+  const customerPageCount = Math.max(1, Math.ceil(visibleCustomers.length / 20))
+  const pagedCustomers = visibleCustomers.slice((page - 1) * 20, page * 20)
 
   const customerSummary = useMemo(() => [
     { label: 'Total customers', value: customers.length, color: 'text.primary' },
@@ -176,9 +179,9 @@ export function CustomersPage({ administrationView = false }: { administrationVi
     <Card variant="outlined"><CardContent sx={{ p: 0 }}>
       <Stack direction={{ xs: 'column', lg: 'row' }} gap={1.5} sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
         <TextField size="small" placeholder="Search by name, customer number, email or phone" value={search}
-          onChange={(event) => setSearch(event.target.value)} sx={{ flex: 1, minWidth: 260 }}
+          onChange={(event) => { setSearch(event.target.value); setPage(1) }} sx={{ flex: 1, minWidth: 260 }}
           InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} />
-        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Account status</InputLabel><Select label="Account status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>{['All', 'Verified', 'Pending', 'Blocked'].map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl>
+        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Account status</InputLabel><Select label="Account status" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setPage(1) }}>{['All', 'Verified', 'Pending', 'Blocked'].map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl>
       </Stack>
       {loading ? <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> :
         <TableContainer><Table><TableHead><TableRow sx={{ bgcolor: '#f6f6f3' }}>
@@ -186,7 +189,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
           <TableCell>Identification</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell>
         </TableRow></TableHead><TableBody>
           {visibleCustomers.length === 0 && <TableRow><TableCell colSpan={5} align="center" sx={{ py: 8, color: 'text.secondary' }}>No matching customers found.</TableCell></TableRow>}
-          {visibleCustomers.map((customer) => <TableRow key={customer.id} hover>
+          {pagedCustomers.map((customer) => <TableRow key={customer.id} hover>
             <TableCell><Typography fontWeight={700}>{customer.name}</Typography><Typography variant="body2" color="text.secondary">{customer.customerNumber}</Typography></TableCell>
             <TableCell><Typography variant="body2">{customer.email || '—'}</Typography><Typography variant="body2" color="text.secondary">{customer.phone || '—'}</Typography></TableCell>
             <TableCell><Typography variant="body2">{customer.identificationNumber || '—'}</Typography>{customer.driverLicenceDocumentId && <Button size="small" sx={{ px: 0, minWidth: 0 }} onClick={() => void viewLicence(customer)}>View licence</Button>}<Stack direction="row" gap={.5} flexWrap="wrap" mt={.5}>{customerPreferences(customer).map(value => <Chip key={value} size="small" label={preferenceLabel[value]} />)}{customerPreferences(customer).length === 0 && <Typography variant="caption" color="text.secondary">All rentals</Typography>}</Stack></TableCell>
@@ -201,6 +204,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
             </TableCell>
           </TableRow>)}
         </TableBody></Table></TableContainer>}
+      {visibleCustomers.length > 20 && <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}><Typography variant="body2" color="text.secondary">Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, visibleCustomers.length)} of {visibleCustomers.length}</Typography><Pagination count={customerPageCount} page={page} onChange={(_, value) => setPage(value)} size="small" /></Stack>}
     </CardContent></Card>
     <Dialog open={open} onClose={() => !saving && setOpen(false)} fullWidth maxWidth="md">
       <Box component="form" onSubmit={save}><DialogTitle>{editing ? 'Edit customer' : 'Add customer'}</DialogTitle><DialogContent>

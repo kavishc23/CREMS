@@ -29,6 +29,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Pagination,
   TextField,
   Tooltip,
   Typography,
@@ -76,6 +77,7 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
   const [form, setForm] = useState(initialForm)
   const [search, setSearch] = useState(''); const [securityUser, setSecurityUser] = useState<UserRecord | null>(null); const [reason, setReason] = useState(''); const [temporaryPassword, setTemporaryPassword] = useState('')
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Suspended'>('All')
+  const [page, setPage] = useState(1)
   const [roleFilter, setRoleFilter] = useState('All')
   const [accessUser, setAccessUser] = useState<UserRecord | null>(null); const [access, setAccess] = useState<AccessDetail | null>(null); const [permissionCatalog, setPermissionCatalog] = useState<string[]>([]); const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]); const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]); const [selectedBranches, setSelectedBranches] = useState<string[]>([]); const [accessExpiry, setAccessExpiry] = useState(''); const [accessReason, setAccessReason] = useState(''); const [accountStatus, setAccountStatus] = useState('Active'); const [mfaRequired, setMfaRequired] = useState(false)
 
@@ -108,6 +110,8 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
     const matchesRole = roleFilter === 'All' || user.roles.includes(roleFilter)
     return matchesSearch && matchesStatus && matchesRole
   }), [roleFilter, search, statusFilter, users])
+  const userPageCount = Math.max(1, Math.ceil(visibleUsers.length / 20))
+  const pagedUsers = visibleUsers.slice((page - 1) * 20, page * 20)
 
   const staffSummary = useMemo(() => [
     { label: 'Total staff', value: users.length, color: 'text.primary' },
@@ -172,7 +176,7 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
         {staffSummary.map((item) => <Grid key={item.label} size={{ xs: 6, md: 4, lg: 2.4 }}><Card variant="outlined" sx={{ height: '100%' }}><CardContent sx={{ py: 2 }}><Typography variant="h4" fontWeight={800} color={item.color}>{item.value}</Typography><Typography variant="caption" color="text.secondary" fontWeight={700} textTransform="uppercase" letterSpacing={.6}>{item.label}</Typography></CardContent></Card></Grid>)}
       </Grid>
       <Card variant="outlined">
-        <CardContent sx={{ p: 0 }}><Stack direction={{ xs: 'column', lg: 'row' }} gap={1.5} sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}><TextField size="small" placeholder="Search by staff name, email or role" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ flex: 1, minWidth: 260 }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} /><Stack direction="row" gap={.75}>{(['All', 'Active', 'Suspended'] as const).map(value => <Button key={value} size="small" variant={statusFilter === value ? 'contained' : 'outlined'} color="inherit" onClick={() => setStatusFilter(value)}>{value}</Button>)}</Stack><TextField select size="small" label="Role" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)} sx={{ minWidth: 190 }}><MenuItem value="All">All roles</MenuItem>{Object.values(roles).map(role => <MenuItem key={role} value={role}>{formatRole(role)}</MenuItem>)}</TextField></Stack>
+        <CardContent sx={{ p: 0 }}><Stack direction={{ xs: 'column', lg: 'row' }} gap={1.5} sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}><TextField size="small" placeholder="Search by staff name, email or role" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} sx={{ flex: 1, minWidth: 260 }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} /><Stack direction="row" gap={.75}>{(['All', 'Active', 'Suspended'] as const).map(value => <Button key={value} size="small" variant={statusFilter === value ? 'contained' : 'outlined'} color="inherit" onClick={() => { setStatusFilter(value); setPage(1) }}>{value}</Button>)}</Stack><TextField select size="small" label="Role" value={roleFilter} onChange={(event) => { setRoleFilter(event.target.value); setPage(1) }} sx={{ minWidth: 190 }}><MenuItem value="All">All roles</MenuItem>{Object.values(roles).map(role => <MenuItem key={role} value={role}>{formatRole(role)}</MenuItem>)}</TextField></Stack>
           {loading ? (
             <Box sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>
           ) : (
@@ -182,7 +186,7 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
                   <TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Role</TableCell><TableCell>Division / branch</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell>
                 </TableRow></TableHead>
                 <TableBody>
-                  {visibleUsers.map((user) => <TableRow key={user.id} hover>
+                  {pagedUsers.map((user) => <TableRow key={user.id} hover>
                     <TableCell sx={{ fontWeight: 600 }}>{user.fullName || 'Unnamed user'}</TableCell>
                     <TableCell><Typography variant="body2">{user.email}</Typography><Typography variant="caption" color="text.secondary">Last active {user.lastActivityAt ? new Date(user.lastActivityAt).toLocaleString('en-FJ') : 'never'}</Typography></TableCell>
                     <TableCell>{user.roles.map((role) => <Chip key={role} label={formatRole(role)} size="small" sx={{ bgcolor: 'secondary.main', fontWeight: 600 }} />)}</TableCell>
@@ -194,6 +198,7 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
               </Table>
             </TableContainer>
           )}
+          {visibleUsers.length > 20 && <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}><Typography variant="body2" color="text.secondary">Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, visibleUsers.length)} of {visibleUsers.length}</Typography><Pagination count={userPageCount} page={page} onChange={(_, value) => setPage(value)} size="small" /></Stack>}
         </CardContent>
       </Card>
 
