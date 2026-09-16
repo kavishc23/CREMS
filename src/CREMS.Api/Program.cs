@@ -148,6 +148,7 @@ builder.Services.AddHttpClient("Brevo",client=>{client.BaseAddress=new Uri("http
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.Section));
 builder.Services.AddHostedService<EmailDeliveryWorker>();
 builder.Services.AddHostedService<BusinessAutomationWorker>();
+builder.Services.AddHostedService<ActionNotificationWorker>();
 builder.Services.Configure<SecurityStampValidatorOptions>(options =>
     // Session revocation is still enforced by the window-session middleware.
     // Avoid a user-store lookup on every authenticated API request.

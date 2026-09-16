@@ -84,7 +84,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var query = db.Assets.AsNoTracking()
             .Where(asset => asset.IsActive && asset.Branch!.IsActive &&
                 asset.Division != null && asset.Division.IsActive && asset.Division.IsPublic &&
-                (asset.ServiceOffering == null || asset.ServiceOffering.IsActive && asset.ServiceOffering.IsBookableOnline && db.BranchDivisionServices.Any(s => s.BranchId == asset.BranchId && s.DivisionId == asset.DivisionId && s.ServiceOfferingId == asset.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
+                (asset.ServiceOffering == null || asset.ServiceOffering.IsActive && (asset.ServiceOffering.IsBookableOnline || asset.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == asset.BranchId && s.DivisionId == asset.DivisionId && s.ServiceOfferingId == asset.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
                 db.BranchDivisions.Any(b => b.BranchId == asset.BranchId && b.DivisionId == asset.DivisionId && b.IsActive) &&
                 asset.Status != AssetStatus.Maintenance &&
                 asset.Status != AssetStatus.OutOfService &&
@@ -169,7 +169,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             .Include(x => x.AssetCategory).Include(x => x.AttributeValues).ThenInclude(x => x.AttributeDefinition)
             .FirstOrDefaultAsync(x => x.Id == assetId && x.IsActive && x.Branch!.IsActive &&
                 x.Division != null && x.Division.IsActive && x.Division.IsPublic &&
-                (x.ServiceOffering == null || x.ServiceOffering.IsActive && x.ServiceOffering.IsBookableOnline && db.BranchDivisionServices.Any(s => s.BranchId == x.BranchId && s.DivisionId == x.DivisionId && s.ServiceOfferingId == x.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
+                (x.ServiceOffering == null || x.ServiceOffering.IsActive && (x.ServiceOffering.IsBookableOnline || x.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == x.BranchId && s.DivisionId == x.DivisionId && s.ServiceOfferingId == x.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
                 db.BranchDivisions.Any(b => b.BranchId == x.BranchId && b.DivisionId == x.DivisionId && b.IsActive) &&
                 x.Status != AssetStatus.Maintenance && x.Status != AssetStatus.OutOfService &&
                 x.Status != AssetStatus.Retired, cancellationToken);

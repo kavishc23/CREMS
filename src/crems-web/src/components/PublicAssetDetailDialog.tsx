@@ -42,7 +42,7 @@ type AssetDetails = {
   availabilityChecked: boolean
 }
 
-export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, open, onClose, onContinue }: {
+export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, open, onClose, onContinue, previewDetails }: {
   asset: AssetSummary | null
   imageUrls: string[]
   startDate: string
@@ -50,6 +50,7 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
   open: boolean
   onClose: () => void
   onContinue: (asset: AssetSummary) => void
+  previewDetails?: AssetDetails
 }) {
   const [details, setDetails] = useState<AssetDetails | null>(null)
   const [loading, setLoading] = useState(false)
@@ -63,6 +64,11 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     setError('')
+    if (previewDetails) {
+      setDetails(previewDetails)
+      setLoading(false)
+      return () => { active = false }
+    }
     void api.get<AssetDetails>(`/public/assets/${asset.id}`, { params: { startDate, endDate } })
       .then(response => { if (active) setDetails(response.data) })
       .catch((reason) => {
@@ -72,7 +78,7 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [asset, endDate, open, startDate])
+  }, [asset, endDate, open, previewDetails, startDate])
 
   const days = Math.max(1, Math.ceil((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86400000))
   const available = details?.isAvailable ?? asset?.isAvailable ?? false

@@ -19,6 +19,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
 {
     public DbSet<InAppNotification> InAppNotifications => Set<InAppNotification>();
     public DbSet<NotificationRead> NotificationReads => Set<NotificationRead>();
+    public DbSet<StaffNotificationPreference> StaffNotificationPreferences => Set<StaffNotificationPreference>();
+    public DbSet<NotificationEmailDelivery> NotificationEmailDeliveries => Set<NotificationEmailDelivery>();
     private bool notificationsSuppressed;
     public IDisposable SuppressNotifications()
     {
@@ -121,10 +123,16 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             e.Property(x => x.Title).HasMaxLength(160); e.Property(x => x.Message).HasMaxLength(2000);
             e.Property(x => x.Url).HasMaxLength(600); e.Property(x => x.RequiredRole).HasMaxLength(64);
             e.Property(x => x.EventKey).HasMaxLength(450); e.HasIndex(x => x.EventKey).IsUnique();
+            e.Property(x => x.Severity).HasMaxLength(16);
+            e.Property(x => x.ActionType).HasMaxLength(40); e.Property(x => x.ActionLabel).HasMaxLength(80);
+            e.Property(x => x.RelatedEntityType).HasMaxLength(80);
+            e.HasIndex(x => new { x.RecipientUserId, x.CreatedAt });
             e.HasIndex(x => new { x.Audience, x.CustomerId, x.CreatedAt });
             e.HasIndex(x => new { x.Audience, x.BranchId, x.DivisionId, x.CreatedAt });
         });
         builder.Entity<NotificationRead>(e => { e.HasKey(x => new { x.NotificationId, x.UserId }); e.HasOne(x => x.Notification).WithMany().HasForeignKey(x => x.NotificationId); });
+        builder.Entity<StaffNotificationPreference>(e => { e.HasKey(x => new { x.UserId, x.Category }); e.Property(x => x.Category).HasMaxLength(32); e.Property(x => x.EmailFrequency).HasMaxLength(16); });
+        builder.Entity<NotificationEmailDelivery>(e => e.HasKey(x => new { x.NotificationId, x.UserId }));
 
         builder.Entity<Branch>(entity =>
         {
