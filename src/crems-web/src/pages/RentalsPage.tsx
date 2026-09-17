@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import axios from 'axios'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined'
 import PhoneOutlined from '@mui/icons-material/PhoneOutlined'
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined'
 import QrCodeScannerOutlined from '@mui/icons-material/QrCodeScannerOutlined'
+import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined'
 import {
   Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, FormControlLabel, Grid, InputAdornment, Pagination, Stack,
@@ -17,6 +18,7 @@ import { useRentalInspection } from '../components/useRentalInspection'
 import { EvidenceComparison } from '../components/RentalInspectionContext'
 import { DamageLocations } from '../components/DamageLocations'
 import { SignaturePad } from '../components/SignaturePad'
+import { PageHeader } from '../components/PageHeader'
 import { WorkQueueSummary } from '../components/WorkQueueSummary'
 import { downloadRentalAgreementPdf, type RentalAgreementData } from '../utils/rentalAgreementPdf'
 
@@ -38,7 +40,7 @@ export function RentalsPage({initialSearch='',initialQueue='PickupToday'}:{initi
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),search?300:0);return()=>clearTimeout(timer)},[load,search])
   async function startPickup(row:RentalRow){setPickup(row);setAgreement(null);try{setAgreement((await api.get<RentalAgreementData>(`/rental-agreements/${row.id}`)).data)}catch(reason){setError(err(reason,'The agreement could not be prepared.'))}}
   const action=(row:RentalRow)=>row.status==='Confirmed'?<Button size="small" variant="contained" endIcon={<ArrowForwardOutlined/>} onClick={()=>void startPickup(row)}>Begin pickup</Button>:row.status==='ConvertedToRental'?<Button size="small" variant="contained" endIcon={<ArrowForwardOutlined/>} onClick={()=>setReturning(row)}>Begin return</Button>:row.hasAgreement?<Button size="small" variant="outlined" onClick={()=>void startPickup(row)}>View agreement</Button>:<Button size="small" variant="outlined" disabled>Completed</Button>
-  return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1600,mx:'auto'}}><Stack direction={{xs:'column',md:'row'}} justifyContent="space-between" gap={2} mb={3}><Box><Typography variant="h4" fontWeight={800}>Hire operations</Typography><Typography color="text.secondary" mt={.5}>Manage today’s pickups, active hires and controlled returns.</Typography></Box><TextField size="small" placeholder="Search rental, customer or asset" value={search} onChange={e=>{setFocusedBookingId(undefined);setSearch(e.target.value);setPage(1)}} sx={{width:{xs:'100%',md:380}}} InputProps={{startAdornment:<InputAdornment position="start"><SearchOutlined/></InputAdornment>}}/></Stack>{error&&!pickup&&!returning&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
+  return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1600,mx:'auto'}}><PageHeader icon={<ReceiptLongOutlined/>} title="Hire operations" subtitle="Manage today’s pickups, active hires and controlled returns." actions={<TextField size="small" placeholder="Search rental, customer or asset" value={search} onChange={e=>{setFocusedBookingId(undefined);setSearch(e.target.value);setPage(1)}} sx={{width:{xs:'100%',md:380}}} InputProps={{startAdornment:<InputAdornment position="start"><SearchOutlined/></InputAdornment>}}/>} />{error&&!pickup&&!returning&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
     <WorkQueueSummary loading={loading} items={[
       {label:'Today’s handovers',count:data.counts.pickupToday,detail:'Prepare documents and release assets',onOpen:()=>{setFocusedBookingId(undefined);setQueue('PickupToday');setPage(1)}},
       {label:'Returns due today',count:data.counts.dueToday,detail:'Inspect condition and settle the bond',onOpen:()=>{setFocusedBookingId(undefined);setQueue('DueToday');setPage(1)}},

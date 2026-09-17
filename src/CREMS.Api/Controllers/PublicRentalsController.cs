@@ -340,10 +340,12 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             BookingNumber = requiresQuote
                 ? $"REQ-{Guid.NewGuid():N}"[..16].ToUpperInvariant()
                 : $"BK-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}",
-            BranchId = asset.BranchId, Status = BookingStatus.Draft,
+            CustomerId = activeCustomer.Id, BranchId = asset.BranchId, Status = BookingStatus.Draft,
             Notes = BuildRequestNotes(request, personnelRequested) + (requiresQuote ? "\nRequest type: Quotation." : "\nRequest type: Booking."),
             TaxRate = taxRate, DepositRequired = AssetCategoryPolicy.Bond(asset),
             BondStatus = AssetCategoryPolicy.Bond(asset) > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired,
+            AdditionalCharges = chargeSubtotal,
+            AdditionalChargesDescription = charges.Count == 0 ? null : string.Join(", ", charges.Select(x => x.Definition.Name)),
             Items = [new BookingItem { AssetId = asset.Id, StartAt = start, EndAt = end, DailyRate = asset.DailyRate }],
         };
         foreach (var charge in charges)

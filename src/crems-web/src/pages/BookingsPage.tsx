@@ -5,6 +5,7 @@ import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined'
 import MoreHorizOutlined from '@mui/icons-material/MoreHorizOutlined'
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
+import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, Divider, Drawer, Grid,
@@ -14,6 +15,7 @@ import {
 
 import { api } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { PageHeader } from '../components/PageHeader'
 import { WorkQueueSummary } from '../components/WorkQueueSummary'
 
 type QueueKey = 'NewRequests' | 'QuotationRequired' | 'AwaitingApproval' | 'Confirmed' | 'Closed'
@@ -57,7 +59,7 @@ export function BookingsPage(){
   async function open(row:QueueRow){setSelected(row);setWorkspace(null);setWorkspaceLoading(true);setError('');try{setWorkspace((await api.get<Workspace>(`/bookings/${row.id}/workspace`)).data)}catch(reason){setError(errorText(reason,'The booking workspace could not be loaded.'))}finally{setWorkspaceLoading(false)}}
   const pageCount=Math.max(1,Math.ceil(data.total/data.pageSize))
   return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1600,mx:'auto','& table td:last-child .MuiIconButton-root':{display:'none'}}}>
-    <Stack direction={{xs:'column',md:'row'}} justifyContent="space-between" gap={2} mb={3}><Box><Typography variant="h4" fontWeight={800}>Booking requests</Typography><Typography color="text.secondary" mt={.5}>Move each customer request from enquiry to confirmed hire.</Typography></Box><TextField size="small" placeholder="Search reference, customer or asset" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} sx={{width:{xs:'100%',md:380}}} InputProps={{startAdornment:<InputAdornment position="start"><SearchOutlined/></InputAdornment>}}/></Stack>
+    <PageHeader icon={<EventAvailableOutlined/>} title="Booking requests" subtitle="Move each customer request from enquiry to confirmed hire." actions={<TextField size="small" placeholder="Search reference, customer or asset" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} sx={{width:{xs:'100%',md:380}}} InputProps={{startAdornment:<InputAdornment position="start"><SearchOutlined/></InputAdornment>}}/>} />
     {error&&!selected&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}{search.trim()&&<Alert severity="info" sx={{mb:2}}>Search results include all stages. Both booking and quotation references are searchable.</Alert>}
     <WorkQueueSummary loading={loading} items={[
       {label:'New enquiries',count:data.counts.newRequests,detail:'Review customer and asset requirements',onOpen:()=>{setQueue('NewRequests');setPage(1)}},

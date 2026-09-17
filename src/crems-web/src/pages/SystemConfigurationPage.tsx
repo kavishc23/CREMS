@@ -3,6 +3,7 @@ import SettingsOutlined from '@mui/icons-material/SettingsOutlined'
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Grid, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material'
 import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined'
 import { api } from '../api/client'
+import { PageHeader } from '../components/PageHeader'
 import { ChargeDefinitionsPage } from './ChargeDefinitionsPage'
 import { BookingApprovalRulesPage } from './BookingApprovalRulesPage'
 
@@ -42,7 +43,7 @@ export function SystemConfigurationPage() {
   async function saveSetting(item: Setting) { setSaving(true); try { await api.put(`/administration/settings/${encodeURIComponent(item.key)}`, { value: item.value }); await load() } catch { setError('This setting could not be saved.') } finally { setSaving(false) } }
   async function saveTemplate(item: Template) { setSaving(true); try { await api.put(`/administration/templates/${item.id}`, item); await load() } catch { setError('This message template could not be saved.') } finally { setSaving(false) } }
 
-  return <Box><Stack direction="row" gap={1.5} alignItems="center" sx={{ px: { xs: 2, sm: 3, lg: 4 }, pt: 3, pb: 2 }}><SettingsOutlined /><Box><Typography variant="h4" fontWeight={800}>System configuration</Typography><Typography color="text.secondary">Manage operating defaults, rates, communications and technical controls.</Typography></Box></Stack>
+  return <Box><Box sx={{ px: { xs: 2, sm: 3, lg: 4 }, pt: 3, pb: 2 }}><PageHeader icon={<SettingsOutlined />} title="System configuration" subtitle="Manage operating defaults, rates, communications and technical controls." /></Box>
     {error && <Alert severity="error" sx={{ mx: { xs: 2, sm: 3, lg: 4 }, mb: 2 }}>{error}</Alert>}
     <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="scrollable" sx={{ px: { xs: 2, sm: 3, lg: 4 }, borderBottom: 1, borderColor: 'divider' }}><Tab label="Overview" /><Tab label="Rental defaults" /><Tab label="Rates & charges" /><Tab label="Notifications" /><Tab label="System health & audit" /><Tab label="Approval rules" /></Tabs>
     {tab === 0 && <Box sx={{ p: { xs: 2, sm: 3, lg: 4 } }}><Grid container spacing={2}>{[

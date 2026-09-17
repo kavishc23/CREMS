@@ -6,6 +6,7 @@ import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
 import LockOpenOutlined from '@mui/icons-material/LockOpenOutlined'
 import SecurityOutlined from '@mui/icons-material/SecurityOutlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
+import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined'
 import {
   Alert,
   Box,
@@ -36,6 +37,7 @@ import {
 } from '@mui/material'
 import { api } from '../api/client'
 import { formatRole, roles } from '../auth/access'
+import { PageHeader } from '../components/PageHeader'
 import axios from 'axios'
 
 type UserRecord = {
@@ -161,15 +163,7 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1400, mx: 'auto' }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'flex-end' }} gap={2} mb={2.5}>
-        <Box>
-          <Typography variant="h5" fontWeight={800}>Staff directory</Typography>
-          <Typography color="text.secondary" mt={0.5}>Review staff status, assigned scope and account activity.</Typography>
-        </Box>
-        <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>
-          Create user
-        </Button>
-      </Stack>
+      <PageHeader icon={<ManageAccountsOutlined />} title="Staff directory" subtitle="Review staff status, assigned scope and account activity." actions={<Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Create user</Button>} />
 
       {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       <Grid container spacing={2} mb={2.5}>

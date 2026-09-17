@@ -7,6 +7,7 @@ import EditOutlined from '@mui/icons-material/EditOutlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import MarkEmailReadOutlined from '@mui/icons-material/MarkEmailReadOutlined'
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
+import PeopleAltOutlined from '@mui/icons-material/PeopleAltOutlined'
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, FormControl, IconButton,
@@ -15,6 +16,7 @@ import {
   Grid,
 } from '@mui/material'
 import { api } from '../api/client'
+import { PageHeader } from '../components/PageHeader'
 
 type Customer = {
   id: string; customerNumber: string; name: string
@@ -166,11 +168,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   }
 
   return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}>
-    <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2} mb={3}>
-      <Box><Typography variant="h4" fontWeight={750}>{administrationView ? 'Customer accounts' : 'Customers'}</Typography>
-        <Typography color="text.secondary" mt={0.5}>{administrationView ? 'Manage customer identities, portal access and account activity separately from staff.' : 'Maintain customer details and rental eligibility.'}</Typography></Box>
-      <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add customer</Button>
-    </Stack>
+    <PageHeader icon={<PeopleAltOutlined />} title={administrationView ? 'Customer accounts' : 'Customers'} subtitle={administrationView ? 'Manage customer identities, portal access and account activity separately from staff.' : 'Maintain customer details and rental eligibility.'} actions={<Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add customer</Button>} />
     {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     {notice && <Alert severity="success" sx={{ mb: 2 }}>{notice}</Alert>}
     <Grid container spacing={2} mb={2.5}>

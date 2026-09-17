@@ -16,6 +16,7 @@ import {
 } from '@mui/material'
 import { api } from '../api/client'
 import { roles } from '../auth/access'
+import { PageHeader } from '../components/PageHeader'
 import { AssetQrLabelDialog } from '../components/AssetQrLabelDialog'
 import { AssetProfileDialog } from '../components/AssetProfileDialog'
 import { PublicAssetDetailDialog } from '../components/PublicAssetDetailDialog'
@@ -189,9 +190,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
     mx: 'auto',
   }}>
     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{md:'center'}} gap={1} mb={1.5}>
-      <Box><Typography variant="overline" color="text.secondary" fontWeight={800}>Motors & Carptrac · {summary.total.toLocaleString()} active assets</Typography><Typography variant="h4" fontWeight={850}>Asset register</Typography>
-        <Typography color="text.secondary" mt={0.5}>Search, compare and manage every asset within your assigned operating scope.</Typography></Box>
-      {canManage && <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add asset</Button>}
+      <PageHeader icon={<Inventory2Outlined />} eyebrow={`Motors & Carptrac · ${summary.total.toLocaleString()} active assets`} title="Asset register" subtitle="Search, compare and manage every asset within your assigned operating scope." dense actions={canManage && <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add asset</Button>} />
     </Stack>
     {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     <Box sx={{display:'grid',gridTemplateColumns:{xs:'repeat(2,minmax(0,1fr))',md:'repeat(5,minmax(0,1fr))'},gap:1.25,mb:1.5}}>{[

@@ -175,7 +175,8 @@ public sealed class CustomerAccountController(
         var visibleCharges = booking.Charges.Select(x => new { x.Description, x.Category, x.Unit,
             x.Quantity, x.UnitRate, Amount = x.Quantity * x.UnitRate, x.IsTaxable }).ToList();
         var chargeTotal = visibleCharges.Sum(x => x.Amount);
-        var taxable = Math.Max(0, baseSubtotal - booking.DiscountAmount + chargeTotal);
+        var subtotal = Math.Max(0, baseSubtotal - booking.DiscountAmount + chargeTotal);
+        var taxable = Math.Max(0, baseSubtotal - booking.DiscountAmount + visibleCharges.Where(x => x.IsTaxable).Sum(x => x.Amount));
         var tax = decimal.Round(taxable * booking.TaxRate / 100m, 2);
 
         return Ok(new
@@ -190,7 +191,7 @@ public sealed class CustomerAccountController(
                 PersonnelRequirement = AssetCategoryPolicy.Personnel(x.Asset),
             }),
             Pricing = new { BaseSubtotal = baseSubtotal, booking.DiscountAmount, Charges = visibleCharges,
-                ChargeTotal = chargeTotal, booking.TaxRate, TaxAmount = tax, Total = taxable + tax,
+                ChargeTotal = chargeTotal, booking.TaxRate, TaxAmount = tax, Total = subtotal + tax,
                 booking.DepositRequired },
             Bond = new { Required = booking.DepositRequired, Held = booking.BondAmountHeld,
                 Deduction = booking.BondDeductionAmount, booking.BondDeductionReason,
@@ -528,7 +529,7 @@ public sealed class CustomerAccountController(
         var subject = $"Extension request — {booking.BookingNumber}";
         if (await db.CustomerCases.AnyAsync(x => x.CustomerId == user.CustomerId && x.Subject == subject && x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed, token))
             return Conflict(new { message = "An extension request for this booking is already awaiting branch review." });
-        var extensionCase = new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Enquiry, Priority = booking.Status == BookingStatus.ConvertedToRental ? CasePriority.High : CasePriority.Normal, Subject = subject, Description = $"Current return: {currentEnd:u}. Requested new return: {request.RequestedEndAt:u}. Reason: {Clean(request.Reason) ?? "Not supplied"}", DueAt = DateTimeOffset.UtcNow.AddHours(4) };
+        var extensionCase = new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Enquiry, Priority = booking.Status == BookingStatus.ConvertedToRental ? CasePriority.High : CasePriority.Normal, Subject = subject, Description = $"Current return: {currentEnd:u}. Requested new return: {request.RequestedEndAt:u}. Reason: {Clean(request.Reason) ?? "Not supplied"}\nRequestedEndAt: {request.RequestedEndAt:O}", DueAt = DateTimeOffset.UtcNow.AddHours(4) };
         db.CustomerCases.Add(extensionCase);
         await db.SaveChangesAsync(token); return Accepted(new { status = "Extension requested", extensionCase.CaseNumber, currentEnd, request.RequestedEndAt });
     }

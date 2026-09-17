@@ -162,7 +162,8 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
     public async Task<ActionResult> Return(Guid bookingId, ReturnInspectionRequest request, CancellationToken cancellationToken)
     {
         var booking = await db.Bookings.Include(item => item.Customer).Include(item => item.Items).ThenInclude(item => item.Asset)
-            .Include(item => item.Inspections).Include(item => item.Payments).FirstOrDefaultAsync(item => item.Id == bookingId, cancellationToken);
+            .Include(item => item.Inspections).Include(item => item.Payments).Include(item => item.Charges)
+            .FirstOrDefaultAsync(item => item.Id == bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
@@ -191,8 +192,12 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             return BadRequest(new { message = "The return meter reading cannot be lower than the recorded starting reading." });
 
         db.RentalInspections.Add(CreateInspection(booking.Id, InspectionType.Return, request, scope));
-        booking.AdditionalCharges = request.AdditionalCharges + request.LateFee + request.ExcessUsageCharge + request.RefuellingCharge + request.CleaningCharge + request.DamageCharge;
-        booking.AdditionalChargesDescription = Normalize(request.AdditionalChargesDescription);
+        var quotedChargeTotal = booking.Charges.Sum(x => x.Quantity * x.UnitRate);
+        var returnChargeTotal = request.AdditionalCharges + request.LateFee + request.ExcessUsageCharge + request.RefuellingCharge + request.CleaningCharge + request.DamageCharge;
+        booking.AdditionalCharges = quotedChargeTotal + returnChargeTotal;
+        var returnChargeDescription = Normalize(request.AdditionalChargesDescription);
+        booking.AdditionalChargesDescription = string.Join(", ", booking.Charges.Select(x => x.Description)
+            .Concat(returnChargeDescription is null ? [] : [returnChargeDescription]).Where(x => !string.IsNullOrWhiteSpace(x)));
         booking.Status = BookingStatus.Completed;
         booking.UpdatedAt = DateTimeOffset.UtcNow;
         booking.BondDeductionAmount = request.BondDeductionAmount;
@@ -218,17 +223,37 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
                 db.MaintenanceJobs.Add(new MaintenanceJob { JobNumber = $"MNT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}", AssetId = asset.Id, BranchId = asset.BranchId, ServiceType = "Post-hire damage assessment", FaultDescription = request.DamageNotes!.Trim(), Description = $"Automatically referred from return of {booking.BookingNumber}.", Priority = MaintenancePriority.High, Status = MaintenanceStatus.Open, MeterReading = request.MeterReading });
         }
         var rentalSubtotal = booking.Items.Sum(item => item.DailyRate * Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)));
-        var invoiceSubtotal = Math.Max(0, rentalSubtotal - booking.DiscountAmount + booking.AdditionalCharges);
-        var invoiceTax = invoiceSubtotal * booking.TaxRate / 100m;
+        var invoiceSubtotal = Math.Max(0, rentalSubtotal - booking.DiscountAmount + quotedChargeTotal + returnChargeTotal);
+        var taxableSubtotal = Math.Max(0, rentalSubtotal - booking.DiscountAmount +
+            booking.Charges.Where(x => x.IsTaxable).Sum(x => x.Quantity * x.UnitRate) + returnChargeTotal);
+        var invoiceTax = decimal.Round(taxableSubtotal * booking.TaxRate / 100m, 2);
         var paid = await db.RentalPayments.Where(x => x.BookingId == bookingId && x.Status == PaymentStatus.Recorded &&
             (x.Type == PaymentType.RentalCharge || x.Type == PaymentType.AdditionalCharge)).SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
+        var invoiceLines = new List<InvoiceLine>
+        {
+            new() { Description = "Rental charges", Quantity = 1, UnitPrice = rentalSubtotal, TaxRate = booking.TaxRate, IsTaxable = true },
+        };
+        if (booking.DiscountAmount > 0)
+            invoiceLines.Add(new InvoiceLine { Description = "Discount", Quantity = 1, UnitPrice = -booking.DiscountAmount, TaxRate = booking.TaxRate, IsTaxable = true });
+        invoiceLines.AddRange(booking.Charges.Select(x => new InvoiceLine { Description = x.Description, Quantity = x.Quantity,
+            UnitPrice = x.UnitRate, TaxRate = booking.TaxRate, IsTaxable = x.IsTaxable }));
+        foreach (var line in new[]
+        {
+            ("Late return", request.LateFee), ("Excess kilometres / hours", request.ExcessUsageCharge),
+            ("Refuelling", request.RefuellingCharge), ("Cleaning", request.CleaningCharge),
+            ("Damage", request.DamageCharge), (request.AdditionalChargesDescription ?? "Other charges", request.AdditionalCharges),
+        }.Where(x => x.Item2 > 0))
+            invoiceLines.Add(new InvoiceLine { Description = line.Item1, Quantity = 1, UnitPrice = line.Item2,
+                TaxRate = booking.TaxRate, IsTaxable = true });
         var invoice = new RentalInvoice
         {
             BookingId = booking.Id, InvoiceNumber = $"INV-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
-            LineItemsJson = System.Text.Json.JsonSerializer.Serialize(new[] { new { description = "Rental charges", amount = rentalSubtotal }, new { description = "Discount", amount = -booking.DiscountAmount }, new { description = "Late return", amount = request.LateFee }, new { description = "Excess kilometres / hours", amount = request.ExcessUsageCharge }, new { description = "Refuelling", amount = request.RefuellingCharge }, new { description = "Cleaning", amount = request.CleaningCharge }, new { description = "Damage", amount = request.DamageCharge }, new { description = request.AdditionalChargesDescription ?? "Other charges", amount = request.AdditionalCharges } }),
+            LineItemsJson = System.Text.Json.JsonSerializer.Serialize(invoiceLines.Select(x => new
+                { description = x.Description, quantity = x.Quantity, unitPrice = x.UnitPrice, amount = x.Quantity * x.UnitPrice })),
             Subtotal = invoiceSubtotal, TaxAmount = invoiceTax, Total = invoiceSubtotal + invoiceTax,
             AmountPaid = paid, BalanceDue = Math.Max(0, invoiceSubtotal + invoiceTax - paid),
             Status = paid >= invoiceSubtotal + invoiceTax ? InvoiceStatus.Paid : paid > 0 ? InvoiceStatus.PartiallyPaid : InvoiceStatus.Issued,
+            Lines = invoiceLines,
         };
         db.RentalInvoices.Add(invoice);
         if (!string.IsNullOrWhiteSpace(booking.Customer?.Email)) db.RentalNotifications.Add(new RentalNotification { BookingId = booking.Id, Channel = NotificationChannel.Email, Recipient = booking.Customer.Email, Subject = $"Final invoice {invoice.InvoiceNumber}", Message = $"Your rental {booking.BookingNumber} has been returned. Final total: FJD {invoice.Total:0.00}; balance due: FJD {invoice.BalanceDue:0.00}." });

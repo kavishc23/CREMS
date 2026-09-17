@@ -1,21 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
+import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
+import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import {
   Alert,
   Box,
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Divider,
   FormControl,
   InputLabel,
+  InputAdornment,
   MenuItem,
   Select,
   Stack,
+  TextField,
   Typography,
 } from '@mui/material'
 import { AssetProfileDialog } from '../components/AssetProfileDialog'
+import { PageHeader } from '../components/PageHeader'
 import { api } from '../api/client'
 
 type Asset = { id: string; assetNumber: string; name: string; status: string; branchId: string; divisionId: string | null }
@@ -26,7 +30,7 @@ type Calendar = {
   maintenance: Event[]
   transfers: Event[]
   personnel: { personnelId: string; fullName: string; startAt: string; endAt: string; type: string; reference: string }[]
-  closures: { id: string; date: string; name: string; isClosed: boolean }[]
+  closures: { id: string; branchId: string; date: string; name: string; isClosed: boolean }[]
 }
 
 type DayStatus = { label: string; short: string; color: string; textColor: string; busy: boolean }
@@ -48,7 +52,7 @@ function startOfDay(date: Date) {
 
 function addDays(date: Date, days: number) {
   const copy = startOfDay(date)
-  copy.setTime(copy.getTime() + days * DAY_IN_MS)
+  copy.setDate(copy.getDate() + days)
   return copy
 }
 
@@ -65,38 +69,6 @@ function formatDate(date: Date, style: 'short' | 'day' = 'short') {
     : { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-function formatDisplayDate(date: Date) {
-  const day = String(date.getDate()).padStart(2, '0')
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const year = date.getFullYear()
-  return `${day}/${month}/${year}`
-}
-
-function parseDisplayDate(value: string) {
-  const cleaned = value.trim()
-  const match = cleaned.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-
-  if (!match) return null
-
-  const [, day, month, year] = match
-  const parsedDay = Number(day)
-  const parsedMonth = Number(month)
-  const parsedYear = Number(year)
-
-  if (!parsedDay || !parsedMonth || parsedYear < 1900) return null
-
-  const date = new Date(parsedYear, parsedMonth - 1, parsedDay)
-  if (
-    date.getFullYear() !== parsedYear ||
-    date.getMonth() !== parsedMonth - 1 ||
-    date.getDate() !== parsedDay
-  ) {
-    return null
-  }
-
-  return date
-}
-
 function overlapsDate(date: Date, startAt: string, endAt: string) {
   const start = new Date(startAt)
   const end = new Date(endAt)
@@ -107,44 +79,43 @@ function overlapsDate(date: Date, startAt: string, endAt: string) {
   return start < dayEnd && end > dayStart
 }
 
-function getAssetStatusForDate(assetId: string, date: Date, events: Event[]): DayStatus {
-  const matches = events.filter((event) => event.assetId === assetId && overlapsDate(date, event.startAt, event.endAt))
+function getAssetStatusForDate(asset: Asset, date: Date, events: Event[]): DayStatus {
+  const matches = events.filter((event) => event.assetId === asset.id && overlapsDate(date, event.startAt, event.endAt))
 
   if (!matches.length) {
+    if (['Reserved', 'Rented'].includes(asset.status)) return STATUS_PALETTE.booked
+    if (asset.status === 'Inspection') return { ...STATUS_PALETTE.maintenance, label: 'Inspection', short: 'I' }
+    if (asset.status === 'Maintenance') return STATUS_PALETTE.maintenance
+    if (['OutOfService', 'Retired'].includes(asset.status)) return STATUS_PALETTE.closed
     return STATUS_PALETTE.available
   }
 
-  switch (matches[0].type.toLowerCase()) {
-    case 'maintenance':
-      return STATUS_PALETTE.maintenance
-    case 'transfer':
-      return STATUS_PALETTE.transfer
-    case 'personnel':
-      return { ...STATUS_PALETTE.booked, label: 'Personnel', short: 'P' }
-    default:
-      return STATUS_PALETTE.booked
-  }
+  if (matches.some(event => event.type.toLowerCase() === 'maintenance')) return STATUS_PALETTE.maintenance
+  if (matches.some(event => event.type.toLowerCase() === 'transfer')) return STATUS_PALETTE.transfer
+  return STATUS_PALETTE.booked
 }
 
 export function PlanningCalendarPage() {
   const [data, setData] = useState<Calendar | null>(null)
   const [error, setError] = useState('')
-  const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()))
   const [rangeStartDate, setRangeStartDate] = useState(() => startOfDay(new Date()))
   const [rangeEndDate, setRangeEndDate] = useState(() => addDays(startOfDay(new Date()), 13))
   const [rangeDays, setRangeDays] = useState(14)
   const [selectedAssetId, setSelectedAssetId] = useState('all')
+  const [assetSearch, setAssetSearch] = useState('')
   const [branchFilter, setBranchFilter] = useState('all')
   const [divisionFilter, setDivisionFilter] = useState('all')
   const [availableOnly, setAvailableOnly] = useState(false)
   const [detailAssetId, setDetailAssetId] = useState<string | null>(null)
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [divisions, setDivisions] = useState<{ id: string; name: string }[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const from = addDays(rangeStartDate, -7)
     const to = addDays(rangeEndDate, 7)
 
+    setLoading(true); setError('')
     void api.get<Calendar>('/planning/calendar', {
       params: {
         from: from.toISOString(),
@@ -153,6 +124,7 @@ export function PlanningCalendarPage() {
     })
       .then((response) => setData(response.data))
       .catch(() => setError('Unable to load availability planning.'))
+      .finally(() => setLoading(false))
   }, [rangeEndDate, rangeStartDate])
 
   useEffect(() => {
@@ -180,10 +152,24 @@ export function PlanningCalendarPage() {
     return [...data.events, ...data.maintenance, ...data.transfers]
   }, [data])
 
+  const visibleClosures = useMemo(() => {
+    if (!data) return []
+    const firstKey = toLocalDateKey(rangeStartDate)
+    const lastKey = toLocalDateKey(rangeEndDate)
+    return data.closures.filter(closure => closure.date >= firstKey && closure.date <= lastKey)
+  }, [data, rangeEndDate, rangeStartDate])
+
   const closureMap = useMemo(() => {
     if (!data) return new Map<string, string>()
-    return new Map(data.closures.map((closure) => [closure.date, closure.name]))
-  }, [data])
+    return new Map(visibleClosures.filter(closure => closure.isClosed).map((closure) => [`${closure.branchId}:${closure.date}`, closure.name]))
+  }, [data, visibleClosures])
+
+  const visibleBookingEvents = useMemo(() => {
+    if (!data) return []
+    const rangeEndExclusive = addDays(rangeEndDate, 1)
+    return data.events.filter(event => new Date(event.startAt) < rangeEndExclusive && new Date(event.endAt) > rangeStartDate)
+      .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
+  }, [data, rangeEndDate, rangeStartDate])
 
   const todayKey = toLocalDateKey(new Date())
 
@@ -191,14 +177,16 @@ export function PlanningCalendarPage() {
     if (!data) return []
 
     return data.assets.filter((asset) => {
+      const search = assetSearch.trim().toLowerCase()
+      if (search && !`${asset.assetNumber} ${asset.name}`.toLowerCase().includes(search)) return false
       if (selectedAssetId !== 'all' && asset.id !== selectedAssetId) return false
       if (branchFilter !== 'all' && asset.branchId !== branchFilter) return false
       if (divisionFilter !== 'all' && asset.divisionId !== divisionFilter) return false
       if (!availableOnly) return true
 
-      return !visibleDates.some((date) => getAssetStatusForDate(asset.id, date, allEvents).busy)
+      return !visibleDates.some((date) => closureMap.has(`${asset.branchId}:${toLocalDateKey(date)}`) || getAssetStatusForDate(asset, date, allEvents).busy)
     })
-  }, [allEvents, branchFilter, data, divisionFilter, selectedAssetId, availableOnly, visibleDates])
+  }, [allEvents, assetSearch, branchFilter, closureMap, data, divisionFilter, selectedAssetId, availableOnly, visibleDates])
 
   const availabilitySummary = useMemo(() => {
     const summary = { available: 0, booked: 0, maintenance: 0, transfer: 0 }
@@ -207,7 +195,7 @@ export function PlanningCalendarPage() {
 
     for (const asset of visibleAssets) {
       for (const date of visibleDates) {
-        const status = getAssetStatusForDate(asset.id, date, allEvents)
+        const status = closureMap.has(`${asset.branchId}:${toLocalDateKey(date)}`) ? STATUS_PALETTE.closed : getAssetStatusForDate(asset, date, allEvents)
 
         if (status.label === 'Available') summary.available += 1
         else if (status.label === 'Booked' || status.label === 'Personnel') summary.booked += 1
@@ -217,7 +205,7 @@ export function PlanningCalendarPage() {
     }
 
     return summary
-  }, [allEvents, visibleAssets, visibleDates, data])
+  }, [allEvents, closureMap, visibleAssets, visibleDates, data])
 
   if (error) {
     return <Alert severity="error">{error}</Alert>
@@ -233,13 +221,9 @@ export function PlanningCalendarPage() {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3, lg: 4 } }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} gap={2} mb={3}>
-        <Box>
-          <Typography variant="h4" fontWeight={850}>Asset availability calendar</Typography>
-          <Typography color="text.secondary">Track bookings, maintenance, transfers, and closures across the fleet.</Typography>
-        </Box>
-
+      <PageHeader icon={<EventAvailableOutlined />} title="Asset availability calendar" subtitle="Track bookings, maintenance, transfers, and closures across the fleet." actions={
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+          {loading && <CircularProgress size={18} thickness={5} />}
           <Button
             variant="outlined"
             size="small"
@@ -248,7 +232,6 @@ export function PlanningCalendarPage() {
               const nextEnd = addDays(nextStart, rangeDays - 1)
               setRangeStartDate(nextStart)
               setRangeEndDate(nextEnd)
-              setAnchorDate(nextStart)
             }}
           >
             Previous
@@ -260,7 +243,6 @@ export function PlanningCalendarPage() {
               const today = startOfDay(new Date())
               setRangeStartDate(today)
               setRangeEndDate(addDays(today, rangeDays - 1))
-              setAnchorDate(today)
             }}
           >
             Today
@@ -273,17 +255,26 @@ export function PlanningCalendarPage() {
               const nextEnd = addDays(nextStart, rangeDays - 1)
               setRangeStartDate(nextStart)
               setRangeEndDate(nextEnd)
-              setAnchorDate(nextStart)
             }}
           >
             Next
           </Button>
         </Stack>
-      </Stack>
+      } />
 
-      <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between" gap={2} mb={2}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }} flexWrap="wrap">
-          <FormControl size="small" sx={{ minWidth: 180 }}>
+      <Card variant="outlined" sx={{ mb: 2.5, borderTop: '3px solid', borderTopColor: 'secondary.main' }}><CardContent sx={{ p: { xs: 2, md: 2.5 } }}><Box sx={{
+        display: 'grid', gap: 1.5, alignItems: 'center',
+        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))', xl: 'minmax(220px, 1.3fr) repeat(3, minmax(150px, 1fr)) minmax(110px, .7fr) repeat(2, minmax(145px, .85fr)) auto' },
+      }}>
+          <TextField
+            label="Search vehicle or asset"
+            placeholder="Name or asset number"
+            value={assetSearch}
+            onChange={(event) => setAssetSearch(event.target.value)}
+            fullWidth
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined fontSize="small" /></InputAdornment> }}
+          />
+          <FormControl size="small" fullWidth>
             <InputLabel id="asset-filter-label">Asset</InputLabel>
             <Select
               labelId="asset-filter-label"
@@ -298,7 +289,7 @@ export function PlanningCalendarPage() {
             </Select>
           </FormControl>
 
-          <FormControl size="small" sx={{ minWidth: 180 }}>
+          <FormControl size="small" fullWidth>
             <InputLabel id="branch-filter-label">Branch</InputLabel>
             <Select
               labelId="branch-filter-label"
@@ -313,7 +304,7 @@ export function PlanningCalendarPage() {
             </Select>
           </FormControl>
 
-          <FormControl size="small" sx={{ minWidth: 180 }}>
+          <FormControl size="small" fullWidth>
             <InputLabel id="division-filter-label">Division</InputLabel>
             <Select
               labelId="division-filter-label"
@@ -328,7 +319,7 @@ export function PlanningCalendarPage() {
             </Select>
           </FormControl>
 
-          <FormControl size="small" sx={{ minWidth: 140 }}>
+          <FormControl size="small" fullWidth>
             <InputLabel id="range-filter-label">Range</InputLabel>
             <Select
               labelId="range-filter-label"
@@ -341,7 +332,6 @@ export function PlanningCalendarPage() {
                 setRangeDays(nextRangeDays)
                 setRangeStartDate(nextStart)
                 setRangeEndDate(nextEnd)
-                setAnchorDate(nextStart)
               }}
             >
               <MenuItem value={7}>7 days</MenuItem>
@@ -351,113 +341,68 @@ export function PlanningCalendarPage() {
             </Select>
           </FormControl>
 
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', minWidth: 300 }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 120 }}>
-              <Typography variant="caption" color="text.secondary">Start</Typography>
-              <input
-                type="text"
-                value={formatDisplayDate(rangeStartDate)}
-                onChange={(event) => {
-                  const nextStart = parseDisplayDate(event.target.value)
-                  if (!nextStart) return
-                  const updatedStart = startOfDay(nextStart)
-                  const updatedEnd = rangeEndDate < updatedStart ? updatedStart : rangeEndDate
-                  setRangeStartDate(updatedStart)
-                  setRangeEndDate(updatedEnd)
-                  setAnchorDate(updatedStart)
-                  setRangeDays(Math.max(1, Math.round((updatedEnd.getTime() - updatedStart.getTime()) / DAY_IN_MS) + 1))
-                }}
-                placeholder="DD/MM/YYYY"
-                inputMode="numeric"
-                style={{
-                  border: '1px solid #d1d5db',
-                  borderRadius: 10,
-                  padding: '10px 12px',
-                  background: '#fff',
-                  fontSize: 16,
-                  fontWeight: 500,
-                  color: '#374151',
-                  minHeight: 42,
-                  boxShadow: 'inset 0 1px 2px rgba(15, 23, 42, 0.04)',
-                }}
-              />
-            </Box>
-            <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 120 }}>
-              <Typography variant="caption" color="text.secondary">End</Typography>
-              <input
-                type="text"
-                value={formatDisplayDate(rangeEndDate)}
-                onChange={(event) => {
-                  const nextEnd = parseDisplayDate(event.target.value)
-                  if (!nextEnd) return
-                  const updatedEnd = startOfDay(nextEnd)
-                  const updatedStart = rangeStartDate > updatedEnd ? updatedEnd : rangeStartDate
-                  setRangeEndDate(updatedEnd)
-                  setRangeStartDate(updatedStart)
-                  setAnchorDate(updatedStart)
-                  setRangeDays(Math.max(1, Math.round((updatedEnd.getTime() - updatedStart.getTime()) / DAY_IN_MS) + 1))
-                }}
-                placeholder="DD/MM/YYYY"
-                inputMode="numeric"
-                style={{
-                  border: '1px solid #d1d5db',
-                  borderRadius: 10,
-                  padding: '10px 12px',
-                  background: '#fff',
-                  fontSize: 16,
-                  fontWeight: 500,
-                  color: '#374151',
-                  minHeight: 42,
-                  boxShadow: 'inset 0 1px 2px rgba(15, 23, 42, 0.04)',
-                }}
-              />
-            </Box>
-          </Box>
-        </Stack>
-
+          <TextField fullWidth type="date" label="Start" value={toLocalDateKey(rangeStartDate)} InputLabelProps={{ shrink: true }} onChange={(event) => {
+            const updatedStart = startOfDay(new Date(`${event.target.value}T00:00:00`))
+            if (Number.isNaN(updatedStart.getTime())) return
+            setRangeStartDate(updatedStart)
+            setRangeEndDate(addDays(updatedStart, rangeDays - 1))
+          }} />
+          <TextField fullWidth type="date" label="End" value={toLocalDateKey(rangeEndDate)} InputLabelProps={{ shrink: true }} inputProps={{ min: toLocalDateKey(rangeStartDate) }} onChange={(event) => {
+            const updatedEnd = startOfDay(new Date(`${event.target.value}T00:00:00`))
+            if (Number.isNaN(updatedEnd.getTime()) || updatedEnd < rangeStartDate) return
+            setRangeEndDate(updatedEnd)
+            setRangeDays(Math.max(1, Math.round((updatedEnd.getTime() - rangeStartDate.getTime()) / DAY_IN_MS) + 1))
+          }} />
         <Button
           variant={availableOnly ? 'contained' : 'outlined'}
           color="success"
           size="small"
           onClick={() => setAvailableOnly((current) => !current)}
+          sx={{ minHeight: 40, whiteSpace: 'nowrap', justifySelf: { xs: 'stretch', xl: 'end' } }}
         >
           {availableOnly ? 'Showing available only' : 'Show available only'}
         </Button>
-      </Stack>
+      </Box></CardContent></Card>
 
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} mb={2} alignItems={{ xs: 'flex-start', md: 'center' }}>
+      <Stack direction="row" spacing={1} mb={2.5} alignItems="center" flexWrap="wrap">
         {Object.values(STATUS_PALETTE).map((status) => (
-          <Stack key={status.label} direction="row" spacing={0.75} alignItems="center" sx={{ px: 0.75, py: 0.5, borderRadius: 999, bgcolor: '#f8fafc', border: '1px solid #e5e7eb' }}>
-            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: status.color, border: '1px solid rgba(0,0,0,0.08)' }} />
+          <Stack key={status.label} direction="row" spacing={0.75} alignItems="center" sx={{ px: 1.25, py: 0.65, borderRadius: 1, bgcolor: 'background.paper', border: 1, borderColor: 'divider' }}>
+            <Box sx={{ width: 9, height: 9, borderRadius: .5, bgcolor: status.color, border: '1px solid rgba(0,0,0,0.08)' }} />
             <Typography variant="caption" sx={{ color: status.textColor, fontWeight: 700 }}>{status.label}</Typography>
           </Stack>
         ))}
       </Stack>
 
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} mb={2}>
-        <Card variant="outlined" sx={{ flex: 1, bgcolor: '#fffdf4', borderColor: '#f7d972' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2.5}>
+        <Card variant="outlined" sx={{ flex: 1, bgcolor: '#15140f', color: 'white' }}>
           <CardContent sx={{ py: 1.5 }}>
-            <Typography variant="caption" color="text.secondary">Current period</Typography>
+            <Typography variant="overline" sx={{ color: '#ffed00' }}>Current period</Typography>
             <Typography variant="h6" fontWeight={800}>{formatDate(visibleDates[0], 'short')} - {formatDate(visibleDates[visibleDates.length - 1], 'short')}</Typography>
           </CardContent>
         </Card>
         <Card variant="outlined" sx={{ flex: 1 }}>
           <CardContent sx={{ py: 1.5 }}>
-            <Typography variant="caption" color="text.secondary">Fleet coverage</Typography>
+            <Typography variant="overline" color="text.secondary">Fleet coverage</Typography>
             <Typography variant="h6" fontWeight={800}>{visibleAssets.length} assets shown</Typography>
           </CardContent>
         </Card>
         <Card variant="outlined" sx={{ flex: 1 }}>
           <CardContent sx={{ py: 1.5 }}>
-            <Typography variant="caption" color="text.secondary">Planned closures</Typography>
-            <Typography variant="h6" fontWeight={800}>{data.closures.length} items</Typography>
+            <Typography variant="overline" color="text.secondary">Available asset-days</Typography>
+            <Typography variant="h6" fontWeight={800}>{availabilitySummary.available} of {visibleAssets.length * visibleDates.length}</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent sx={{ py: 1.5 }}>
+            <Typography variant="overline" color="text.secondary">Planned closures</Typography>
+            <Typography variant="h6" fontWeight={800}>{visibleClosures.filter(closure => closure.isClosed).length} items</Typography>
           </CardContent>
         </Card>
       </Stack>
 
-      <Card variant="outlined" sx={{ borderWidth: 1.5, borderColor: '#d4d4d8' }}>
+      <Card variant="outlined" sx={{ borderColor: 'divider', boxShadow: '0 12px 30px rgba(21,20,15,.06)' }}>
         <CardContent sx={{ p: 0 }}>
-          <Box sx={{ overflowX: 'auto' }}>
+          <Box className="crems-scroll" sx={{ overflowX: 'auto' }}>
             <Box sx={{ minWidth: 900, p: 1.5 }}>
               <Box
                 sx={{
@@ -467,7 +412,7 @@ export function PlanningCalendarPage() {
                   alignItems: 'stretch',
                 }}
               >
-                <Box sx={{ fontWeight: 900, py: 1.25, px: 1, borderRadius: 1, bgcolor: '#f8fafc', color: '#111827' }}>Asset</Box>
+                <Box sx={{ fontWeight: 900, py: 1.25, px: 1.5, borderRadius: 1, bgcolor: '#15140f', color: '#fff', position: 'sticky', left: 0, zIndex: 4 }}>Asset</Box>
                 {visibleDates.map((date) => {
                   const dateKey = toLocalDateKey(date)
                   const isToday = dateKey === todayKey
@@ -480,7 +425,7 @@ export function PlanningCalendarPage() {
                         fontWeight: 800,
                         fontSize: 11,
                         borderRadius: 1,
-                        bgcolor: isToday ? '#fff7d6' : '#f8fafc',
+                        bgcolor: isToday ? '#ffed00' : '#f3f2ed',
                         color: isToday ? '#7a4b00' : '#111827',
                         border: isToday ? '1px solid #f5c451' : 'none',
                       }}
@@ -497,15 +442,15 @@ export function PlanningCalendarPage() {
                 ) : (
                   visibleAssets.map((asset) => (
                     <Box key={asset.id} sx={{ display: 'contents' }}>
-                      <Box sx={{ py: 1.5, pr: 1, borderTop: '1px solid', borderColor: '#e5e7eb', bgcolor: '#ffffff', borderLeft: '4px solid #ffed00' }}>
+                      <Box onClick={() => setDetailAssetId(asset.id)} sx={{ py: 1.5, px: 1.25, borderTop: '1px solid', borderColor: 'divider', bgcolor: '#ffffff', borderLeft: '4px solid #ffed00', position: 'sticky', left: 0, zIndex: 3, cursor: 'pointer', '&:hover': { bgcolor: '#fffdeb' } }}>
                         <Typography variant="body2" fontWeight={800}>{asset.assetNumber}</Typography>
                         <Typography variant="caption" color="text.secondary">{asset.name}</Typography>
                       </Box>
 
                       {visibleDates.map((date) => {
                         const dateKey = toLocalDateKey(date)
-                        const closureName = closureMap.get(dateKey)
-                        const status = getAssetStatusForDate(asset.id, date, allEvents)
+                        const closureName = closureMap.get(`${asset.branchId}:${dateKey}`)
+                        const status = getAssetStatusForDate(asset, date, allEvents)
                         const cellColor = closureName ? '#f5f5f5' : status.color
                         const textColor = closureName ? '#616161' : status.textColor
                         const cellText = closureName ? 'Closed' : status.short
@@ -534,7 +479,7 @@ export function PlanningCalendarPage() {
                               cursor: 'pointer',
                               transition: 'transform 0.15s ease, box-shadow 0.15s ease',
                               '&:hover': {
-                                boxShadow: '0 0 0 2px rgba(19, 100, 255, 0.18)',
+                                boxShadow: '0 0 0 2px rgba(201,171,0,.35)',
                                 transform: 'translateY(-1px)',
                               },
                               boxShadow: isToday ? 'inset 0 0 0 1px rgba(122,75,0,0.08)' : closureName ? 'inset 0 0 0 1px rgba(0,0,0,0.04)' : 'none',
@@ -560,11 +505,11 @@ export function PlanningCalendarPage() {
         <Card variant="outlined" sx={{ flex: 1 }}>
           <CardContent>
             <Typography variant="h6" fontWeight={800} mb={1}>Upcoming bookings</Typography>
-            {data.events.length === 0 ? (
+            {visibleBookingEvents.length === 0 ? (
               <Typography color="text.secondary">No booking events in the selected range.</Typography>
             ) : (
               <Stack spacing={1.25}>
-                {data.events.slice(0, 5).map((event, index) => {
+                {visibleBookingEvents.slice(0, 5).map((event, index) => {
                   const asset = data.assets.find((item) => item.id === event.assetId)
                   return (
                     <Box
@@ -587,11 +532,11 @@ export function PlanningCalendarPage() {
         <Card variant="outlined" sx={{ flex: 1 }}>
           <CardContent>
             <Typography variant="h6" fontWeight={800} mb={1}>Branch closures</Typography>
-            {data.closures.length === 0 ? (
+            {visibleClosures.length === 0 ? (
               <Typography color="text.secondary">No branch closures in the selected range.</Typography>
             ) : (
               <Stack spacing={1.25}>
-                {data.closures.slice(0, 5).map((closure) => (
+                {visibleClosures.slice(0, 5).map((closure) => (
                   <Box key={closure.id} sx={{ p: 1.25, borderRadius: 1, bgcolor: '#fafafa' }}>
                     <Typography variant="body2" fontWeight={700}>{closure.name}</Typography>
                     <Typography variant="caption" color="text.secondary">

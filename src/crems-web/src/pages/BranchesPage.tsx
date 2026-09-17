@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import AddOutlined from '@mui/icons-material/AddOutlined'
 import EditOutlined from '@mui/icons-material/EditOutlined'
+import StoreOutlined from '@mui/icons-material/StoreOutlined'
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Stack, Switch,
@@ -10,6 +11,7 @@ import {
 } from '@mui/material'
 import { api } from '../api/client'
 import { roles } from '../auth/access'
+import { PageHeader } from '../components/PageHeader'
 
 type Branch = {
   id: string
@@ -87,13 +89,7 @@ export function BranchesPage({ userRoles }: { userRoles: string[] }) {
   }
 
   return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1400, mx: 'auto' }}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} mb={3}>
-      <Box>
-        <Typography variant="h4" fontWeight={750}>Branches</Typography>
-        <Typography color="text.secondary" mt={0.5}>Maintain the locations used to organize staff, assets and rental activity.</Typography>
-      </Box>
-      {isAdministrator && <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add branch</Button>}
-    </Stack>
+    <PageHeader icon={<StoreOutlined />} title="Branches" subtitle="Maintain the locations used to organize staff, assets and rental activity." actions={isAdministrator && <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add branch</Button>} />
     {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     <Card variant="outlined"><CardContent sx={{ p: 0 }}>
       {loading ? <Box sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> :

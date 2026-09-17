@@ -9,6 +9,7 @@ import {
   TableHead, TableRow, Tabs, TextField, Typography, Pagination,
 } from '@mui/material'
 import { api } from '../api/client'
+import { PageHeader } from '../components/PageHeader'
 
 type Invoice = { id:string;invoiceNumber:string;bookingNumber:string;customerName:string;branchName:string;total:number;amountPaid:number;balanceDue:number;status:string;issuedAt:string }
 type Payment = { id:string;bookingNumber:string;customerName:string;branchName:string;type:string;method:string;amount:number;receiptNumber:string;status:string;createdAt:string }
@@ -29,7 +30,7 @@ export function FinancePage(){
   const payments=useMemo(()=>data?.payments.filter(x=>[x.receiptNumber,x.bookingNumber,x.customerName,x.branchName,x.method,x.type].some(value=>value.toLowerCase().includes(term)))??[],[data,term])
   const records=tab===0?invoices:payments; const pageCount=Math.max(1,Math.ceil(records.length/20)); const invoiceRows=invoices.slice((page-1)*20,page*20); const paymentRows=payments.slice((page-1)*20,page*20)
   return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1550,mx:'auto'}}>
-    <Stack direction={{xs:'column',md:'row'}} justifyContent="space-between" gap={2} mb={3}><Box><Typography variant="h4" fontWeight={850}>Finance</Typography><Typography color="text.secondary" mt={.5}>Invoices, payments and customer balances for your permitted branches.</Typography></Box><Chip icon={<AccountBalanceWalletOutlined/>} label={`${data?.summary.unpaidInvoices??0} invoices require payment`} color={(data?.summary.unpaidInvoices??0)>0?'warning':'success'} variant="outlined"/></Stack>
+    <PageHeader icon={<AccountBalanceWalletOutlined/>} title="Finance" subtitle="Invoices, payments and customer balances for your permitted branches." actions={<Chip icon={<AccountBalanceWalletOutlined/>} label={`${data?.summary.unpaidInvoices??0} invoices require payment`} color={(data?.summary.unpaidInvoices??0)>0?'warning':'success'} variant="outlined"/>} />
     {error&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
     {loading?<Box sx={{minHeight:420,display:'grid',placeItems:'center'}}><CircularProgress/></Box>:data&&<>
       <Grid container spacing={2.5} mb={3}>{[

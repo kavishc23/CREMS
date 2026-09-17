@@ -69,19 +69,20 @@ export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPage
   const view = roleViews[primaryRole] ?? roleViews[roles.rentalOfficer]
   const firstName = userName.trim().split(/\s+/)[0] || 'there'
   return <Box sx={{ p: { xs: 2.5, sm: 4, lg: 5 }, maxWidth: 1380, mx: 'auto' }}>
-    <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ md: 'flex-end' }} gap={2} mb={3} sx={{bgcolor:'#202020',color:'#fff',p:{xs:3,md:4},borderRadius:2,position:'relative',overflow:'hidden',borderLeft:'5px solid #ffed00'}}>
-      <Box>
+    <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems="stretch" gap={0} mb={3.5} sx={{bgcolor:'#15140f',color:'#fff',borderRadius:1,position:'relative',overflow:'hidden',boxShadow:'0 14px 38px rgba(21,20,15,.14)'}}>
+      <Box sx={{position:'relative',p:{xs:3,md:4},flex:1}}>
         <Stack direction="row" gap={1} alignItems="center" mb={.75}>
-          <Typography variant="overline" fontWeight={600} letterSpacing={1.2} sx={{color:'#e0dac5'}}>{view.eyebrow}</Typography>
-          <Chip size="small" label={formatRole(primaryRole)} sx={{ fontWeight: 600, bgcolor: '#ffed00',color:'#242424' }} />
+          <Typography variant="overline" fontWeight={700} letterSpacing={1.2} sx={{color:'#cfc9b4'}}>{view.eyebrow}</Typography>
+          <Chip size="small" label={formatRole(primaryRole)} sx={{ fontWeight: 700, bgcolor: 'rgba(255,255,255,.1)',color:'#fff',border:'1px solid rgba(255,255,255,.18)' }} />
         </Stack>
-        <Typography variant="h4" fontWeight={850}>{view.title}</Typography>
-        <Typography sx={{color:'#d0cbbb'}} mt={1}>{formatToday()} · Welcome, {firstName}</Typography>
+        <Typography variant="h4" fontWeight={800}>{view.title}</Typography>
+        <Typography sx={{color:'#b9b3a0'}} mt={1}>Welcome back, {firstName}. Here is the work in your scope.</Typography>
       </Box>
-      <Box sx={{borderLeft:{md:'1px solid #5e5741'},pl:{md:3},maxWidth:270}}><Typography variant="overline" sx={{color:'#ffed00'}}>CARPENTERS FIJI</Typography><Typography variant="body2" sx={{color:'#e0dac5'}}>Fleet, rental desk and branch activity in one place.</Typography></Box>
+      <Box sx={{bgcolor:'#ffed00',color:'#15140f',p:{xs:2.5,md:4},width:{md:330},display:'flex',flexDirection:'column',justifyContent:'space-between',position:'relative',overflow:'hidden','&:after':{content:'""',position:'absolute',width:150,height:150,border:'28px solid rgba(21,20,15,.08)',borderRadius:'50%',right:-58,bottom:-85}}}><Typography variant="overline" fontWeight={800}>TODAY AT CARPENTERS</Typography><Box sx={{position:'relative',zIndex:1}}><Typography variant="h6" fontWeight={850}>{formatToday()}</Typography><Typography variant="body2" mt={.5}>Fleet, rental desk and branch activity in one place.</Typography></Box></Box>
     </Stack>
 
     {loadFailed && <Alert severity="warning" action={<Button color="inherit" size="small" onClick={() => void loadSummary()}>Retry</Button>} sx={{ mb: 2 }}>Live dashboard figures are temporarily unavailable.</Alert>}
+
 
     <Grid container spacing={{ xs: 2.5, md: 3.5 }}>
       {view.metricKeys.map(key => <Grid key={key} size={{ xs: 12, sm: 4 }}><MetricCard metricKey={key} value={summary[key]} loading={loading} /></Grid>)}
@@ -117,5 +118,5 @@ function statusTone(status:string){if(status==='Available')return 'success.main'
 function MetricCard({ metricKey, value, loading }: { metricKey: MetricKey; value: number; loading: boolean }) {
   const detail = metricDetails[metricKey]
   const percentage = metricKey === 'vehicleUtilization' || metricKey === 'equipmentUtilization'
-  return <Card variant="outlined" sx={{ height: '100%', borderTop: 4, borderTopColor: detail.tone }}><CardContent sx={{ p: { xs: 3, md: 3.25 } }}><Stack direction="row" justifyContent="space-between" gap={2.5}><Box><Typography variant="body2" color="text.secondary">{detail.label}</Typography>{loading ? <Skeleton width={72} height={52} /> : <Typography variant="h3" fontWeight={850} mt={.5}>{value}{percentage ? '%' : ''}</Typography>}<Typography variant="caption" color="text.secondary">{detail.helper}</Typography></Box><Avatar variant="rounded" sx={{ bgcolor: detail.tone, color: detail.tone === '#d14343' ? 'white' : '#111', width: 46, height: 46 }}>{detail.icon}</Avatar></Stack></CardContent></Card>
+  return <Card variant="outlined" sx={{ height: '100%', position:'relative', overflow:'hidden', '&:before':{content:'""',position:'absolute',left:0,top:0,bottom:0,width:5,bgcolor:detail.tone} }}><CardContent sx={{ p: { xs: 3, md: 3.25 }, pl:{xs:3.5,md:4} }}><Stack direction="row" justifyContent="space-between" gap={2.5}><Box><Typography variant="overline" color="text.secondary">{detail.label}</Typography>{loading ? <Skeleton width={72} height={52} /> : <Typography variant="h3" fontWeight={850} mt={.25}>{value}{percentage ? '%' : ''}</Typography>}<Typography variant="caption" color="text.secondary">{detail.helper}</Typography></Box><Avatar variant="square" sx={{ bgcolor: '#15140f', color: '#ffed00', width: 44, height: 44, borderRadius:1 }}>{detail.icon}</Avatar></Stack></CardContent></Card>
 }

@@ -6,6 +6,7 @@ import StopCircleOutlined from '@mui/icons-material/StopCircleOutlined'
 import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
 import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Stack, TextField, Typography } from '@mui/material'
 import { RentalsPage } from './RentalsPage'
+import { PageHeader } from '../components/PageHeader'
 import { api } from '../api/client'
 
 type Context = {
@@ -65,7 +66,7 @@ export function AssetQrPage() {
     }
   }
 
-  return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1000, mx: 'auto' }}><Stack direction="row" alignItems="center" gap={1.5} mb={.5}><QrCodeScannerOutlined color="secondary" fontSize="large" /><Typography variant="h4" fontWeight={800}>Scan vehicle or equipment</Typography></Stack><Typography color="text.secondary" mb={3}>Scan the label to start the correct check-out or check-in workflow.</Typography>
+  return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1000, mx: 'auto' }}><PageHeader icon={<QrCodeScannerOutlined />} title="Scan vehicle or equipment" subtitle="Scan the label to start the correct check-out or check-in workflow." />
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}{success && <Alert icon={<CheckCircleOutlined />} severity="success" sx={{ mb: 2 }}>{success}</Alert>}
     <Card variant="outlined"><CardContent><Stack spacing={2}><Stack direction={{ xs: 'column', sm: 'row' }} gap={1}><TextField fullWidth label="QR value or asset number" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Example: VEH-SUV-1001" /><Button variant="contained" disabled={loading || !code.trim()} onClick={() => void resolve()}>{loading ? <CircularProgress size={22} /> : 'Find asset'}</Button><Button variant="outlined" startIcon={scanning ? <StopCircleOutlined /> : <CameraAltOutlined />} onClick={() => scanning ? stopScanner() : void startScanner()}>{scanning ? 'Stop' : 'Use camera'}</Button></Stack><Box sx={{ display: scanning ? 'block' : 'none', bgcolor: '#111', borderRadius: 2, overflow: 'hidden', width: '100%', height: { xs: 280, sm: 420 } }}><video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview for QR scanning" style={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain' }} /></Box><Typography variant="caption" color="text.secondary">If a label is damaged, enter the asset number printed beneath the QR code.</Typography></Stack></CardContent></Card>
     {context && <Stack spacing={2} mt={2}><Card variant="outlined"><CardContent><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2}><Box><Typography variant="overline" color="text.secondary">{context.asset.assetNumber}</Typography><Typography variant="h5" fontWeight={800}>{context.asset.name}</Typography><Typography color="text.secondary">{context.asset.branchName} · {context.asset.registrationNumber || context.asset.serialNumber || context.asset.type}</Typography></Box><Stack alignItems={{ sm: 'flex-end' }} gap={1}><Chip label={context.asset.status.replace(/([a-z])([A-Z])/g, '$1 $2')} /><Chip color={context.action === 'CheckOut' ? 'info' : context.action === 'CheckIn' ? 'warning' : 'default'} label={context.action === 'CheckOut' ? 'Ready for check-out' : context.action === 'CheckIn' ? 'Ready for check-in' : 'No transaction available'} /></Stack></Stack></CardContent></Card>

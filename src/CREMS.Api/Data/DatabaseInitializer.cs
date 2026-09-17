@@ -46,7 +46,17 @@ public static class DatabaseInitializer
         var refreshDevelopmentData = app.Configuration.GetValue<bool>("DevelopmentData:RefreshOnStartup");
         var developmentDataMissing = app.Environment.IsDevelopment() &&
             (!await db.Divisions.AsNoTracking().AnyAsync(cancellationToken) ||
-             !await db.Assets.AsNoTracking().AnyAsync(cancellationToken));
+             !await db.Assets.AsNoTracking().AnyAsync(cancellationToken) ||
+             !await db.Assets.AsNoTracking().AnyAsync(asset => asset.IsActive &&
+                 asset.Division != null && asset.Division.Code == "SHIPPING" &&
+                 asset.Division.IsActive && asset.Division.IsPublic &&
+                 asset.ServiceOffering != null && asset.ServiceOffering.IsActive &&
+                 (asset.ServiceOffering.IsBookableOnline || asset.ServiceOffering.RequiresQuote) &&
+                 db.BranchDivisions.Any(link => link.BranchId == asset.BranchId &&
+                     link.DivisionId == asset.DivisionId && link.IsActive) &&
+                 db.BranchDivisionServices.Any(link => link.BranchId == asset.BranchId &&
+                     link.DivisionId == asset.DivisionId && link.ServiceOfferingId == asset.ServiceOfferingId &&
+                     link.IsActive && link.IsBookable), cancellationToken));
         if (app.Environment.IsDevelopment() && (refreshDevelopmentData || developmentDataMissing))
         {
             await SeedDevelopmentDataAsync(db, userManager, app.Environment.ContentRootPath, cancellationToken);
@@ -223,6 +233,13 @@ public static class DatabaseInitializer
                     Capabilities = seed.Capabilities, IsPublic = true, IsActive = true };
                 db.Divisions.Add(division);
             }
+            else if (seed.Code == "SHIPPING")
+            {
+                // Shipping hire was added after some databases already contained the division.
+                // Keep the seeded customer catalogue reachable without overwriting business text or pricing.
+                division.IsPublic = true;
+                division.IsActive = true;
+            }
             foreach (var service in seed.Services.Where(service => division.ServiceOfferings.All(x => x.Code != service.Code)))
             {
                 var offering = new ServiceOffering { Division = division, DivisionId = division.Id, Code = service.Code, Name = service.Name, Type = service.Type,
@@ -277,6 +294,11 @@ public static class DatabaseInitializer
                 var division = divisions[divisionCode];
                 if (!await db.BranchDivisions.AnyAsync(x => x.BranchId == branch.Id && x.DivisionId == division.Id, cancellationToken))
                     db.BranchDivisions.Add(new BranchDivision { BranchId = branch.Id, DivisionId = division.Id, IsActive = true });
+                else if (divisionCode == "SHIPPING")
+                {
+                    var assignment = await db.BranchDivisions.SingleAsync(x => x.BranchId == branch.Id && x.DivisionId == division.Id, cancellationToken);
+                    assignment.IsActive = true;
+                }
             }
         }
         var shippingBranchIds = new[] { branches["SUV"].Id, branches["LAU"].Id };
@@ -295,6 +317,11 @@ public static class DatabaseInitializer
                 if (assignment is null)
                     db.BranchDivisionServices.Add(new BranchDivisionService { BranchId = branchId,
                         DivisionId = shippingDivision.Id, ServiceOfferingId = service.Id, IsActive = true, IsBookable = true });
+                else
+                {
+                    assignment.IsActive = true;
+                    assignment.IsBookable = true;
+                }
             }
         }
         await db.SaveChangesAsync(cancellationToken);
@@ -486,7 +513,50 @@ public static class DatabaseInitializer
         {
             if (!branches.TryGetValue(seed.BranchCode, out var branch)) continue;
             // Seeding must never overwrite an asset edited by staff.
-            if (existingAssets.ContainsKey(seed.AssetNumber)) continue;
+            if (existingAssets.TryGetValue(seed.AssetNumber, out var existingAsset))
+            {
+                // Repair catalogue relationships for demo assets created by older versions.
+                // Operational fields such as status, rate, name and location remain staff-controlled.
+                var existingCategoryCode = seed.Type == AssetType.Vehicle ? "RENTAL_VEHICLE"
+                    : seed.Name.Contains("Portable Toilet", StringComparison.OrdinalIgnoreCase) ? "PORTABLE_TOILET"
+                    : seed.Name.Contains("Scaffold", StringComparison.OrdinalIgnoreCase) ? "SCAFFOLD"
+                    : seed.Name.Contains("Big Bin", StringComparison.OrdinalIgnoreCase) ? "BIG_BIN"
+                    : seed.Name.Contains("Forklift", StringComparison.OrdinalIgnoreCase) ? "FORKLIFT"
+                    : seed.Name.Contains("Generator", StringComparison.OrdinalIgnoreCase) ? "GENSET"
+                    : seed.Name.Contains("Excavator", StringComparison.OrdinalIgnoreCase) ||
+                      seed.Name.Contains("Backhoe", StringComparison.OrdinalIgnoreCase) ||
+                      seed.Name.Contains("Compactor", StringComparison.OrdinalIgnoreCase) ||
+                      seed.Name.Contains("Telehandler", StringComparison.OrdinalIgnoreCase) ? "HEAVY_MACHINE"
+                    : "GENERAL_EQUIPMENT";
+                var existingIsShippingAsset = seed.AssetNumber.StartsWith("SHP-", StringComparison.Ordinal);
+                existingAsset.DivisionId = seed.Type == AssetType.Vehicle ? divisions["MOTORS"].Id
+                    : existingIsShippingAsset ? divisions["SHIPPING"].Id : divisions["CARPTRAC"].Id;
+                existingAsset.AssetCategoryId = categories[existingCategoryCode].Id;
+                existingAsset.ServiceOfferingId = existingCategoryCode switch
+                {
+                    "RENTAL_VEHICLE" => services["VEHICLE_RENTAL"].Id,
+                    "PORTABLE_TOILET" => services["PORTABLE_TOILET_HIRE"].Id,
+                    "SCAFFOLD" => services["SCAFFOLDING_HIRE"].Id,
+                    "BIG_BIN" => services["BIG_BIN_HIRE"].Id,
+                    _ => services["EQUIPMENT_HIRE"].Id,
+                };
+                existingAsset.Category = categories[existingCategoryCode].Name;
+                existingAsset.Type = existingCategoryCode switch
+                {
+                    "RENTAL_VEHICLE" when seed.Name.Contains("Urvan") || seed.Name.Contains("Crew Cab") || seed.Name.Contains("Coach") || seed.Name.Contains("Navara") || seed.Name.Contains("D-Max") => AssetType.CommercialVehicle,
+                    "RENTAL_VEHICLE" => AssetType.PassengerVehicle,
+                    "HEAVY_MACHINE" => AssetType.HeavyEquipment,
+                    "FORKLIFT" => AssetType.MaterialHandlingEquipment,
+                    "GENSET" => AssetType.PowerEquipment,
+                    "GENERAL_EQUIPMENT" => AssetType.LightEquipment,
+                    "SCAFFOLD" => AssetType.Scaffolding,
+                    "PORTABLE_TOILET" => AssetType.PortableSanitation,
+                    "BIG_BIN" => AssetType.WasteContainer,
+                    _ => seed.Type,
+                };
+                existingAsset.RequiresDelivery = existingCategoryCode != "RENTAL_VEHICLE";
+                continue;
+            }
             if (!existingAssets.TryGetValue(seed.AssetNumber, out var asset))
             {
                 asset = new Asset { AssetNumber = seed.AssetNumber, Name = seed.Name, RequiresDelivery = seed.Type != AssetType.Vehicle };

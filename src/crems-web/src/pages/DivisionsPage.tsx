@@ -2,12 +2,14 @@ import { useEffect, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import AddOutlined from '@mui/icons-material/AddOutlined'
 import BusinessOutlined from '@mui/icons-material/BusinessOutlined'
+import AccountTreeOutlined from '@mui/icons-material/AccountTreeOutlined'
 import EditOutlined from '@mui/icons-material/EditOutlined'
 import {
   Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, FormControlLabel, FormGroup, Grid, MenuItem, Stack, TextField, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
+import { PageHeader } from '../components/PageHeader'
 
 const capabilityOptions = [
   ['Rental', 1], ['Maintenance', 2], ['Property leasing', 4], ['Logistics', 8],
@@ -42,7 +44,7 @@ export function DivisionsPage() {
   async function saveService(event: FormEvent) { event.preventDefault(); if (!serviceDivision) return; setSaving(true); setError(''); try { if (editingService) await api.put(`/divisions/${serviceDivision.id}/services/${editingService.id}`, service); else await api.post(`/divisions/${serviceDivision.id}/services`, service); closeService(); await load() } catch (e) { const data = axios.isAxiosError(e) ? e.response?.data : undefined; setError(data?.message ?? data?.detail ?? (data?.errors ? Object.values(data.errors).flat().join(' ') : 'Unable to save the service offering.')) } finally { setSaving(false) } }
 
   return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1400, mx: 'auto' }}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} mb={3}><Box><Typography variant="h4" fontWeight={750}>Divisions & services</Typography><Typography color="text.secondary" mt={.5}>Configure reusable CREMS capabilities without hard-coding a separate system for every Carpenters division.</Typography></Box><Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add division</Button></Stack>
+    <PageHeader icon={<AccountTreeOutlined />} title="Divisions & services" subtitle="Configure reusable CREMS capabilities without hard-coding a separate system for every Carpenters division." actions={<Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add division</Button>} />
     <Alert severity="info" sx={{ mb: 3 }}>A division controls staff visibility. A service controls what that division offers customers. Retire an old item by making it inactive so its history remains intact.</Alert>
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     {loading ? <Box sx={{ minHeight: 260, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : <Grid container spacing={2.5}>{divisions.map((division) => <Grid key={division.id} size={{ xs: 12, lg: 6 }}><Card variant="outlined" sx={{ height: '100%' }}><CardContent sx={{ p: 3 }}>

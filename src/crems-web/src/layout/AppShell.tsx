@@ -105,15 +105,16 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
   const currentPageLabel = navigation.find((item) => item.id === activePage)?.label ?? 'Home'
 
   const drawer = (
-    <Box sx={{ height: '100dvh', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#191919', color: 'white', borderTop: '4px solid #ffed00' }}>
-      <Toolbar sx={{ px: collapsed && desktop ? 2 : 2.5, minHeight: '84px !important', py: 1.5, gap: 0, flex: '0 0 auto', justifyContent: collapsed && desktop ? 'center' : 'flex-start' }}>
-        <Box component="img" src="/brand/carpenters-logo.png" alt="Carpenters Fiji" sx={{ width: 40, height: 40, flexShrink: 0, objectFit: 'contain', mr: collapsed && desktop ? 0 : 1.5 }} />
+    <Box sx={{ height: '100dvh', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#15140f', color: 'white' }}>
+      <Box sx={{ height: 3, flex: '0 0 auto', background: 'linear-gradient(90deg,#ffed00,#c9ab00)' }} />
+      <Toolbar sx={{ px: collapsed && desktop ? 2 : 2.5, minHeight: '80px !important', py: 1.5, gap: 0, flex: '0 0 auto', justifyContent: collapsed && desktop ? 'center' : 'flex-start', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+        <Box component="img" src="/brand/carpenters-logo.png" alt="Carpenters Fiji" sx={{ width: 42, height: 42, flexShrink: 0, objectFit: 'cover', mr: collapsed && desktop ? 0 : 1.5 }} />
         <Box sx={{ display: collapsed && desktop ? 'none' : 'block' }}>
-          <Typography variant="h6" fontWeight={700} lineHeight={1.1} sx={{letterSpacing:'.08em'}}>CREMS</Typography>
-          <Typography variant="caption" sx={{ color: '#d7d3c6', display:'block', mt:.5, whiteSpace:'nowrap', fontSize:10, letterSpacing:'.06em' }}>CARPENTERS FIJI</Typography>
+          <Typography variant="h6" fontWeight={750} lineHeight={1.1} sx={{letterSpacing:'.06em'}}>CREMS</Typography>
+          <Typography variant="caption" sx={{ color: '#ffed00', display:'block', mt:.4, whiteSpace:'nowrap', fontSize:9.5, letterSpacing:'.1em', fontWeight: 700 }}>CARPENTERS FIJI</Typography>
         </Box>
       </Toolbar>
-      <Box sx={{px:collapsed&&desktop?1:2,pb:1}}><Suspense fallback={null}><GlobalSearch /></Suspense></Box>
+      <Box sx={{px:collapsed&&desktop?1:2,pt:1.5,pb:1,display:'flex',justifyContent:collapsed&&desktop?'center':'stretch'}}><Suspense fallback={null}><GlobalSearch collapsed={collapsed && desktop} /></Suspense></Box>
       <List component="nav" aria-label="Staff workspaces" sx={{ px: 1.25, pt: 1, pb: 2, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', '&::-webkit-scrollbar': { width: 5 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#716a52', borderRadius: 8 }, '&::-webkit-scrollbar-track': { bgcolor: 'transparent' } }}>
         {(!collapsed || !desktop) && <Box sx={{ mx: .75, mb: 1.25, p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)' }}><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: .8 }}>Working in</Typography><Typography variant="body2" fontWeight={750} noWrap>{divisionName || 'Carpenters Fiji Group'}</Typography><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.62)' }}>{branchName || 'All branches'}</Typography></Box>}
         {sections.map((section) => {
@@ -134,16 +135,16 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
                 minHeight: 41,
                 px: collapsed && desktop ? 1.5 : 2,
                 justifyContent: collapsed && desktop ? 'center' : 'flex-start',
-                borderRadius: 1,
-                borderLeft:'3px solid transparent',
+                borderRadius: 1.25,
+                borderLeft: '3px solid transparent',
                 color: '#d4d1c8',
-                '&.Mui-selected': { bgcolor: '#ffed00', color: '#191919', borderLeftColor:'#ffed00' },
-                '&.Mui-selected:hover': { bgcolor: '#e8d800' },
+                '&.Mui-selected': { bgcolor: '#ffed00', color: '#15140f', borderLeftColor: '#fff', boxShadow: '0 5px 18px rgba(0,0,0,.22)' },
+                '&.Mui-selected:hover': { bgcolor: '#f4e300' },
                 '&:hover': { bgcolor: 'rgba(255,255,255,.08)' },
               }}
             >
               <ListItemIcon sx={{ color: 'inherit', minWidth: collapsed && desktop ? 0 : 40, justifyContent: 'center' }}>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 12.5, fontWeight: activePage === item.id ? 600 : 400 }} sx={{ display: collapsed && desktop ? 'none' : 'block' }} />
+              <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 12.5, fontWeight: activePage === item.id ? 700 : 400 }} sx={{ display: collapsed && desktop ? 'none' : 'block' }} />
             </ListItemButton>
           )
 
@@ -154,7 +155,10 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           ) : button
         })}</Box>})}
       </List>
-      {(!collapsed || !desktop) && <Box sx={{p:2,borderTop:'1px solid #37352c',flexShrink:0}}><Typography variant="body2" noWrap sx={{color:'#f3f1e9',fontWeight:600}}>{userName}</Typography><Typography variant="caption" sx={{color:'#bcb6a4'}}>{formatRole(getPrimaryRole(userRoles))}</Typography></Box>}
+      {(!collapsed || !desktop) && <Box sx={{p:2,borderTop:'1px solid rgba(255,255,255,.08)',flexShrink:0,display:'flex',alignItems:'center',gap:1.25}}>
+        <Box sx={{width:32,height:32,borderRadius:'50%',bgcolor:'#ffed00',color:'#15140f',display:'grid',placeItems:'center',fontWeight:800,fontSize:13,flexShrink:0}}>{userName.trim().slice(0,1).toUpperCase() || '?'}</Box>
+        <Box sx={{minWidth:0}}><Typography variant="body2" noWrap sx={{color:'#f3f1e9',fontWeight:650}}>{userName}</Typography><Typography variant="caption" sx={{color:'#a8a394'}}>{formatRole(getPrimaryRole(userRoles))}</Typography></Box>
+      </Box>}
     </Box>
   )
 
@@ -167,6 +171,8 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
         sx={{
           borderBottom: 1,
           borderColor: 'divider',
+          boxShadow: '0 1px 0 rgba(20,18,10,.03), 0 6px 16px rgba(20,18,10,.03)',
+          '&:after': { content: '""', position: 'absolute', left: 0, right: 0, bottom: -1, height: 3, bgcolor: 'secondary.main' },
           ml: { md: `${activeDrawerWidth}px` },
           width: { md: `calc(100% - ${activeDrawerWidth}px)` },
           transition: theme.transitions.create(['margin-left', 'width'], { duration: theme.transitions.duration.shorter }),
@@ -185,7 +191,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
               </IconButton>
             </Tooltip>
           )}
-          <Box><Typography variant="subtitle1" fontWeight={750} lineHeight={1.15}>{currentPageLabel}</Typography><Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>{divisionName || 'Carpenters Fiji Group'}{branchName ? ` · ${branchName}` : ' · Group-wide access'}</Typography></Box>
+          <Box><Typography variant="overline" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' }, lineHeight: 1.1 }}>{navigation.find(item=>item.id===activePage)?.section ?? 'Staff workspace'}</Typography><Typography variant="subtitle1" fontWeight={800} lineHeight={1.25}>{currentPageLabel}</Typography></Box>
           <Box sx={{ flexGrow: 1 }} />
           <Suspense fallback={null}><NotificationBell key={userName} canSend={canAccessPage(userRoles, 'bookings')} /></Suspense>
           <Button size="small" color="inherit" startIcon={<HelpOutlineOutlined />} onClick={() => setHelpOpen(true)} sx={{ mr: 1, display: { xs: 'none', sm: 'inline-flex' } }}>Help</Button>
@@ -193,7 +199,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           <Chip
             label={formatRole(getPrimaryRole(userRoles))}
             size="small"
-            sx={{ ml: 1.5, display: { xs: 'none', md: 'flex' }, bgcolor: '#fff5cb', color:'#685813', fontWeight: 600 }}
+            sx={{ ml: 1.5, display: { xs: 'none', md: 'flex' }, bgcolor: '#242424', color: '#ffed00', fontWeight: 700, border: '1px solid #ffed00' }}
           />
           <IconButton aria-label="Sign out" onClick={() => void onLogout()} sx={{ ml: 1 }}>
             <LogoutOutlined />
@@ -236,8 +242,10 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           aria-label="Breadcrumb"
           sx={{
             px: { xs: 2, sm: 3, lg: 4 },
-            py: 1.25,
-            bgcolor: 'transparent',
+            py: 1.1,
+            bgcolor: 'background.paper',
+            borderBottom: 1,
+            borderColor: 'divider',
             display:'flex', alignItems:'center', justifyContent:'space-between', gap:2,
           }}
         >
@@ -259,7 +267,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
             )}
             {activePage !== 'dashboard' && <Typography variant="body2" fontWeight={700} color="text.primary">{currentPageLabel}</Typography>}
           </Breadcrumbs>
-          <Typography variant="overline" color="text.secondary" sx={{display:{xs:'none',md:'block'}}}>{navigation.find(item=>item.id===activePage)?.section ?? 'Staff workspace'}</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{display:{xs:'none',md:'block'}}}>{divisionName || 'Carpenters Fiji Group'}{branchName ? ` · ${branchName}` : ' · Group-wide access'}</Typography>
         </Box>
         <Box className="staff-page-content" data-workspace={activePage}>{children}</Box>
       </Box>

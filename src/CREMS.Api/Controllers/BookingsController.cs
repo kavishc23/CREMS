@@ -9,6 +9,7 @@ using CREMS.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 
 namespace CREMS.Api.Controllers;
 
@@ -196,12 +197,13 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
 
         if (request.Approved && customerCase.Subject.StartsWith("Extension request", StringComparison.OrdinalIgnoreCase))
         {
-            const string marker = "Requested new return: ";
-            var startIndex = customerCase.Description.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            var endIndex = customerCase.Description.IndexOf(". Reason:", StringComparison.OrdinalIgnoreCase);
-            if (startIndex < 0 || endIndex <= startIndex || !DateTimeOffset.TryParse(customerCase.Description[(startIndex + marker.Length)..endIndex], out var requestedEnd))
+            if (booking.Status is not (BookingStatus.Confirmed or BookingStatus.ConvertedToRental))
+                return BadRequest(new { message = "Only confirmed or active rentals can be extended." });
+            if (!TryReadRequestedEnd(customerCase.Description, out var requestedEnd))
                 return BadRequest(new { message = "The requested return date could not be read." });
             var currentEnd = booking.Items.Max(x => x.EndAt);
+            if (requestedEnd <= currentEnd || requestedEnd > currentEnd.AddMonths(6))
+                return BadRequest(new { message = "The requested return date is no longer valid." });
             var assetIds = booking.Items.Select(x => x.AssetId).ToList();
             var conflict = await db.BookingItems.AnyAsync(x => x.BookingId != booking.Id && assetIds.Contains(x.AssetId) &&
                 x.StartAt < requestedEnd && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
@@ -225,6 +227,26 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             $"{customerCase.Subject}: {customerCase.Resolution}", booking.BranchId);
         await db.SaveChangesAsync(token);
         return Ok(new { customerCase.Status, bookingStatus = booking.Status.ToString() });
+    }
+
+    private static bool TryReadRequestedEnd(string description, out DateTimeOffset requestedEnd)
+    {
+        requestedEnd = default;
+        const string exactMarker = "RequestedEndAt: ";
+        var exactStart = description.LastIndexOf(exactMarker, StringComparison.OrdinalIgnoreCase);
+        if (exactStart >= 0)
+        {
+            var value = description[(exactStart + exactMarker.Length)..].Trim();
+            if (DateTimeOffset.TryParseExact(value, "O", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out requestedEnd))
+                return true;
+        }
+
+        const string legacyMarker = "Requested new return: ";
+        var start = description.IndexOf(legacyMarker, StringComparison.OrdinalIgnoreCase);
+        var end = description.IndexOf(". Reason:", StringComparison.OrdinalIgnoreCase);
+        return start >= 0 && end > start && DateTimeOffset.TryParse(
+            description[(start + legacyMarker.Length)..end], CultureInfo.InvariantCulture,
+            DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal, out requestedEnd);
     }
 
     [HttpGet]
