@@ -41,13 +41,24 @@ public static class NotificationEvents
                     var bond = entry.State != EntityState.Added && Changed(nameof(Booking.BondStatus));
                     var title = bond ? $"Refundable bond: {booking.BondStatus}" : entry.State == EntityState.Added ? "New booking request received" : $"Booking: {booking.Status}";
                     var message = $"{booking.BookingNumber} — {(bond ? "Your refundable bond record has been updated." : "The booking status has changed.")}";
-                    Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", title, message, "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
+                    // New requests are internal work alerts. Customer inboxes only
+                    // receive customer-facing milestones, never staff queue events.
+                    if (bond)
+                        Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Refundable bond updated", $"{booking.BookingNumber} — your refundable bond record has been updated.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
+                    else if (entry.State != EntityState.Added && booking.Status == BookingStatus.Confirmed)
+                        Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Booking confirmed", $"{booking.BookingNumber} is confirmed and ready for pickup preparation.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
+                    else if (entry.State != EntityState.Added && booking.Status == BookingStatus.ConvertedToRental)
+                        Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Rental started", $"{booking.BookingNumber} is now on hire.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
+                    else if (entry.State != EntityState.Added && booking.Status == BookingStatus.Completed)
+                        Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Rental completed", $"{booking.BookingNumber} has been completed.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
                     Add(booking, "Staff", null, booking.BranchId, division, "Booking", title, message, NotificationAccess.BookingUrl(booking.Id));
                     break;
                 case SalesQuote quote when Changed(nameof(SalesQuote.Status)) || Changed(nameof(SalesQuote.Version)):
                     var qMessage = $"{quote.QuoteNumber} · version {quote.Version}.";
                     Add(quote, "Staff", null, quote.BranchId, quote.DivisionId, "Booking", quote.Status == QuoteStatus.Accepted ? "Customer accepted quotation" : $"Quotation: {quote.Status}", qMessage, quote.ConvertedBookingId.HasValue ? NotificationAccess.BookingUrl(quote.ConvertedBookingId.Value) : "/staff/bookings?search=" + Uri.EscapeDataString(quote.QuoteNumber));
-                    if (quote.Status != QuoteStatus.Draft)
+                    // A requested quote is an internal task; notify the customer
+                    // only once a staff member has sent a quote for review.
+                    if (quote.Status == QuoteStatus.Sent)
                         Add(quote, "Customer", quote.CustomerId, quote.BranchId, quote.DivisionId, "Booking", quote.Status == QuoteStatus.Sent ? "Quotation ready for your review" : quote.Status == QuoteStatus.Accepted ? "Customer accepted quotation" : $"Quotation: {quote.Status}", qMessage, "/account?reference=" + Uri.EscapeDataString(quote.QuoteNumber));
                     break;
                 case ApprovalRequest approval when Changed(nameof(ApprovalRequest.Status)) || Changed(nameof(ApprovalRequest.CurrentStage)):

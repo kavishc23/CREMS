@@ -27,7 +27,8 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
         var since = DateTimeOffset.UtcNow.AddDays(-90);
         var now = DateTimeOffset.UtcNow;
         var query = db.InAppNotifications.AsNoTracking().Where(x => x.CreatedAt >= since && (history || x.ExpiresAt == null || x.ExpiresAt > now));
-        if (customer) return query.Where(x => x.Audience == "Customer" && user.CustomerId != null && x.CustomerId == user.CustomerId);
+        if (customer) return query.Where(x => x.Audience == "Customer" && user.CustomerId != null && x.CustomerId == user.CustomerId &&
+            (x.Title == "Booking confirmed" || x.Title == "Quotation ready for your review" || x.Title == "Rental started" || x.Title == "Rental completed" || x.Title == "Refundable bond updated"));
         return await NotificationAccess.StaffAsync(db, user, User, authorization, history);
     }
     private async Task<ActionResult> Inbox(bool customer, CancellationToken token, string? category = null, bool unread = false, string? severity = null, bool history = false, int page = 1)
