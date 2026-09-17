@@ -86,18 +86,24 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         };
         db.RentalAgreements.Add(agreement);
         booking.RentalAgreement = agreement;
-        db.RentalInspections.Add(new RentalInspection
-        {
-            BookingId = booking.Id, Type = InspectionType.Handover,
-            IdentificationVerified = request.IdentificationVerified,
-            DriverLicenceVerified = request.DriverLicenceVerified,
-            MeterReading = request.MeterReading, FuelLevelPercent = request.FuelLevelPercent,
-            ConditionNotes = Normalize(request.ConditionNotes), DamageNotes = Normalize(request.DamageNotes),
-            SignatureName = request.CustomerSignatureName.Trim(), SignatureDataUrl = request.CustomerSignatureDataUrl,
-            PaymentVerified = request.PaymentVerified, EvidenceJson = JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes }, SnapshotJson),
-            CompletedByUserId = scope.UserId,
-            CompletedByName = scope.UserName, CompletedAt = now,
-        });
+        // A saved pre-hire inspection occupies the unique handover slot. Finalize
+        // it in place rather than creating a second record.
+        var existingInspection = booking.Inspections.FirstOrDefault(x => x.Type == InspectionType.Handover);
+        var inspection = existingInspection ?? new RentalInspection { BookingId = booking.Id, Type = InspectionType.Handover };
+        if (existingInspection is null) db.RentalInspections.Add(inspection);
+        inspection.IdentificationVerified = request.IdentificationVerified;
+        inspection.DriverLicenceVerified = request.DriverLicenceVerified;
+        inspection.MeterReading = request.MeterReading;
+        inspection.FuelLevelPercent = request.FuelLevelPercent;
+        inspection.ConditionNotes = Normalize(request.ConditionNotes);
+        inspection.DamageNotes = Normalize(request.DamageNotes);
+        inspection.SignatureName = request.CustomerSignatureName.Trim();
+        inspection.SignatureDataUrl = request.CustomerSignatureDataUrl;
+        inspection.PaymentVerified = request.PaymentVerified;
+        inspection.EvidenceJson = JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes }, SnapshotJson);
+        inspection.CompletedByUserId = scope.UserId;
+        inspection.CompletedByName = scope.UserName;
+        inspection.CompletedAt = now;
         if (customerWillDrive)
             db.AuthorizedDrivers.Add(new AuthorizedDriver
             {
@@ -149,7 +155,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
     }
 
     private async Task<Booking?> LoadBooking(Guid id, CancellationToken cancellationToken) => await db.Bookings
-        .Include(item => item.Customer).Include(item => item.Branch).Include(item => item.Items).ThenInclude(item => item.Asset).ThenInclude(asset => asset!.Division).Include(item => item.Charges)
+        .Include(item => item.Customer).Include(item => item.Branch).Include(item => item.Items).ThenInclude(item => item.Asset).ThenInclude(asset => asset!.Division).Include(item => item.Charges).Include(item => item.Inspections)
         .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
 
     private static object BuildDraft(Booking booking)
