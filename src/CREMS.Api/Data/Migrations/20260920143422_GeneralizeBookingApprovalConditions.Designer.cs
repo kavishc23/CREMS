@@ -4,6 +4,7 @@ using CREMS.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CREMS.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260920143422_GeneralizeBookingApprovalConditions")]
+    partial class GeneralizeBookingApprovalConditions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1264,13 +1267,6 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<int?>("AssetTypeCondition")
                         .HasColumnType("int");
-
-                    b.Property<bool>("AppliesToBooking")
-                        .HasDefaultValue(true)
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("AppliesToQuotation")
-                        .HasColumnType("bit");
 
                     b.Property<Guid?>("BranchId")
                         .HasColumnType("uniqueidentifier");

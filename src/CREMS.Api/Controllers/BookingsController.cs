@@ -123,7 +123,11 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var paid = booking.Payments.Where(x => x.Status == PaymentStatus.Recorded &&
             (x.Type == PaymentType.RentalCharge || x.Type == PaymentType.AdditionalCharge)).Sum(x => x.Amount);
         var approvalContext = BuildApprovalContext(booking, subtotal * (1 + booking.TaxRate / 100m));
-        var approvalRule = await ApprovalWorkflowService.MatchBookingAsync(db, approvalContext, cancellationToken);
+        // Preview the rule for the next action shown in this workspace. While a
+        // quotation is being prepared/sent, quotation-scoped rules apply; after
+        // customer acceptance, booking-confirmation rules become relevant.
+        var forQuotation = quote is not null && quote.Status is not (QuoteStatus.Accepted or QuoteStatus.Converted);
+        var approvalRule = await ApprovalWorkflowService.MatchBookingAsync(db, approvalContext, cancellationToken, forQuotation);
         return Ok(new {
             booking.Id, booking.BookingNumber, status = booking.Status.ToString(), booking.CreatedAt, booking.Notes,
             customer = new { booking.CustomerId, booking.Customer!.CustomerNumber, booking.Customer.Name, type = booking.Customer.Type.ToString(), booking.Customer.Email, booking.Customer.Phone, booking.Customer.Address, booking.Customer.IdentificationNumber, booking.Customer.IsBlocked },
@@ -162,7 +166,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             quote.Version += 1;
         }
         else db.SalesQuotes.Add(quote);
-        quote.ValidUntil = request.ValidUntil; quote.Discount = request.Discount; quote.Subtotal = totals.Subtotal; quote.Tax = totals.Tax; quote.Total = totals.Total; quote.LineItemsJson = System.Text.Json.JsonSerializer.Serialize(request.Lines); quote.Status = QuoteStatus.Draft; quote.UpdatedAt = DateTimeOffset.UtcNow;
+        quote.ValidUntil = request.ValidUntil; quote.Discount = request.Discount; quote.Subtotal = totals.Subtotal; quote.Tax = totals.Tax; quote.Total = totals.Total; quote.LineItemsJson = QuoteLineSerialization.Serialize(request.Lines.Select(x => new QuoteLine(x.Description, x.Quantity, x.Rate, x.Unit, x.CostRate, x.Category)).ToList()); quote.Status = QuoteStatus.Draft; quote.UpdatedAt = DateTimeOffset.UtcNow;
         booking.DiscountAmount = request.Discount; booking.TaxRate = request.TaxRate; booking.DepositRequired = Math.Max(0, request.Deposit);
         if (!booking.BondSettledAt.HasValue) booking.BondStatus = booking.DepositRequired <= 0 ? BondStatus.NotRequired : booking.BondAmountHeld >= booking.DepositRequired ? BondStatus.Held : BondStatus.AwaitingPayment;
         var baseLines = request.Lines.Where(x => x.Category == ChargeCategory.BaseHire).ToList();
@@ -480,7 +484,9 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             booking.Charges.Any(x => x.Category is ChargeCategory.Operator or ChargeCategory.Driver or ChargeCategory.Labour);
         var overtime = booking.Charges.Any(x => x.Description.Contains("overtime", StringComparison.OrdinalIgnoreCase)) ||
             (booking.AdditionalChargesDescription?.Contains("overtime", StringComparison.OrdinalIgnoreCase) ?? false);
-        return new ApprovalWorkflowService.BookingApprovalContext(booking.BranchId, booking.Items.Select(x => x.Asset?.DivisionId).FirstOrDefault(), amount, equipment, personnel, overtime);
+        var items = booking.Items.Where(x => x.Asset is not null)
+            .Select(x => new ApprovalWorkflowService.BookingApprovalItem(x.Asset!.Type, x.StartAt, x.EndAt)).ToList();
+        return new ApprovalWorkflowService.BookingApprovalContext(booking.BranchId, booking.Items.Select(x => x.Asset?.DivisionId).FirstOrDefault(), amount, equipment, personnel, overtime, items);
     }
 
     [HttpPut("{id:guid}/charges")]

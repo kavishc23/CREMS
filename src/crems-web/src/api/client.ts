@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { classifyApiFailure } from './errors'
 
 function getWindowSessionId() {
   const key = 'crems.window-session-id'
@@ -43,8 +44,8 @@ api.interceptors.response.use(
         : 'crems:staff-session-expired'
       window.dispatchEvent(new CustomEvent(eventName))
     }
-    if (!axios.isCancel(error) && !['get', 'head'].includes(error?.config?.method ?? 'get') && status !== 401 && !requestUrl.includes('/notifications/read')) {
-      const message = status >= 500 ? 'The server could not complete this action. Please try again.' : error?.response?.data?.message ?? 'The action could not be completed. Check the details and try again.'
+    if (!axios.isCancel(error) && !['get', 'head'].includes(error?.config?.method ?? 'get') && status !== 401 && !requestUrl.includes('/notifications/read') && !requestUrl.includes('/public/booking-requests')) {
+      const message = classifyApiFailure(error, 'The action could not be completed. Check the details and try again.').message
       window.dispatchEvent(new CustomEvent('crems:toast', { detail: { severity: 'error', message } }))
     }
     return Promise.reject(error)

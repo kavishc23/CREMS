@@ -1,4 +1,5 @@
 using CREMS.Api.Domain.Common;
+using CREMS.Api.Domain.Assets;
 
 namespace CREMS.Api.Domain.Corporate;
 
@@ -135,13 +136,25 @@ public sealed class ApprovalWorkflow : Entity
     public Guid? DivisionId { get; set; }
     public decimal? MinimumAmount { get; set; }
     public bool TriggerForEquipment { get; set; }
+    public AssetType? AssetTypeCondition { get; set; }
+    public HireDurationOperator? HireDurationOperator { get; set; }
+    public decimal? HireDurationDays { get; set; }
+    public ApprovalConditionMatchMode ConditionMatchMode { get; set; } = ApprovalConditionMatchMode.Any;
     public bool TriggerForPersonnel { get; set; }
     public bool TriggerForOvertime { get; set; }
     public bool IsDefaultForBookings { get; set; }
+    // Type remains Booking for backwards compatibility with existing approval requests.
+    // These flags describe whether a booking rule applies while a rental is being
+    // confirmed, while its quotation is being sent, or at both points.
+    public bool AppliesToBooking { get; set; } = true;
+    public bool AppliesToQuotation { get; set; }
     public int Priority { get; set; }
     public bool IsActive { get; set; } = true;
     public ICollection<ApprovalWorkflowStage> Stages { get; set; } = [];
 }
+
+public enum ApprovalConditionMatchMode { Any, All }
+public enum HireDurationOperator { GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual }
 
 public sealed class ApprovalWorkflowStage : Entity
 {
