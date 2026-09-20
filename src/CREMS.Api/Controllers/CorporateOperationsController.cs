@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Encodings.Web;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Assets;
@@ -71,7 +72,7 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         if (request.ValidUntil <= DateTimeOffset.UtcNow || request.Lines.Count == 0 || request.Lines.Any(x => string.IsNullOrWhiteSpace(x.Description) || x.Quantity <= 0 || x.Rate < 0 || x.CostRate < 0) || request.Discount < 0 || request.TaxRate is < 0 or > 100) return Validation("quote", "Enter valid lines, units, selling rates, cost rates, discount, tax and a future expiry date.");
         var totals = QuotePolicy.Calculate(request.Lines.Select(x => (x.Quantity, x.Rate)), request.Discount, request.TaxRate);
         if (request.Discount > totals.Subtotal) return Validation("discount", "Discount cannot exceed the quote subtotal.");
-        var quote = new SalesQuote { QuoteNumber = Number("QT"), CustomerId = request.CustomerId, BranchId = request.BranchId, DivisionId = divisionId, AssignedUserId = scope.UserId, ValidUntil = request.ValidUntil, JobSite = Clean(request.JobSite), PurchaseOrderNumber = Clean(request.PurchaseOrderNumber), Subtotal = totals.Subtotal, Discount = request.Discount, Tax = totals.Tax, Total = totals.Total, LineItemsJson = JsonSerializer.Serialize(request.Lines) };
+        var quote = new SalesQuote { QuoteNumber = Number("QT"), CustomerId = request.CustomerId, BranchId = request.BranchId, DivisionId = divisionId, AssignedUserId = scope.UserId, ValidUntil = request.ValidUntil, JobSite = Clean(request.JobSite), PurchaseOrderNumber = Clean(request.PurchaseOrderNumber), Subtotal = totals.Subtotal, Discount = request.Discount, Tax = totals.Tax, Total = totals.Total, LineItemsJson = QuoteLineSerialization.Serialize(request.Lines) };
         db.SalesQuotes.Add(quote);
         if (request.Discount > 0) { var approval = new ApprovalRequest { RequestNumber = Number("APR"), BranchId = request.BranchId, Type = ApprovalType.Discount, EntityType = nameof(SalesQuote), EntityId = quote.Id, Amount = request.Discount, Reason = $"Discount approval for {quote.QuoteNumber}", RequestedByUserId = scope.UserId }; await ApprovalWorkflowService.ConfigureAsync(db, approval, divisionId, token); db.ApprovalRequests.Add(approval); }
         await SaveAudit(scope, "Sales quote created", quote.Id, quote.QuoteNumber, request.BranchId, token); return Ok(quote);
@@ -161,7 +162,7 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         if (item.Status is QuoteStatus.Accepted or QuoteStatus.Converted or QuoteStatus.Expired) return Validation("status", "Accepted, converted or expired quotes cannot be revised.");
         if (request.Lines.Count == 0 || request.Lines.Any(x => string.IsNullOrWhiteSpace(x.Description) || x.Quantity <= 0 || x.Rate < 0 || x.CostRate < 0) || request.ValidUntil <= DateTimeOffset.UtcNow) return Validation("quote", "Enter valid revised lines and a future expiry date.");
         db.QuoteRevisions.Add(new QuoteRevision { SalesQuoteId = item.Id, Version = item.Version, SnapshotJson = JsonSerializer.Serialize(new { item.ValidUntil, item.Subtotal, item.Discount, item.Tax, item.Total, item.LineItemsJson }), ChangeReason = request.Reason.Trim(), ChangedByUserId = scope.UserId });
-        var totals = QuotePolicy.Calculate(request.Lines.Select(x => (x.Quantity, x.Rate)), request.Discount, request.TaxRate); item.Version++; item.ValidUntil = request.ValidUntil; item.Discount = request.Discount; item.Subtotal = totals.Subtotal; item.Tax = totals.Tax; item.Total = totals.Total; item.LineItemsJson = JsonSerializer.Serialize(request.Lines); item.Status = QuoteStatus.Negotiating; item.UpdatedAt = DateTimeOffset.UtcNow;
+        var totals = QuotePolicy.Calculate(request.Lines.Select(x => (x.Quantity, x.Rate)), request.Discount, request.TaxRate); item.Version++; item.ValidUntil = request.ValidUntil; item.Discount = request.Discount; item.Subtotal = totals.Subtotal; item.Tax = totals.Tax; item.Total = totals.Total; item.LineItemsJson = QuoteLineSerialization.Serialize(request.Lines); item.Status = QuoteStatus.Negotiating; item.UpdatedAt = DateTimeOffset.UtcNow;
         await SaveAudit(scope, "Sales quote revised", item.Id, $"{item.QuoteNumber} revised to version {item.Version}: {request.Reason.Trim()}", item.BranchId, token); return Ok(item);
     }
 
@@ -179,7 +180,8 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
             var match = await ApprovalWorkflowService.MatchBookingAsync(db, new(booking.BranchId, quote.DivisionId, quote.Total,
                 booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.IsEquipment(x.Asset.Type)),
                 booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.RequiresPersonnel(x.Asset)) || booking.Charges.Any(x => x.Category == ChargeCategory.Operator || x.Category == ChargeCategory.Driver || x.Category == ChargeCategory.Labour),
-                booking.Charges.Any(x => x.Description.ToLower().Contains("overtime"))), token);
+                booking.Charges.Any(x => x.Description.ToLower().Contains("overtime")),
+                booking.Items.Where(x => x.Asset is not null).Select(x => new ApprovalWorkflowService.BookingApprovalItem(x.Asset!.Type, x.StartAt, x.EndAt)).ToList()), token, forQuotation: true);
             if (match is not null)
             {
                 var approval = await db.ApprovalRequests.Where(x => x.EntityType == nameof(Booking) && x.EntityId == bookingId && x.WorkflowId == match.WorkflowId).OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
@@ -203,7 +205,7 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         if (customer is null || string.IsNullOrWhiteSpace(customer.Email)) return Validation("email", "The customer must have an email address before the quote can be sent.");
         var branch = await db.Branches.AsNoTracking().FirstAsync(x => x.Id == quote.BranchId, token);
         var division = quote.DivisionId.HasValue ? await db.Divisions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == quote.DivisionId, token) : null;
-        var lines = JsonSerializer.Deserialize<IReadOnlyList<QuoteLine>>(quote.LineItemsJson ?? "[]") ?? [];
+        var lines = QuoteLineSerialization.Deserialize(quote.LineItemsJson);
         var rows = string.Join("", lines.Select(x => $"<tr><td style=\"padding:9px;border-bottom:1px solid #ddd\">{HtmlEncoder.Default.Encode(x.Description)}</td><td style=\"padding:9px;text-align:right;border-bottom:1px solid #ddd\">{x.Quantity:0.##} {x.Unit.ToString().ToLowerInvariant()}</td><td style=\"padding:9px;text-align:right;border-bottom:1px solid #ddd\">{x.Rate:N2}</td><td style=\"padding:9px;text-align:right;border-bottom:1px solid #ddd\">{x.Quantity * x.Rate:N2}</td></tr>"));
         var content = $"<p>Dear {HtmlEncoder.Default.Encode(customer.Name)},</p><p>Please find quotation <strong>{quote.QuoteNumber}</strong> from {HtmlEncoder.Default.Encode(division?.Name ?? "Carpenters Fiji")}.</p><table role=\"presentation\" width=\"100%\" cellspacing=\"0\"><tr style=\"background:#f1f1ed\"><th align=\"left\" style=\"padding:9px\">Description</th><th align=\"right\">Qty</th><th align=\"right\">Rate (FJD)</th><th align=\"right\">Amount</th></tr>{rows}</table><table role=\"presentation\" width=\"100%\" style=\"margin-top:16px\"><tr><td>Subtotal</td><td align=\"right\">FJD {quote.Subtotal:N2}</td></tr><tr><td>Discount</td><td align=\"right\">FJD {quote.Discount:N2}</td></tr><tr><td>VAT</td><td align=\"right\">FJD {quote.Tax:N2}</td></tr><tr><td style=\"font-size:18px;font-weight:bold;padding-top:8px\">Total</td><td align=\"right\" style=\"font-size:18px;font-weight:bold;padding-top:8px\">FJD {quote.Total:N2}</td></tr></table><p><strong>Valid until:</strong> {quote.ValidUntil:dd MMM yyyy}<br><strong>Job site:</strong> {HtmlEncoder.Default.Encode(quote.JobSite ?? "Not specified")}<br><strong>Purchase order:</strong> {HtmlEncoder.Default.Encode(quote.PurchaseOrderNumber ?? "Not supplied")}</p><p>To accept or discuss this quotation, reply to the branch team or contact {HtmlEncoder.Default.Encode(branch.Phone ?? "the issuing branch")}.</p>";
         var email = emailQueue.Queue(db, customer.Email, $"Quotation {quote.QuoteNumber} · {division?.Name ?? "Carpenters Fiji"}", EmailTemplate.Branded($"Quotation {quote.QuoteNumber}", content, division?.Name ?? "Carpenters Fiji"), $"Quotation {quote.QuoteNumber}. Total FJD {quote.Total:N2}. Valid until {quote.ValidUntil:dd MMM yyyy}. Contact {branch.Name} to accept or discuss.", "Quotation");
@@ -227,7 +229,7 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         var days = Math.Max(1, (decimal)Math.Ceiling((request.EndAt - request.StartAt).TotalDays)); var rentalBase = request.DailyRate * days;
         if (rentalBase > quote.Subtotal) return Validation("dailyRate", "The base asset charge cannot exceed the accepted quote subtotal. Adjust the daily rate or quote lines.");
         var taxableBeforeTax = Math.Max(0, quote.Subtotal - quote.Discount); var taxRate = taxableBeforeTax == 0 ? 0 : decimal.Round(quote.Tax * 100m / taxableBeforeTax, 2);
-        var quoteLines = JsonSerializer.Deserialize<IReadOnlyList<QuoteLine>>(quote.LineItemsJson ?? "[]") ?? [];
+        var quoteLines = QuoteLineSerialization.Deserialize(quote.LineItemsJson);
         var componentLines = quoteLines.Where(x => x.Category != ChargeCategory.BaseHire).ToList();
         var booking = new Booking { BookingNumber = $"BK-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}", CustomerId = quote.CustomerId, BranchId = quote.BranchId, Status = BookingStatus.Confirmed, Notes = $"Created from accepted quote {quote.QuoteNumber}. Job site: {quote.JobSite ?? "Not recorded"}. PO: {quote.PurchaseOrderNumber ?? "Not recorded"}. {Clean(request.Note)}", DiscountAmount = quote.Discount, TaxRate = taxRate, DepositRequired = request.DepositRequired, AdditionalCharges = componentLines.Sum(x => x.Quantity * x.Rate), AdditionalChargesDescription = componentLines.Count == 0 ? null : string.Join(", ", componentLines.Select(x => x.Description)), ApprovedByUserId = scope.UserId, ApprovedAt = DateTimeOffset.UtcNow, Items = [new BookingItem { AssetId = asset.Id, StartAt = request.StartAt, EndAt = request.EndAt, DailyRate = request.DailyRate }], Charges = componentLines.Select(x => new BookingCharge { AssetId = asset.Id, ChargeDefinitionId = x.ChargeDefinitionId, Description = x.Description.Trim(), Category = x.Category, Unit = x.Unit, Quantity = x.Quantity, UnitRate = x.Rate, UnitCost = x.CostRate, IsTaxable = true }).ToList() };
         db.Bookings.Add(booking); quote.Status = QuoteStatus.Converted; quote.ConvertedBookingId = booking.Id; quote.UpdatedAt = DateTimeOffset.UtcNow;
@@ -273,6 +275,17 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
 }
 
 public sealed record QuoteLine(string Description, decimal Quantity, decimal Rate, ChargeUnit Unit = ChargeUnit.Unit, decimal CostRate = 0, ChargeCategory Category = ChargeCategory.Other, Guid? ChargeDefinitionId = null);
+public static class QuoteLineSerialization
+{
+    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
+
+    public static string Serialize(IReadOnlyList<QuoteLine> lines) => JsonSerializer.Serialize(lines, Options);
+    public static IReadOnlyList<QuoteLine> Deserialize(string? json) =>
+        string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<IReadOnlyList<QuoteLine>>(json, Options) ?? [];
+}
 public sealed record QuoteRequest(Guid CustomerId, Guid BranchId, Guid? DivisionId, DateTimeOffset ValidUntil, decimal Discount, decimal TaxRate, string? JobSite, string? PurchaseOrderNumber, IReadOnlyList<QuoteLine> Lines);
 public sealed record ReviseQuoteRequest(DateTimeOffset ValidUntil, decimal Discount, decimal TaxRate, [Required] string Reason, IReadOnlyList<QuoteLine> Lines);
 public sealed record CorporateAccountRequest(Guid CustomerId, string LegalName, string? TaxIdentificationNumber, decimal CreditLimit, int PaymentTermsDays, bool PurchaseOrderRequired, bool CreditHold, object? BillingContact, IReadOnlyList<object>? AuthorizedContacts, IReadOnlyList<object>? JobSites, object? ContractPricing);

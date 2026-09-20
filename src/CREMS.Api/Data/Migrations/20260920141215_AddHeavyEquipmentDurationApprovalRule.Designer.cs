@@ -4,6 +4,7 @@ using CREMS.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CREMS.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260920141215_AddHeavyEquipmentDurationApprovalRule")]
+    partial class AddHeavyEquipmentDurationApprovalRule
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1262,21 +1265,8 @@ namespace CREMS.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<int?>("AssetTypeCondition")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("AppliesToBooking")
-                        .HasDefaultValue(true)
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("AppliesToQuotation")
-                        .HasColumnType("bit");
-
                     b.Property<Guid?>("BranchId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<int>("ConditionMatchMode")
-                        .HasColumnType("int");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
@@ -1286,13 +1276,6 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<string>("EntityType")
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<decimal?>("HireDurationDays")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<int?>("HireDurationOperator")
-                        .HasColumnType("int");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -1304,6 +1287,9 @@ namespace CREMS.Api.Data.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<int?>("MinimumHireDurationDays")
+                        .HasColumnType("int");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -1312,6 +1298,9 @@ namespace CREMS.Api.Data.Migrations
                         .HasColumnType("int");
 
                     b.Property<bool>("TriggerForEquipment")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("TriggerForHeavyEquipment")
                         .HasColumnType("bit");
 
                     b.Property<bool>("TriggerForOvertime")
