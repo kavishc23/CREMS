@@ -7,6 +7,7 @@ import MenuOutlined from '@mui/icons-material/MenuOutlined'
 import {
   AppBar, Box, Button, Container, Divider, Drawer, IconButton, Stack, Toolbar, Typography,
 } from '@mui/material'
+import { isNotificationModuleEnabled } from '../config/demoMode'
 
 export type CustomerSiteSection = 'top' | 'search' | 'services' | 'rentals' | 'how-it-works' | 'faq' | 'contact'
 
@@ -63,7 +64,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
           </Box>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
-          {authenticated && <NotificationBell customer key={accountName}/> }
+          {authenticated && isNotificationModuleEnabled && <NotificationBell customer key={accountName}/> }
           <Box sx={{ display: { xs: 'none', lg: 'block' } }}>{desktopNavigation}</Box>
           <IconButton color="inherit" aria-label="Open navigation" sx={{ display: { lg: 'none' } }} onClick={() => setMobileOpen(true)}><MenuOutlined /></IconButton>
         </Toolbar>
