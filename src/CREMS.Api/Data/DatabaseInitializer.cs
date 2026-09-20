@@ -168,6 +168,8 @@ public static class DatabaseInitializer
                 rules.Add(rule); db.ApprovalWorkflows.Add(rule);
             }
             rule.EntityType = nameof(Booking); rule.MinimumAmount = minimumAmount; rule.TriggerForEquipment = equipment;
+            rule.AssetTypeCondition = null; rule.HireDurationOperator = null; rule.HireDurationDays = null;
+            rule.ConditionMatchMode = ApprovalConditionMatchMode.Any;
             rule.TriggerForPersonnel = personnel; rule.TriggerForOvertime = overtime; rule.IsDefaultForBookings = false;
             rule.Priority = priority; rule.IsActive = true;
             // Seed the route once. Existing routes belong to configuration and must not be
