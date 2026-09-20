@@ -47,7 +47,7 @@ const GlobalSearch = lazy(() => import('../components/GlobalSearch').then(module
 const NotificationBell = lazy(() => import('../components/NotificationBell').then(module => ({ default: module.NotificationBell })))
 import { staffTheme } from './staffTheme'
 import { canAccessPage, formatRole, getPrimaryRole, type AppPage } from '../auth/access'
-import { isPageEnabledForDemo } from '../config/demoMode'
+import { isNotificationModuleEnabled, isPageEnabledForDemo } from '../config/demoMode'
 const drawerWidth = 272
 const collapsedDrawerWidth = 76
 const navigation = [
@@ -193,7 +193,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           )}
           <Box><Typography variant="overline" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' }, lineHeight: 1.1 }}>{navigation.find(item=>item.id===activePage)?.section ?? 'Staff workspace'}</Typography><Typography variant="subtitle1" fontWeight={800} lineHeight={1.25}>{currentPageLabel}</Typography></Box>
           <Box sx={{ flexGrow: 1 }} />
-          <Suspense fallback={null}><NotificationBell key={userName} canSend={canAccessPage(userRoles, 'bookings')} /></Suspense>
+          {isNotificationModuleEnabled && <Suspense fallback={null}><NotificationBell key={userName} canSend={canAccessPage(userRoles, 'bookings')} /></Suspense>}
           <Button size="small" color="inherit" startIcon={<HelpOutlineOutlined />} onClick={() => setHelpOpen(true)} sx={{ mr: 1, display: { xs: 'none', sm: 'inline-flex' } }}>Help</Button>
           <Typography variant="body2" fontWeight={600} sx={{ display: { xs: 'none', lg: 'block' } }}>{userName}</Typography>
           <Chip
