@@ -251,7 +251,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             .FirstOrDefaultAsync(item => item.Id == request.AssetId && item.IsActive, cancellationToken);
         if (asset is null || asset.Branch is null || !asset.Branch.IsActive ||
             asset.Division is not { IsActive: true, IsPublic: true } ||
-            asset.ServiceOffering is { IsActive: false } or { IsBookableOnline: false } ||
+            asset.ServiceOffering is { IsActive: false } ||
+            asset.ServiceOffering is { IsBookableOnline: false, RequiresQuote: false } ||
             asset.Status is AssetStatus.Maintenance or AssetStatus.OutOfService or AssetStatus.Retired)
             return NotFound("The selected rental item is no longer available.");
         if (asset.RequiresDelivery &&
@@ -290,6 +291,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (customer is not { } activeCustomer) return Unauthorized();
         if (activeCustomer.IsBlocked)
             return ValidationProblem("We cannot accept this request online. Please contact the rental team.");
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Keep the registered identity authoritative while allowing current contact details.
         activeCustomer.Phone = request.Phone.Trim();
         activeCustomer.Address = Normalize(request.Address) ?? activeCustomer.Address;
@@ -357,9 +359,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
 
         if (requiresQuote)
         {
-            var lineItems = new List<object> { new { Description = $"{asset.Name} hire", Quantity = hireDays, Rate = asset.DailyRate, Unit = "Day", Amount = baseSubtotal } };
-            lineItems.AddRange(charges.Select(x => (object)new { Description = x.Definition.Name, x.Quantity,
-                Rate = x.Definition.DefaultSellingRate, Unit = x.Definition.Unit.ToString(), Amount = x.Quantity * x.Definition.DefaultSellingRate }));
+            var lineItems = new List<QuoteLine> { new($"{asset.Name} hire", hireDays, asset.DailyRate, ChargeUnit.Day, Category: ChargeCategory.BaseHire) };
+            lineItems.AddRange(charges.Select(x => new QuoteLine(x.Definition.Name, x.Quantity,
+                x.Definition.DefaultSellingRate, x.Definition.Unit, Category: x.Definition.Category, ChargeDefinitionId: x.Definition.Id)));
             var quote = new SalesQuote
             {
                 QuoteNumber = $"QUO-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
@@ -367,22 +369,20 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 Status = QuoteStatus.Draft, ValidUntil = DateTimeOffset.UtcNow.AddDays(14),
                 JobSite = Normalize(request.DeliveryAddress), PurchaseOrderNumber = Normalize(request.PurchaseOrderNumber),
                 Subtotal = baseSubtotal + chargeSubtotal, Tax = tax, Total = total,
-                LineItemsJson = JsonSerializer.Serialize(lineItems), ConvertedBookingId = booking.Id,
+                LineItemsJson = QuoteLineSerialization.Serialize(lineItems), ConvertedBookingId = booking.Id,
             };
             db.SalesQuotes.Add(quote);
             db.CustomerCases.Add(new CustomerCase { CaseNumber = $"CASE-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
                 CustomerId = activeCustomer.Id, BranchId = asset.BranchId, Type = CaseType.Enquiry,
                 Priority = CasePriority.Normal, Subject = $"Online quotation request — {quote.QuoteNumber}",
                 Description = BuildRequestNotes(request, personnelRequested), DueAt = DateTimeOffset.UtcNow.AddHours(8) });
-            await db.SaveChangesAsync(cancellationToken);
             QueueCustomerConfirmation(signedInUser, quote.QuoteNumber, asset.Name, request.StartDate, request.EndDate,
                 "Quotation request received", "Our team will review availability, transport, personnel and final charges. You can follow the quotation in your customer account.");
             await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return Ok(new PublicBookingResponse(quote.QuoteNumber, asset.Name, asset.Branch.Name,
                 request.StartDate, request.EndDate, "Quotation", "Quotation request received"));
         }
-
-        await db.SaveChangesAsync(cancellationToken);
 
         if (request.Fulfilment == "Delivery")
             db.DispatchJobs.Add(new DispatchJob { DispatchNumber = $"DSP-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
@@ -392,6 +392,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         QueueCustomerConfirmation(signedInUser, booking.BookingNumber, asset.Name, request.StartDate, request.EndDate,
             "Booking request received", "The branch will verify your details and confirm the booking. You can follow pickup requirements in your customer account.");
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return Ok(new PublicBookingResponse(
             booking.BookingNumber, asset.Name, asset.Branch.Name,
