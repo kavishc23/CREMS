@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import axios from 'axios'
 import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
 import LocationOnOutlined from '@mui/icons-material/LocationOnOutlined'
 import PhoneOutlined from '@mui/icons-material/PhoneOutlined'
@@ -20,6 +19,8 @@ import {
   MenuItem, Select, Stack, Step, StepLabel, Stepper, Switch, TextField, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
+import { apiErrorMessage } from '../api/errors'
+import { submitPublicBookingRequest } from '../api/publicBooking'
 import { CustomerSiteHeader, type CustomerSiteSection } from '../components/CustomerSiteHeader'
 import { PublicAssetDetailDialog } from '../components/PublicAssetDetailDialog'
 
@@ -111,11 +112,9 @@ let publicCatalogueCache: { expiresAt: number; promise: Promise<PublicCatalogueB
 function loadPublicCatalogueBootstrap() {
   const now = Date.now()
   if (publicCatalogueCache && publicCatalogueCache.expiresAt > now) return publicCatalogueCache.promise
-  const promise = Promise.all([
-    api.get<Branch[]>('/public/branches'),
-    api.get<PublicDivision[]>('/public/divisions'),
-    api.get<PublicAsset[]>('/public/assets'),
-  ]).then(([branchResponse, divisionResponse, assetResponse]) => ({
+  const promise = api.get('/health',{timeout:3000}).then(()=>Promise.all([
+    api.get<Branch[]>('/public/branches'), api.get<PublicDivision[]>('/public/divisions'), api.get<PublicAsset[]>('/public/assets'),
+  ])).then(([branchResponse, divisionResponse, assetResponse]) => ({
     branches: branchResponse.data,
     divisions: divisionResponse.data,
     assets: assetResponse.data,
@@ -198,7 +197,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
         branchId: branchId || undefined, divisionId: divisionId || undefined, type: type || undefined, startDate, endDate,
       } })
       setAssets(response.data); setSearched(true); setShowModifySearch(false)
-    } catch { setError('We could not check availability. Please try again or contact a branch.') }
+    } catch (reason) { setError(apiErrorMessage(reason, 'We could not check availability. Please try again or contact a branch.')) }
     finally { setLoading(false) }
   }, [branchId, differentReturnLocation, divisionId, endDate, returnBranchId, startDate, type])
 
@@ -212,7 +211,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
         setCatalogueAssets(data.assets)
         setAssets(data.assets)
       })
-      .catch(() => { if (active) setError('We could not load the rental catalogue. Please try again or contact a branch.') })
+      .catch(reason => { if (active) setError(apiErrorMessage(reason, 'We could not load the rental catalogue. Please try again or contact a branch.')) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [])
@@ -298,16 +297,13 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     event.preventDefault(); if (!selected) return
     setSubmitting(true); setError('')
     try {
-      const response = await api.post<{ reference: string; requestType: string }>('/public/booking-requests', {
+      const response = await submitPublicBookingRequest({
         assetId: selected.id, startDate, endDate, ...booking,
         requestQuotation: quotationFlow, extras: checkoutCharges.map(charge => ({ chargeDefinitionId: charge.id, quantity: charge.quantity })),
       })
-      setReference(response.data.reference); setResponseKind(response.data.requestType as 'Booking' | 'Quotation')
-    } catch (requestError: unknown) {
-      const data = axios.isAxiosError(requestError) ? requestError.response?.data : undefined
-      const errors = data?.errors as Record<string, string[]> | undefined
-      setError(errors ? Object.values(errors).flat().join(' ') : 'Your request could not be submitted. Please contact a branch.')
-    } finally { setSubmitting(false) }
+      setReference(response.reference); setResponseKind(response.requestType)
+    } catch (requestError: unknown) { setError(apiErrorMessage(requestError, 'Your request could not be submitted. Please contact a branch.')) }
+    finally { setSubmitting(false) }
   }
 
   async function requestBooking(asset: PublicAsset, quote = false, dates = { startDate, endDate }) {

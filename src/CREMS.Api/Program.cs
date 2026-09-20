@@ -7,9 +7,22 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.DataProtection;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// The Windows Event Log provider can throw when a non-elevated development
+// process cannot access the .NET Runtime event source. Logging must never turn
+// an otherwise recoverable API error into a failed request or host shutdown.
+if (builder.Environment.IsDevelopment())
+{
+    builder.Logging.ClearProviders();
+    builder.Logging.AddConsole();
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, ".data-protection")))
+        .SetApplicationName("CREMS.Development");
+}
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
@@ -186,7 +199,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+// The development launch profile is intentionally HTTP-only because Vite proxies
+// same-origin /api requests to port 5080. Production still enforces HTTPS.
+if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
 app.UseResponseCompression();
 app.Use(async (context, next) =>
 {
