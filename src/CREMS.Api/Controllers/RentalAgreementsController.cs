@@ -50,9 +50,6 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["asset"] = ["Scan or enter the allocated asset QR number before handover."] }));
         var customerWillDrive = booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.IsVehicle(x.Asset.Type)) &&
             !booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator);
-        var professionalPersonnelIncluded = booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator);
-        if (professionalPersonnelIncluded && !await db.BookingPersonnelAssignments.AnyAsync(x => x.BookingId == booking.Id && x.Status == AssignmentStatus.Confirmed, cancellationToken))
-            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["personnel"] = ["Assign and confirm the professional driver or operator before handover."] }));
         if (!request.IdentificationVerified || customerWillDrive && !request.DriverLicenceVerified || !request.PaymentVerified)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["verification"] = [customerWillDrive ? "Identification, driver licence and payment verification are required before pickup." : "Customer identification and payment verification are required before pickup."] }));
         if (!request.CustomerAcceptedTerms || !request.AgentApproved || string.IsNullOrWhiteSpace(request.CustomerSignatureName) || string.IsNullOrWhiteSpace(request.CustomerSignatureDataUrl))
