@@ -99,6 +99,14 @@ public static class DatabaseInitializer
             var createResult = await userManager.CreateAsync(administrator, password);
             EnsureSucceeded(createResult, "create the bootstrap administrator");
         }
+        else if (app.Environment.IsDevelopment() && app.Configuration.GetValue<bool>("BootstrapAdmin:ResetPasswordOnStartup"))
+        {
+            var resetToken = await userManager.GeneratePasswordResetTokenAsync(administrator);
+            var resetResult = await userManager.ResetPasswordAsync(administrator, resetToken, password);
+            EnsureSucceeded(resetResult, "reset the bootstrap administrator password");
+            await userManager.UpdateSecurityStampAsync(administrator);
+            app.Logger.LogWarning("The bootstrap administrator password was reset during development startup.");
+        }
 
         if (!await userManager.IsInRoleAsync(administrator, SystemRoles.SuperAdministrator))
         {

@@ -71,6 +71,15 @@ export default function App() {
   const { user, checkingSession, logout } = useAuth()
 
   useEffect(() => {
+    const expireCustomerSession = () => {
+      setCustomerSignedIn(false)
+      sessionStorage.removeItem('crems.customerName')
+    }
+    window.addEventListener('crems:customer-session-expired', expireCustomerSession)
+    return () => window.removeEventListener('crems:customer-session-expired', expireCustomerSession)
+  }, [])
+
+  useEffect(() => {
     if (staffView || customerView) return
     let cancelled = false
     void api.get<{ fullName: string }>('/customer-account/session')

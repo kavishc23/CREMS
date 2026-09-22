@@ -382,15 +382,19 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     </Box>
   }
 
-  const allDivisionGalleries = useMemo(() => [
-      { key: 'motors', preference: 'Vehicles' as CustomerPreference, title: 'Carpenters Motors', matches: (asset: PublicAsset) => /carpenters motors/i.test(asset.divisionName ?? '') },
-      { key: 'carptrac', preference: 'Equipment' as CustomerPreference, title: 'Carptrac CAT', matches: (asset: PublicAsset) => /carptrac/i.test(asset.divisionName ?? '') },
-      { key: 'shipping', preference: 'WasteAndSiteHire' as CustomerPreference, title: 'Carpenters Shipping', matches: (asset: PublicAsset) => /carpenters shipping/i.test(asset.divisionName ?? '') },
-  ], [])
+  const allDivisionGalleries = useMemo(() => divisions.map(division => ({
+    key: division.id,
+    preference: /carpenters motors/i.test(division.name) ? 'Vehicles' as CustomerPreference
+      : /carptrac/i.test(division.name) ? 'Equipment' as CustomerPreference
+      : /carpenters shipping/i.test(division.name) ? 'WasteAndSiteHire' as CustomerPreference
+      : undefined,
+    title: division.name,
+    matches: (asset: PublicAsset) => asset.divisionId === division.id,
+  })), [divisions])
   const preferredDivisionGalleries = useMemo(() => {
     if (hirePreferences.length === 0 || hirePreferences.length === allDivisionGalleries.length) return allDivisionGalleries
-    return allDivisionGalleries.filter(gallery => hirePreferences.includes(gallery.preference))
-      .sort((left, right) => hirePreferences.indexOf(left.preference) - hirePreferences.indexOf(right.preference))
+    return allDivisionGalleries.filter(gallery => !gallery.preference || hirePreferences.includes(gallery.preference))
+      .sort((left, right) => (left.preference ? hirePreferences.indexOf(left.preference) : Number.MAX_SAFE_INTEGER) - (right.preference ? hirePreferences.indexOf(right.preference) : Number.MAX_SAFE_INTEGER))
   }, [allDivisionGalleries, hirePreferences])
 
   function moveGallery(key: string, total: number, direction: number) {
