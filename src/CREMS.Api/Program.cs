@@ -36,6 +36,8 @@ builder.Services
         options.Password.RequiredLength = 10;
         options.Password.RequireDigit = true;
         options.Password.RequireUppercase = true;
+        options.Password.RequireLowercase = false;
+        options.Password.RequireNonAlphanumeric = false;
         options.User.RequireUniqueEmail = true;
         options.Lockout.AllowedForNewUsers = true;
         options.Lockout.MaxFailedAccessAttempts = 5;
@@ -157,6 +159,9 @@ builder.Services.AddScoped<CurrentStaffScope>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionAuthorizationHandler>();
 builder.Services.AddScoped<IEmailQueue, EmailQueue>();
 builder.Services.AddScoped<RentalPricingService>();
+builder.Services.AddHttpClient("LicenceOcr", client => client.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddScoped<ILicenceOcrProvider, HttpLicenceOcrProvider>();
+builder.Services.AddScoped<CustomerLicenceService>();
 builder.Services.AddHttpClient("Brevo",client=>{client.BaseAddress=new Uri("https://api.brevo.com/");client.Timeout=TimeSpan.FromSeconds(20);});
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.Section));
 builder.Services.AddHostedService<EmailDeliveryWorker>();

@@ -46,8 +46,8 @@ public sealed class CustomerAccountController(
             Email = email,
             Phone = request.Phone.Trim(),
             Address = Clean(request.Address),
-            IdentificationNumber = Clean(request.IdentificationNumber),
-            HirePreferences = request.HirePreferences.Distinct().ToList(),
+            IdentificationNumber = null,
+            HirePreferences = [],
             IsActive = true,
         };
         var user = new ApplicationUser
@@ -97,9 +97,12 @@ public sealed class CustomerAccountController(
         if (user is null || !user.IsActive || !user.CustomerId.HasValue) return Unauthorized();
         var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == user.CustomerId);
         if (customer is null || !customer.IsActive || customer.IsBlocked) return Forbid();
+        var licenceNumber = await db.CustomerLicences.AsNoTracking()
+            .Where(x => x.CustomerId == customer.Id && x.Status == LicenceVerificationStatus.Verified)
+            .OrderByDescending(x => x.ConfirmedAt).Select(x => x.LicenceNumber).FirstOrDefaultAsync();
         return Ok(new { user.Id, user.Email, user.FullName, user.CustomerId, customer.CustomerNumber,
             CustomerName = customer.Name, customer.Phone, customer.Address, customer.IdentificationNumber,
-            customer.Type, customer.HirePreferences, user.EmailConfirmed });
+            DriverLicenceNumber = licenceNumber, customer.Type, customer.HirePreferences, user.EmailConfirmed });
     }
 
     [HttpGet("bookings")]
@@ -292,7 +295,7 @@ public sealed class CustomerAccountController(
             convertedBooking = await db.Bookings.FirstOrDefaultAsync(x => x.Id == quote.ConvertedBookingId.Value, token);
             if (convertedBooking is not null)
             {
-                convertedBooking.BookingNumber = $"BK-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
+                convertedBooking.BookingNumber = $"BKR-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
                 convertedBooking.Notes = Append(convertedBooking.Notes, $"Customer accepted quotation {quote.QuoteNumber}.");
                 convertedBooking.UpdatedAt = DateTimeOffset.UtcNow;
             }
@@ -435,12 +438,9 @@ public sealed class CustomerAccountController(
         if (user?.CustomerId is null) return Unauthorized();
         var customer = await db.Customers.FirstOrDefaultAsync(x => x.Id == user.CustomerId, token);
         if (customer is null) return NotFound();
-        user.FullName = request.FullName.Trim();
         customer.Phone = request.Phone.Trim();
         customer.Address = Clean(request.Address);
-        customer.IdentificationNumber = Clean(request.IdentificationNumber);
         customer.HirePreferences = request.HirePreferences.Distinct().ToList();
-        await userManager.UpdateAsync(user);
         await db.SaveChangesAsync(token);
         return Ok(new { user.FullName, customer.Phone, customer.Address, customer.IdentificationNumber, customer.HirePreferences });
     }
@@ -561,7 +561,8 @@ public sealed class CustomerAccountController(
         if (user.EmailConfirmed) return Ok(new { message = "Your email address is already verified." });
         var recent = await db.EmailVerificationOtps.AnyAsync(x => x.UserId == user.Id && x.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-1), token);
         if (!recent) { QueueVerification(user); await db.SaveChangesAsync(token); }
-        return Accepted(new { message = "If another code can be issued, it will be sent shortly." });
+        var parts = user.Email.Split('@', 2); var masked = parts.Length == 2 ? $"{parts[0][0]}***@{parts[1]}" : "your registered email";
+        return Accepted(new { message = "A verification code has been sent.", maskedDestination = masked, resendAfterSeconds = 60 });
     }
 
     [HttpPost("verification/confirm")]
@@ -678,9 +679,7 @@ public sealed record CustomerExtensionRequest(DateTimeOffset RequestedEndAt, [Ma
 public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required, MaxLength(2000)] string Description, [MaxLength(500)] string? Location, [MaxLength(100)] string? PoliceReference);
 public sealed record CustomerQuoteDecisionRequest(bool Accepted, [MaxLength(1000)] string? Note, int? ExpectedVersion);
 public sealed record CustomerQuoteLine(string Description, decimal Quantity, decimal Rate, string Unit);
-public sealed record CustomerProfileRequest([Required, MaxLength(150)] string FullName,
-    [Required, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,
-    [MaxLength(100)] string? IdentificationNumber,
+public sealed record CustomerProfileRequest([Required, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,
     [Required, MaxLength(3)] CustomerHirePreference[] HirePreferences);
 public sealed record CustomerBookingDatesRequest(DateTimeOffset StartAt, DateTimeOffset EndAt);
 public sealed record ActivateCustomerAccountRequest([Required, EmailAddress] string Email,
@@ -691,6 +690,4 @@ public sealed record RegisterCustomerRequest(
     [Required, EmailAddress, MaxLength(254)] string Email,
     [Required, MaxLength(50)] string Phone,
     [MaxLength(500)] string? Address,
-    [MaxLength(100)] string? IdentificationNumber,
-    [Required, MaxLength(3)] CustomerHirePreference[] HirePreferences,
     [Required, MinLength(10)] string Password);

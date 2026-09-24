@@ -55,7 +55,9 @@ public sealed class WindowSessionMiddleware(RequestDelegate next)
         if (context.User.Identity?.IsAuthenticated != true ||
             context.Request.Path.StartsWithSegments("/api/public") ||
             (HttpMethods.IsGet(context.Request.Method) && context.Request.Path == "/api/health") ||
-            context.Request.Path.StartsWithSegments("/api/auth/login"))
+            context.Request.Path.StartsWithSegments("/api/auth/login") ||
+            context.Request.Path.StartsWithSegments("/api/customer-account/register") ||
+            context.Request.Path.StartsWithSegments("/api/customer-account/activate"))
         {
             await next(context);
             return;
@@ -69,6 +71,8 @@ public sealed class WindowSessionMiddleware(RequestDelegate next)
         var ticket = context.Request.Cookies[cookieName];
         if (string.IsNullOrWhiteSpace(userId) || !Guid.TryParse(windowId, out _) || string.IsNullOrWhiteSpace(ticket))
         {
+            if (!string.IsNullOrWhiteSpace(userId)) registry.End(userId);
+            context.Response.Cookies.Delete(cookieName);
             await Reject(context, "A valid browser-window session is required.");
             return;
         }
@@ -77,6 +81,8 @@ public sealed class WindowSessionMiddleware(RequestDelegate next)
         var result = registry.Validate(userId, windowId, fingerprint, DateTimeOffset.UtcNow);
         if (result != WindowSessionResult.Valid)
         {
+            registry.End(userId);
+            context.Response.Cookies.Delete(cookieName);
             await Reject(context, result == WindowSessionResult.Expired
                 ? "Your session expired. Sign in again."
                 : "This session is active in another browser window. Sign in here to continue.");

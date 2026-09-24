@@ -21,7 +21,7 @@ export const api = axios.create({
 api.interceptors.request.use((config) => {
   if (config.data instanceof FormData) delete config.headers['Content-Type']
   config.headers['X-CREMS-Window-Id'] = getWindowSessionId()
-  config.headers.Accept = 'application/json'
+  if (!config.headers.Accept) config.headers.Accept = 'application/json'
   return config
 })
 

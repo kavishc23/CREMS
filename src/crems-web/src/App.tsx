@@ -74,6 +74,7 @@ export default function App() {
     const expireCustomerSession = () => {
       setCustomerSignedIn(false)
       sessionStorage.removeItem('crems.customerName')
+      sessionStorage.removeItem('crems.customerSection')
     }
     window.addEventListener('crems:customer-session-expired', expireCustomerSession)
     return () => window.removeEventListener('crems:customer-session-expired', expireCustomerSession)

@@ -108,17 +108,33 @@ function readCatalogueState(): CatalogueState | null {
 
 type PublicCatalogueBootstrap = { branches: Branch[]; divisions: PublicDivision[]; assets: PublicAsset[] }
 let publicCatalogueCache: { expiresAt: number; promise: Promise<PublicCatalogueBootstrap> } | null = null
+let lastPublicCatalogue: PublicCatalogueBootstrap | null = null
+
+async function loadPublicResource<T>(url: string) {
+  try {
+    return (await api.get<T>(url)).data
+  } catch {
+    // Public catalogue reads are idempotent. Retrying once covers the brief
+    // startup interval while the local API or database is becoming ready.
+    return (await api.get<T>(url)).data
+  }
+}
 
 function loadPublicCatalogueBootstrap() {
   const now = Date.now()
   if (publicCatalogueCache && publicCatalogueCache.expiresAt > now) return publicCatalogueCache.promise
   const promise = Promise.all([
-    api.get<Branch[]>('/public/branches'), api.get<PublicDivision[]>('/public/divisions'), api.get<PublicAsset[]>('/public/assets'),
-  ]).then(([branchResponse, divisionResponse, assetResponse]) => ({
-    branches: branchResponse.data,
-    divisions: divisionResponse.data,
-    assets: assetResponse.data,
-  }))
+    loadPublicResource<Branch[]>('/public/branches'),
+    loadPublicResource<PublicDivision[]>('/public/divisions'),
+    loadPublicResource<PublicAsset[]>('/public/assets'),
+  ]).then(([branches, divisions, assets]) => {
+    const catalogue = { branches, divisions, assets }
+    lastPublicCatalogue = catalogue
+    return catalogue
+  }).catch(error => {
+    if (lastPublicCatalogue) return lastPublicCatalogue
+    throw error
+  })
   publicCatalogueCache = { expiresAt: now + 30_000, promise }
   promise.catch(() => { publicCatalogueCache = null })
   return promise
@@ -212,7 +228,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       const response = await api.get<PublicAsset[]>('/public/assets', { params: {
         branchId: branchId || undefined, divisionId: divisionId || undefined, type: type || undefined, startDate, endDate,
       } })
-      setAssets(response.data); setSearched(true); setShowModifySearch(false)
+      setAssets(response.data); setGalleryOffsets({}); setSearched(true); setShowModifySearch(false)
     } catch (reason) { setError(apiErrorMessage(reason, 'We could not check availability. Please try again or contact a branch.')) }
     finally { setLoading(false) }
   }, [branchId, differentReturnLocation, divisionId, endDate, returnBranchId, startDate, type])
@@ -264,8 +280,8 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const sortedAssets = useMemo(() => [...displayedAssets].sort((left, right) => {
     if (sort === 'price-low') return left.dailyRate - right.dailyRate
     if (sort === 'price-high') return right.dailyRate - left.dailyRate
-    return preferenceScore(right) - preferenceScore(left) || Number(right.isAvailable) - Number(left.isAvailable) || left.dailyRate - right.dailyRate
-  }), [displayedAssets, hirePreferences, sort])
+    return (searched ? 0 : preferenceScore(right) - preferenceScore(left)) || Number(right.isAvailable) - Number(left.isAvailable) || left.dailyRate - right.dailyRate
+  }), [displayedAssets, hirePreferences, searched, sort])
   const rentalDays = Math.max(1, Math.ceil((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86400000))
   const checkoutCharges = useMemo(() => (checkoutDetail?.charges ?? []).filter(charge => !['Operator', 'Driver'].includes(charge.category) || booking.personnelRequested).filter(charge => !(selected?.requiresDelivery && charge.category === 'Transport') && (charge.isRequired ||
     (selectedExtras[charge.id] ?? 0) > 0 || booking.fulfilment === 'Delivery' && charge.category === 'Transport' ||
@@ -334,15 +350,16 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       return
     }
     try {
-      const account = (await api.get<{ fullName: string; customerName: string; email: string; phone: string | null; address: string | null; type: 'Individual' | 'Business' }>('/customer-account/session')).data
+      const account = (await api.get<{ fullName: string; customerName: string; email: string; phone: string | null; address: string | null; driverLicenceNumber: string | null; type: 'Individual' | 'Business' }>('/customer-account/session')).data
       const details = (await api.get<CheckoutDetail>(`/public/assets/${asset.id}`, { params: dates })).data
       if (!details.isAvailable) {
         setError('This rental is no longer available for the selected dates. Please choose another option.')
         return
       }
-      openRequest(asset, details, { ...emptyBooking, fullName: account.fullName, customerType: account.type,
+      openRequest(asset, details, { ...emptyBooking, fullName: account.customerName, customerType: account.type,
         companyName: '', email: account.email,
-        phone: account.phone ?? '', address: account.address ?? '' }, quote)
+        phone: account.phone ?? '', address: account.address ?? '', driverName: account.customerName,
+        driverLicence: account.driverLicenceNumber ?? '' }, quote)
     } catch { setError('We could not prepare this checkout. Please refresh availability and try again.') }
   }
 
@@ -378,11 +395,14 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   }, [])
 
   useEffect(() => {
-    if (!customerAuthenticated) return
+    if (!customerAuthenticated) {
+      setHirePreferences([])
+      return
+    }
     void api.get<CustomerPreferenceSession>('/customer-account/session').then(({ data }) => {
       const preferences = Array.isArray(data.hirePreferences) ? data.hirePreferences : data.hirePreference && data.hirePreference !== 'NoPreference' ? [data.hirePreference] : []
       setHirePreferences(preferences.filter(value => ['Vehicles', 'Equipment', 'WasteAndSiteHire'].includes(value)))
-    }).catch(() => undefined)
+    }).catch(() => setHirePreferences([]))
   }, [customerAuthenticated])
 
   function renderSearchForm(compact = false) {
@@ -473,7 +493,10 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
         {allDivisionGalleries.map(gallery => {
           const divisionAssets = sortedAssets.filter(gallery.matches)
           if (divisionAssets.length === 0) return null
-          return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length} matching rental{divisionAssets.length === 1 ? '' : 's'}</Typography></Stack><Grid container spacing={2}>{divisionAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 3 }}>{renderRentalCard(asset)}</Grid>)}</Grid></Box>
+          if (divisionId) return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length} matching rental{divisionAssets.length === 1 ? '' : 's'}</Typography></Stack><Grid container spacing={2}>{divisionAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 3 }}>{renderRentalCard(asset)}</Grid>)}</Grid></Box>
+          const offset = Math.min(galleryOffsets[gallery.key] ?? 0, Math.max(0, divisionAssets.length - 4))
+          const visibleAssets = divisionAssets.slice(offset, offset + 4)
+          return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length} matching rental{divisionAssets.length === 1 ? '' : 's'}</Typography></Stack><Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}><IconButton aria-label={`Previous ${gallery.title} results`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, divisionAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Box sx={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 2 }}>{visibleAssets.map(asset => <Box key={asset.id} sx={{ minWidth: 0 }}>{renderRentalCard(asset)}</Box>)}</Box><IconButton aria-label={`Next ${gallery.title} results`} disabled={offset >= Math.max(0, divisionAssets.length - 4)} onClick={() => moveGallery(gallery.key, divisionAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack></Box>
         })}
       </>)}
       {!searched && !loading && preferredDivisionGalleries.map(gallery => {
@@ -517,7 +540,27 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
             {!requiresProfessionalPersonnel(selected) && allowsProfessionalPersonnel(selected) && <FormControlLabel control={<Checkbox checked={booking.personnelRequested} onChange={e => setBooking({ ...booking, personnelRequested: e.target.checked })} />} label={isVehicleAsset(selected) ? 'Add a professional driver' : 'Include a trained operator'} />}
             {checkoutDetail?.charges.filter(x => !x.isRequired && !['Operator', 'Driver', 'Transport'].includes(x.category)).map(charge => <Card variant="outlined" key={charge.id}><CardContent sx={{ py: 1.5 }}><Stack direction="row" justifyContent="space-between" alignItems="center" gap={2}><FormControlLabel control={<Checkbox checked={(selectedExtras[charge.id] ?? 0) > 0} onChange={e => setSelectedExtras({ ...selectedExtras, [charge.id]: e.target.checked ? 1 : 0 })} />} label={charge.name} /><Typography fontWeight={700}>${charge.defaultSellingRate.toFixed(2)} / {charge.unit.toLowerCase()}</Typography></Stack></CardContent></Card>)}
           </>}
-          {bookingStep === 2 && <><Typography variant="h6" fontWeight={750}>Customer and fulfilment details</Typography><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: { xs: 1.5, md: 2 } }}><TextField fullWidth required label="Contact person" value={booking.fullName} onChange={e => setBooking({ ...booking, fullName: e.target.value })} /><TextField fullWidth required type="email" label="Email" value={booking.email} disabled /><TextField fullWidth required label="Phone" value={booking.phone} onChange={e => setBooking({ ...booking, phone: e.target.value })} />{booking.personnelRequested ? <TextField fullWidth required label="Valid identification number" helperText="No licence is required when Carpenters supplies the operator." value={booking.identificationNumber} onChange={e => setBooking({ ...booking, identificationNumber: e.target.value })} /> : isVehicleAsset(selected) && <><TextField fullWidth required label="Driver name" value={booking.driverName} onChange={e => setBooking({ ...booking, driverName: e.target.value })} /><TextField fullWidth required label="Driver licence number" value={booking.driverLicence} onChange={e => setBooking({ ...booking, driverLicence: e.target.value })} /></>}{booking.fulfilment === 'Delivery' && <><TextField fullWidth required label="Delivery / worksite address" value={booking.deliveryAddress} onChange={e => setBooking({ ...booking, deliveryAddress: e.target.value })} /><TextField fullWidth label="Site contact and access instructions" value={booking.siteContact} onChange={e => setBooking({ ...booking, siteContact: e.target.value })} /></>}{booking.personnelRequested && <TextField fullWidth required type="number" label="Estimated driver/operator hours" inputProps={{ min: 1, max: 1000 }} value={booking.personnelHours} onChange={e => setBooking({ ...booking, personnelHours: Number(e.target.value) })} />}{booking.customerType === 'Business' && <TextField fullWidth label="Purchase order number" value={booking.purchaseOrderNumber} onChange={e => setBooking({ ...booking, purchaseOrderNumber: e.target.value })} />}<TextField fullWidth label="Rental purpose" value={booking.purpose} onChange={e => setBooking({ ...booking, purpose: e.target.value })} /><TextField fullWidth label="Additional requirements" value={booking.message} onChange={e => setBooking({ ...booking, message: e.target.value })} /></Box></>}
+          {bookingStep === 2 && <><Typography variant="h6" fontWeight={750}>Customer and fulfilment details</Typography>
+            {(isMotorsBooking || isCarptracQuote) ? <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: { xs: 1.5, md: 2 } }}>
+              <TextField fullWidth required label="Full name" value={booking.fullName} InputProps={{ readOnly: true }} />
+              <TextField fullWidth required type="email" label="Email" value={booking.email} InputProps={{ readOnly: true }} />
+              <TextField fullWidth required label="Phone" value={booking.phone} onChange={e => setBooking({ ...booking, phone: e.target.value })} />
+              <TextField fullWidth required label="Driver licence number" value={booking.driverLicence} InputProps={{ readOnly: true }} helperText={!booking.driverLicence ? 'Verify your driver licence in My account before continuing.' : undefined} />
+              {isCarptracQuote ? <>
+                <TextField fullWidth required label="Delivery / worksite address" value={booking.deliveryAddress} onChange={e => setBooking({ ...booking, deliveryAddress: e.target.value })} />
+                <TextField fullWidth label="Rental purpose" value={booking.purpose} onChange={e => setBooking({ ...booking, purpose: e.target.value })} />
+                <TextField fullWidth required type="number" label="Estimated driver/operator hours" inputProps={{ min: 1, max: 1000 }} value={booking.personnelHours} onChange={e => setBooking({ ...booking, personnelHours: Number(e.target.value) })} />
+                <TextField fullWidth label="Additional requirements" value={booking.message} onChange={e => setBooking({ ...booking, message: e.target.value })} />
+              </> : <>
+                {booking.fulfilment === 'Delivery' && <TextField fullWidth required label="Delivery / worksite address" value={booking.deliveryAddress} onChange={e => setBooking({ ...booking, deliveryAddress: e.target.value })} />}
+                {quotationFlow && booking.fulfilment === 'Delivery' && <TextField fullWidth required label="Site contact and access instructions" value={booking.siteContact} onChange={e => setBooking({ ...booking, siteContact: e.target.value })} />}
+                <TextField fullWidth label="Rental purpose" value={booking.purpose} onChange={e => setBooking({ ...booking, purpose: e.target.value })} />
+                <TextField fullWidth label="Additional requirements" value={booking.message} onChange={e => setBooking({ ...booking, message: e.target.value })} />
+              </>}
+            </Box> : <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: { xs: 1.5, md: 2 } }}>
+              <TextField fullWidth required label="Contact person" value={booking.fullName} onChange={e => setBooking({ ...booking, fullName: e.target.value })} /><TextField fullWidth required type="email" label="Email" value={booking.email} disabled /><TextField fullWidth required label="Phone" value={booking.phone} onChange={e => setBooking({ ...booking, phone: e.target.value })} />{booking.personnelRequested ? <TextField fullWidth required label="Valid identification number" helperText="No licence is required when Carpenters supplies the operator." value={booking.identificationNumber} onChange={e => setBooking({ ...booking, identificationNumber: e.target.value })} /> : isVehicleAsset(selected) && <><TextField fullWidth required label="Driver name" value={booking.driverName} onChange={e => setBooking({ ...booking, driverName: e.target.value })} /><TextField fullWidth required label="Driver licence number" value={booking.driverLicence} onChange={e => setBooking({ ...booking, driverLicence: e.target.value })} /></>}{booking.fulfilment === 'Delivery' && <><TextField fullWidth required label="Delivery / worksite address" value={booking.deliveryAddress} onChange={e => setBooking({ ...booking, deliveryAddress: e.target.value })} /><TextField fullWidth label="Site contact and access instructions" value={booking.siteContact} onChange={e => setBooking({ ...booking, siteContact: e.target.value })} /></>}{booking.personnelRequested && <TextField fullWidth required type="number" label="Estimated driver/operator hours" inputProps={{ min: 1, max: 1000 }} value={booking.personnelHours} onChange={e => setBooking({ ...booking, personnelHours: Number(e.target.value) })} />}{booking.customerType === 'Business' && <TextField fullWidth label="Purchase order number" value={booking.purchaseOrderNumber} onChange={e => setBooking({ ...booking, purchaseOrderNumber: e.target.value })} />}<TextField fullWidth label="Rental purpose" value={booking.purpose} onChange={e => setBooking({ ...booking, purpose: e.target.value })} /><TextField fullWidth label="Additional requirements" value={booking.message} onChange={e => setBooking({ ...booking, message: e.target.value })} />
+            </Box>}
+          </>}
           {bookingStep === 3 && <><Typography variant="h6" fontWeight={750}>Review and submit</Typography><Alert severity={quotationFlow ? 'info' : 'success'}><Typography fontWeight={700}>{quotationFlow ? 'Quotation workflow' : 'Simple vehicle booking'}</Typography><Typography variant="body2">{quotationFlow ? 'A specialist will confirm availability, delivery, operator requirements and negotiated rates before you accept anything.' : 'The branch will verify your licence, refundable bond and pickup requirements before final confirmation.'}</Typography></Alert><Card variant="outlined"><CardContent><Typography fontWeight={750}>{booking.fullName}</Typography><Typography color="text.secondary">{booking.phone} · {booking.email}</Typography><Divider sx={{ my: 2 }} /><Typography>{booking.fulfilment === 'Delivery' ? `Delivery to ${booking.deliveryAddress}` : `Pickup from ${selected?.branchName}`}</Typography>{booking.personnelRequested && <Typography>Trained personnel · approximately {booking.personnelHours} hours</Typography>}{booking.purchaseOrderNumber && <Typography>Purchase order {booking.purchaseOrderNumber}</Typography>}</CardContent></Card><FormControlLabel control={<Checkbox checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} />} label={quotationFlow ? 'I understand this submits a quotation request and I can review the final quotation before accepting it.' : 'I understand the booking is confirmed only after Carpenters verifies availability, eligibility, documents and any required refundable bond.'} /></>}
         </Stack></Grid><Grid size={{ xs: 12, md: 4 }}><Card variant="outlined" sx={{ position: { md: 'sticky' }, top: 16 }}><CardContent><Typography variant="overline" color="text.secondary">{quotationFlow ? 'Quotation estimate' : 'Booking summary'}</Typography><Typography variant="h6" fontWeight={800}>{selected?.name}</Typography><Typography variant="body2" color="text.secondary">{rentalDays} days · {selected?.branchName}</Typography><Divider sx={{ my: 2 }} /><Stack spacing={1}><Stack direction="row" justifyContent="space-between"><Typography>Base hire</Typography><Typography>{baseHire.toFixed(2)}</Typography></Stack>{checkoutCharges.map(charge => <Stack key={charge.id} direction="row" justifyContent="space-between" gap={1}><Typography variant="body2">{charge.name} × {charge.quantity}</Typography><Typography variant="body2">{(charge.defaultSellingRate * charge.quantity).toFixed(2)}</Typography></Stack>)}<Stack direction="row" justifyContent="space-between"><Typography>VAT ({taxRate}%)</Typography><Typography>{estimatedTax.toFixed(2)}</Typography></Stack><Divider /><Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>Estimated hire total</Typography><Typography fontWeight={800}>FJD {estimatedTotal.toFixed(2)}</Typography></Stack><Stack direction="row" justifyContent="space-between"><Typography>Refundable bond</Typography><Typography>FJD {bondAmount.toFixed(2)}</Typography></Stack><Divider /><Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>Total including bond</Typography><Typography fontWeight={800}>FJD {(estimatedTotal + bondAmount).toFixed(2)}</Typography></Stack><Typography variant="caption" color="text.secondary">Bond is held separately, not a rental charge. Refund is subject to the return inspection and agreed deductions.</Typography></Stack><Typography variant="caption" color="text.secondary" display="block" mt={2}>Late return, excess usage, fuel, cleaning or damage charges apply only when relevant and are assessed after return.</Typography></CardContent></Card></Grid></Grid>
       </Box>}
