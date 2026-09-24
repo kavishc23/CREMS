@@ -36,6 +36,9 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
     private async Task<ActionResult> Inbox(bool customer, CancellationToken token, string? category = null, bool unread = false, string? severity = null, bool history = false, int page = 1)
     {
         var user = await users.GetUserAsync(User); if (user is null || !user.IsActive) return Unauthorized();
+        if (long.TryParse(Request.Query["since"], out var since))
+            await NotificationWakeup.WaitAsync(since, token);
+        Response.Headers["X-Notification-Version"] = NotificationWakeup.Version.ToString();
         var visible = await Visible(user, customer, history);
         if (!customer && !history) visible = visible.Where(x => !db.StaffNotificationPreferences.Any(p => p.UserId == user.Id && p.Category == x.Kind && !p.InAppEnabled));
         var now = DateTimeOffset.UtcNow;
