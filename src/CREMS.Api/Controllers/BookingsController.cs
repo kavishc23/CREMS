@@ -159,7 +159,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var existing = await db.SalesQuotes.FirstOrDefaultAsync(x => x.ConvertedBookingId == id, cancellationToken);
         var totals = QuotePolicy.Calculate(request.Lines.Select(x => (x.Quantity, x.Rate)), request.Discount, request.TaxRate);
         if (request.Discount > totals.Subtotal) return BadRequest(new { message = "Discount cannot exceed the quotation subtotal." });
-        var quote = existing ?? new SalesQuote { QuoteNumber = $"QT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}", CustomerId = booking.CustomerId, BranchId = booking.BranchId, DivisionId = booking.Items.FirstOrDefault()?.Asset?.DivisionId, AssignedUserId = scope.UserId, ConvertedBookingId = booking.Id, ValidUntil = request.ValidUntil };
+        var quote = existing ?? new SalesQuote { QuoteNumber = $"QUO-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}", CustomerId = booking.CustomerId, BranchId = booking.BranchId, DivisionId = booking.Items.FirstOrDefault()?.Asset?.DivisionId, AssignedUserId = scope.UserId, ConvertedBookingId = booking.Id, ValidUntil = request.ValidUntil };
         if (existing is not null)
         {
             db.QuoteRevisions.Add(new QuoteRevision { SalesQuoteId = quote.Id, Version = quote.Version, SnapshotJson = System.Text.Json.JsonSerializer.Serialize(new { quote.ValidUntil, quote.Subtotal, quote.Discount, quote.Tax, quote.Total, quote.LineItemsJson }), ChangeReason = request.RevisionReason ?? "Quotation pricing revised", ChangedByUserId = scope.UserId });

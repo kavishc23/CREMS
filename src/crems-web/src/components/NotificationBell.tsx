@@ -50,7 +50,7 @@ export function NotificationBell({customer=false,canSend=false}:{customer?:boole
   }
   return <>
     <IconButton color="inherit" aria-label={`Notifications, ${count} unread`} onClick={e=>setAnchor(e.currentTarget)}><Badge color="error" badgeContent={count} max={99}><NotificationsOutlined/></Badge></IconButton>
-    <Popover open={Boolean(anchor)} anchorEl={anchor} onClose={()=>setAnchor(null)} anchorOrigin={{vertical:'bottom',horizontal:'right'}} transformOrigin={{vertical:'top',horizontal:'right'}}>
+    <Popover disableScrollLock open={Boolean(anchor)} anchorEl={anchor} onClose={()=>setAnchor(null)} anchorOrigin={{vertical:'bottom',horizontal:'right'}} transformOrigin={{vertical:'top',horizontal:'right'}}>
       <Box sx={{width:{xs:340,sm:480},maxHeight:'80vh',overflow:'auto'}}>
         <Stack p={2} direction="row" alignItems="center" justifyContent="space-between"><Box><Typography variant="h6">Notification centre</Typography><Typography variant="caption" color="text.secondary">{count} unread · Changes and actions</Typography></Box><Button size="small" onClick={()=>void load()}>Refresh</Button></Stack>
         <Stack px={2} pb={1} direction="row" gap={1} flexWrap="wrap"><Button size="small" disabled={!count} onClick={()=>void read([],true)}>Mark all as read</Button>{!customer&&<Button size="small" onClick={()=>setPreferences(true)}>Preferences</Button>}{canSend&&<><Button size="small" onClick={()=>setStaffCompose(true)}>Notify staff</Button><Button size="small" onClick={()=>setCompose(true)}>Notify customers</Button></>}</Stack>

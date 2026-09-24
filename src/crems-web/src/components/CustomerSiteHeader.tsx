@@ -5,7 +5,7 @@ import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
 import MenuOutlined from '@mui/icons-material/MenuOutlined'
 import {
-  AppBar, Box, Button, Container, Divider, Drawer, IconButton, Stack, Toolbar, Typography,
+  AppBar, Box, Button, Container, Divider, Drawer, IconButton, Menu, MenuItem, Stack, Toolbar, Typography,
 } from '@mui/material'
 
 export type CustomerSiteSection = 'top' | 'search' | 'services' | 'rentals' | 'how-it-works' | 'faq' | 'contact'
@@ -24,6 +24,7 @@ const links: { section: CustomerSiteSection; label: string }[] = [{ section: 'co
 
 export function CustomerSiteHeader({ accountActive = false, authenticated = false, accountName, onAccount, onAccountSection, onNavigate, onSignOut }: CustomerSiteHeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [accountAnchor, setAccountAnchor] = useState<HTMLElement | null>(null)
 
   function navigate(section: CustomerSiteSection) {
     setMobileOpen(false)
@@ -45,11 +46,11 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
       variant="contained"
       color="secondary"
       startIcon={<AccountCircleOutlined />}
-      onClick={() => openAccount()}
+      onClick={event => authenticated ? setAccountAnchor(event.currentTarget) : openAccount()}
       aria-current={accountActive ? 'page' : undefined}
       sx={{ ml: 1, color: '#111', boxShadow: accountActive ? '0 0 0 2px #fff' : 'none' }}
     >{accountLabel}</Button>
-    {authenticated && onSignOut && <IconButton color="inherit" aria-label="Sign out" title="Sign out" onClick={() => void onSignOut()} sx={{ ml: .25 }}><LogoutOutlined /></IconButton>}
+    {authenticated && <NotificationBell customer key={accountName}/>}
   </Stack>
 
   return <>
@@ -63,13 +64,16 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
           </Box>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
-          {authenticated && <NotificationBell customer key={accountName}/> }
           <Box sx={{ display: { xs: 'none', lg: 'block' } }}>{desktopNavigation}</Box>
           <IconButton color="inherit" aria-label="Open navigation" sx={{ display: { lg: 'none' } }} onClick={() => setMobileOpen(true)}><MenuOutlined /></IconButton>
         </Toolbar>
       </Container>
     </AppBar>
     <Toolbar sx={{ minHeight: { xs: 68, md: 76 } }} />
+    <Menu disableScrollLock anchorEl={accountAnchor} open={Boolean(accountAnchor)} onClose={() => setAccountAnchor(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }} slotProps={{ paper: { sx: { mt: .75, width: 270, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', boxShadow: '0 16px 38px rgba(0,0,0,.2)', overflow: 'hidden' } }, list: { sx: { p: 1 } } }}>
+      <MenuItem onClick={() => { setAccountAnchor(null); openAccount() }} sx={{ borderRadius: 1.5, px: 1.5, py: 1.35, gap: 1.25, fontWeight: 800, '&:hover': { bgcolor: '#fff8cc' } }}><Box sx={{ width: 34, height: 34, borderRadius: 1.25, bgcolor: 'secondary.main', color: '#111', display: 'grid', placeItems: 'center' }}><AccountCircleOutlined fontSize="small" /></Box><Box><Typography fontWeight={800}>Customer Profile</Typography><Typography variant="caption" color="text.secondary">Manage your account</Typography></Box></MenuItem>
+      {onSignOut && <><Divider sx={{ my: .75 }} /><MenuItem sx={{ borderRadius: 1.5, px: 1.5, py: 1.25, gap: 1.25, color: 'error.main', fontWeight: 800, '&:hover': { bgcolor: '#fdeaea' } }} onClick={() => { setAccountAnchor(null); void onSignOut() }}><Box sx={{ width: 34, height: 34, borderRadius: 1.25, bgcolor: '#fdeaea', display: 'grid', placeItems: 'center' }}><LogoutOutlined fontSize="small" /></Box><Box><Typography fontWeight={800}>Log out</Typography><Typography variant="caption" color="text.secondary">End this secure session</Typography></Box></MenuItem></>}
+    </Menu>
 
     <Drawer anchor="right" open={mobileOpen} onClose={() => setMobileOpen(false)}>
       <Box sx={{ width: { xs: 300, sm: 340 }, minHeight: '100%', p: 2.5 }}>

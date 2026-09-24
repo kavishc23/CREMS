@@ -45,7 +45,10 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
                     .OrderByDescending(document => document.CreatedAt).Select(document => (Guid?)document.Id).FirstOrDefault(),
                 db.DocumentRecords.Where(document => document.EntityType == nameof(Customer) &&
                     document.EntityId == customer.Id && document.Type == "DriverLicence")
-                    .OrderByDescending(document => document.CreatedAt).Select(document => document.FileName).FirstOrDefault()))
+                    .OrderByDescending(document => document.CreatedAt).Select(document => document.FileName).FirstOrDefault(),
+                db.CustomerLicences.Where(x => x.CustomerId == customer.Id && x.Status == LicenceVerificationStatus.Verified).OrderByDescending(x => x.ConfirmedAt).Select(x => x.LicenceNumber).FirstOrDefault(),
+                db.CustomerLicences.Where(x => x.CustomerId == customer.Id && x.Status == LicenceVerificationStatus.Verified).OrderByDescending(x => x.ConfirmedAt).Select(x => x.LicenceClasses).FirstOrDefault(),
+                db.CustomerLicences.Any(x => x.CustomerId == customer.Id && x.Status == LicenceVerificationStatus.Verified) ? "Verified" : "Required"))
             .ToListAsync(cancellationToken);
         return Ok(customers);
     }
@@ -168,11 +171,11 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
         var salt = RandomNumberGenerator.GetBytes(16);
         db.CustomerAccountActivations.Add(new CustomerAccountActivation { UserId = user.Id,
-            Salt = Convert.ToBase64String(salt), CodeHash = Hash(code, salt), ExpiresAt = DateTimeOffset.UtcNow.AddHours(24),
+            Salt = Convert.ToBase64String(salt), CodeHash = Hash(code, salt), ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10),
             InvitedByUserId = scope.UserId });
-        var html = EmailTemplate.Branded("Activate your Carpenters customer account", $"<p>Carpenters has enabled online access for customer <strong>{System.Net.WebUtility.HtmlEncode(customer.CustomerNumber)}</strong>.</p><p>Your activation code is:</p><p style=\"font-size:32px;letter-spacing:8px;font-weight:bold;background:#f5f5f2;padding:18px;text-align:center\">{code}</p><p>Use this code with {System.Net.WebUtility.HtmlEncode(customer.Email)} on the customer sign-in page. It expires in 24 hours.</p>");
+        var html = EmailTemplate.Branded("Activate your Carpenters customer account", $"<p>Carpenters has enabled online access for customer <strong>{System.Net.WebUtility.HtmlEncode(customer.CustomerNumber)}</strong>.</p><p>Your activation code is:</p><p style=\"font-size:32px;letter-spacing:8px;font-weight:bold;background:#f5f5f2;padding:18px;text-align:center\">{code}</p><p>Use this code with {System.Net.WebUtility.HtmlEncode(customer.Email)} on the customer sign-in page. It expires in 10 minutes.</p>");
         emailQueue.Queue(db, customer.Email, "Activate your Carpenters customer account", html,
-            $"Your Carpenters customer account activation code is {code}. It expires in 24 hours.", "CustomerActivation");
+            $"Your Carpenters customer account activation code is {code}. It expires in 10 minutes.", "CustomerActivation");
         AuditWriter.Record(db, scope, "Customer online access invited", "Customer", customer.Id,
             $"An online account activation was sent for {customer.CustomerNumber}.", scope.BranchId);
         await db.SaveChangesAsync(token);
@@ -180,23 +183,28 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
     }
 
     [HttpGet("{id:guid}/activity")]
-    public async Task<ActionResult> Activity(Guid id, CancellationToken token)
+    public async Task<ActionResult> Activity(Guid id, [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 10, CancellationToken token = default)
     {
         var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, token);
         if (customer is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || (!scope.IsAdministrator && !await db.Bookings.AnyAsync(x => x.CustomerId == id && x.BranchId == scope.BranchId, token))) return Forbid();
 
-        var bookings = await db.Bookings.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator || x.BranchId == scope.BranchId))
-            .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.BookingNumber, x.Status, x.CreatedAt, x.ApprovedAt, x.BranchId, branchName = x.Branch!.Name, assetCount = x.Items.Count }).Take(100).ToListAsync(token);
-        var bookingIds = bookings.Select(x => x.Id).ToArray();
-        var invoices = await db.RentalInvoices.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId)).OrderByDescending(x => x.IssuedAt)
-            .Select(x => new { x.Id, x.BookingId, x.InvoiceNumber, x.Status, x.Total, x.AmountPaid, x.BalanceDue, x.IssuedAt }).ToListAsync(token);
-        var cases = await db.CustomerCases.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator || x.BranchId == scope.BranchId)).OrderByDescending(x => x.CreatedAt)
-            .Select(x => new { x.Id, x.CaseNumber, x.Type, x.Priority, x.Subject, x.Status, x.CreatedAt }).Take(100).ToListAsync(token);
+        pageSize = Math.Clamp(pageSize, 4, 10); page = Math.Max(1, page); var term = search?.Trim();
+        var bookingQuery = db.Bookings.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator || x.BranchId == scope.BranchId));
+        var quoteQuery = db.SalesQuotes.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator || x.BranchId == scope.BranchId));
+        var invoiceQuery = db.RentalInvoices.AsNoTracking().Where(x => x.Booking!.CustomerId == id && (scope.IsAdministrator || x.Booking.BranchId == scope.BranchId));
+        if (!string.IsNullOrWhiteSpace(term)) { bookingQuery = bookingQuery.Where(x => x.BookingNumber.Contains(term) || x.Branch!.Name.Contains(term)); quoteQuery = quoteQuery.Where(x => x.QuoteNumber.Contains(term) || db.Branches.Any(branch => branch.Id == x.BranchId && branch.Name.Contains(term))); invoiceQuery = invoiceQuery.Where(x => x.InvoiceNumber.Contains(term) || x.Booking!.Branch!.Name.Contains(term)); }
+        var bookingCount = await bookingQuery.CountAsync(token); var quoteCount = await quoteQuery.CountAsync(token); var invoiceCount = await invoiceQuery.CountAsync(token);
+        var bookings = await bookingQuery.OrderByDescending(x => x.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new { x.Id, x.BookingNumber, x.Status, x.CreatedAt, x.ApprovedAt, x.BranchId, branchName = x.Branch!.Name, assetCount = x.Items.Count }).ToListAsync(token);
+        var quotations = await quoteQuery.OrderByDescending(x => x.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new { x.Id, x.QuoteNumber, x.Status, x.Total, x.ValidUntil, x.CreatedAt, branchName = db.Branches.Where(branch => branch.Id == x.BranchId).Select(branch => branch.Name).FirstOrDefault()! }).ToListAsync(token);
+        var invoices = await invoiceQuery.OrderByDescending(x => x.IssuedAt).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new { x.Id, x.BookingId, x.InvoiceNumber, x.Status, x.Total, x.AmountPaid, x.BalanceDue, x.IssuedAt }).ToListAsync(token);
+        var totals = await db.RentalInvoices.AsNoTracking().Where(x => x.Booking!.CustomerId == id && (scope.IsAdministrator || x.Booking.BranchId == scope.BranchId)).GroupBy(_ => 1).Select(x => new { totalBilled = x.Sum(y => y.Total), outstanding = x.Sum(y => y.BalanceDue) }).FirstOrDefaultAsync(token);
+        var licence = await db.CustomerLicences.AsNoTracking().Where(x => x.CustomerId == id && x.Status == LicenceVerificationStatus.Verified).OrderByDescending(x => x.ConfirmedAt).Select(x => new { x.LicenceNumber, x.LicenceClasses, x.Status, x.UpdatedAt }).FirstOrDefaultAsync(token);
         var account = await db.Users.AsNoTracking().Where(x => x.CustomerId == id).Select(x => new { x.Id, x.Email, x.EmailConfirmed, x.IsActive, x.LastLoginAt, x.LastActivityAt, x.LockoutEnd }).FirstOrDefaultAsync(token);
-        return Ok(new { customer = new { customer.Id, customer.CustomerNumber, customer.Name, customer.Email, customer.Phone, customer.HirePreferences, customer.IsActive, customer.IsBlocked }, account, bookings, invoices, cases,
-            summary = new { bookings = bookings.Count, invoices = invoices.Count, totalBilled = invoices.Sum(x => x.Total), outstanding = invoices.Sum(x => x.BalanceDue), openCases = cases.Count(x => x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed) } });
+        return Ok(new { customer = new { customer.Id, customer.CustomerNumber, customer.Name, customer.Email, customer.Phone, customer.Address, customer.HirePreferences, customer.IsActive, customer.IsBlocked }, account, licence, bookings, quotations, invoices,
+            pagination = new { page, pageSize, bookings = bookingCount, quotations = quoteCount, invoices = invoiceCount },
+            summary = new { bookings = bookingCount, quotations = quoteCount, invoices = invoiceCount, totalBilled = totals?.totalBilled ?? 0, outstanding = totals?.outstanding ?? 0 } });
     }
 
     [HttpPost("{id:guid}/security/reset-password")]
@@ -208,9 +216,11 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         if (mfaRequired && !await db.SecurityEvents.AnyAsync(x => x.UserId == actor && x.Type == SecurityEventType.MfaSucceeded && x.Succeeded && x.OccurredAt > DateTimeOffset.UtcNow.AddMinutes(-15), token)) return StatusCode(StatusCodes.Status403Forbidden, new { message = "Recent MFA verification is required." });
         var user = await userManager.Users.FirstOrDefaultAsync(x => x.CustomerId == id, token); if (user is null) return NotFound(new { message = "This customer has no online account." });
         var customer = await db.Customers.FindAsync([id], token); if (customer?.Email is null) return BadRequest(new { message = "The customer has no email address." });
-        var resetToken = await userManager.GeneratePasswordResetTokenAsync(user); var temporary = $"Crems!{RandomNumberGenerator.GetInt32(100000, 999999)}Aa"; var result = await userManager.ResetPasswordAsync(user, resetToken, temporary); if (!result.Succeeded) return BadRequest(result.Errors);
-        user.MustChangePassword = true; await userManager.UpdateSecurityStampAsync(user); emailQueue.Queue(db, customer.Email, "Your CREMS password was reset", EmailTemplate.Branded("Temporary CREMS password", $"<p>Your temporary password is <strong>{temporary}</strong>.</p><p>You must replace it after signing in.</p>"), $"Your temporary CREMS password is {temporary}. Replace it after signing in.", "CustomerPasswordReset");
-        db.SecurityEvents.Add(Security(user, SecurityEventType.PasswordResetCompleted, "Customer password reset by administrator")); await db.SaveChangesAsync(token); return Accepted(new { message = "A temporary password has been queued to the customer email." });
+        var active = await db.PasswordResetOtps.Where(x => x.UserId == user.Id && x.UsedAt == null).ToListAsync(token); foreach (var item in active) item.UsedAt = DateTimeOffset.UtcNow;
+        var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6", CultureInfo.InvariantCulture); var salt = RandomNumberGenerator.GetBytes(16);
+        db.PasswordResetOtps.Add(new PasswordResetOtp { UserId = user.Id, Salt = Convert.ToBase64String(salt), CodeHash = Hash(code, salt), ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10), RequestedIp = HttpContext.Connection.RemoteIpAddress?.ToString() });
+        emailQueue.Queue(db, customer.Email, "Reset your CREMS password", EmailTemplate.Branded("Reset your CREMS password", $"<p>An administrator requested password-reset instructions for your CREMS account.</p><p style=\"font-size:32px;letter-spacing:8px;font-weight:bold\">{code}</p><p>This code expires in 10 minutes.</p>"), $"Your CREMS password reset code is {code}. It expires in 10 minutes.", "CustomerPasswordReset");
+        db.SecurityEvents.Add(Security(user, SecurityEventType.PasswordResetRequested, "Customer password-reset instructions sent by administrator")); await db.SaveChangesAsync(token); return Accepted(new { message = "Password-reset instructions have been queued to the registered email." });
     }
 
     [HttpPost("{id:guid}/security/revoke-sessions")]
@@ -315,7 +325,7 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
     private static CustomerResponse ToResponse(Customer customer) => new(
         customer.Id, customer.CustomerNumber, customer.Name,
         customer.Email, customer.Phone, customer.Address, customer.IdentificationNumber, customer.HirePreferences,
-        customer.IsBlocked, customer.IsActive, false, false, null, null);
+        customer.IsBlocked, customer.IsActive, false, false, null, null, null, null, "Required");
     private static string Hash(string code, byte[] salt) => Convert.ToHexString(Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(code), salt, 100_000, HashAlgorithmName.SHA256, 32));
 }
 
@@ -332,4 +342,5 @@ public sealed record CustomerResponse(
     Guid Id, string CustomerNumber, string Name,
     string? Email, string? Phone, string? Address, string? IdentificationNumber, IReadOnlyList<CustomerHirePreference> HirePreferences,
     bool IsBlocked, bool IsActive, bool HasOnlineAccount, bool EmailConfirmed,
-    Guid? DriverLicenceDocumentId, string? DriverLicenceFileName);
+    Guid? DriverLicenceDocumentId, string? DriverLicenceFileName,
+    string? LicenceNumber, string? LicenceClasses, string LicenceStatus);

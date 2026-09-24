@@ -266,6 +266,10 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             ModelState.AddModelError(nameof(request.DeliveryAddress), "Enter the delivery or worksite address.");
             return ValidationProblem(ModelState);
         }
+        var isMotors = string.Equals(asset.Division?.Code, "MOTORS", StringComparison.OrdinalIgnoreCase) ||
+            asset.Division?.Name.Contains("Carpenters Motors", StringComparison.OrdinalIgnoreCase) == true;
+        var isCarptrac = string.Equals(asset.Division?.Code, "CARPTRAC", StringComparison.OrdinalIgnoreCase) ||
+            asset.Division?.Name.Contains("Carptrac", StringComparison.OrdinalIgnoreCase) == true;
 
         if (!await db.BranchDivisions.AnyAsync(x => x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId && x.IsActive, cancellationToken) ||
             asset.ServiceOfferingId.HasValue && !await db.BranchDivisionServices.AnyAsync(x => x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId && x.ServiceOfferingId == asset.ServiceOfferingId && x.IsActive && x.IsBookable, cancellationToken))
@@ -291,17 +295,32 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (customer is not { } activeCustomer) return Unauthorized();
         if (activeCustomer.IsBlocked)
             return ValidationProblem("We cannot accept this request online. Please contact the rental team.");
+        var licenceNumber = await db.CustomerLicences.AsNoTracking()
+            .Where(x => x.CustomerId == activeCustomer.Id && x.Status == LicenceVerificationStatus.Verified)
+            .OrderByDescending(x => x.ConfirmedAt).Select(x => x.LicenceNumber).FirstOrDefaultAsync(cancellationToken);
+        if ((isMotors || isCarptrac) && string.IsNullOrWhiteSpace(licenceNumber))
+        {
+            ModelState.AddModelError(nameof(request.DriverLicence), "Verify your driver licence in My account before requesting this rental.");
+            return ValidationProblem(ModelState);
+        }
+        request = request with
+        {
+            FullName = activeCustomer.Name,
+            Email = activeCustomer.Email ?? request.Email,
+            DriverName = isMotors || isCarptrac ? activeCustomer.Name : request.DriverName,
+            DriverLicence = isMotors || isCarptrac ? licenceNumber : request.DriverLicence,
+        };
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Keep the registered identity authoritative while allowing current contact details.
         activeCustomer.Phone = request.Phone.Trim();
         activeCustomer.Address = Normalize(request.Address) ?? activeCustomer.Address;
-        activeCustomer.IdentificationNumber = Normalize(request.IdentificationNumber) ?? activeCustomer.IdentificationNumber;
+        if (!isMotors && !isCarptrac)
+            activeCustomer.IdentificationNumber = Normalize(request.IdentificationNumber) ?? activeCustomer.IdentificationNumber;
 
         var hireDays = Math.Max(1, request.EndDate.DayNumber - request.StartDate.DayNumber);
         var availableCharges = await db.ChargeDefinitions.AsNoTracking().Where(x => x.IsActive && x.IsCustomerVisible && x.Category != ChargeCategory.BaseHire &&
             x.DivisionId == asset.DivisionId && (!x.ServiceOfferingId.HasValue || x.ServiceOfferingId == asset.ServiceOfferingId))
             .ToListAsync(cancellationToken);
-        var isMotors = string.Equals(asset.Division?.Code, "MOTORS", StringComparison.OrdinalIgnoreCase);
         var personnelPolicy = AssetCategoryPolicy.Personnel(asset);
         if (request.PersonnelRequested && !AssetCategoryPolicy.AllowsPersonnel(asset))
             return BadRequest(new { message = "A driver or operator is not applicable to this asset category." });
@@ -341,7 +360,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         {
             BookingNumber = requiresQuote
                 ? $"REQ-{Guid.NewGuid():N}"[..16].ToUpperInvariant()
-                : $"BK-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}",
+                : $"BKR-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}",
             CustomerId = activeCustomer.Id, BranchId = asset.BranchId, Status = BookingStatus.Draft,
             Notes = BuildRequestNotes(request, personnelRequested) + (requiresQuote ? "\nRequest type: Quotation." : "\nRequest type: Booking."),
             TaxRate = taxRate, DepositRequired = AssetCategoryPolicy.Bond(asset),

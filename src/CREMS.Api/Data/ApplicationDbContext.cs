@@ -50,6 +50,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<Asset> Assets => Set<Asset>();
     public DbSet<AssetCostEntry> AssetCostEntries => Set<AssetCostEntry>();
     public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<CustomerLicence> CustomerLicences => Set<CustomerLicence>();
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<BookingItem> BookingItems => Set<BookingItem>();
     public DbSet<BookingCharge> BookingCharges => Set<BookingCharge>();
@@ -226,6 +227,18 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
                     preferences => preferences.ToList()));
             entity.Property(x => x.HirePreferences).HasMaxLength(128);
             entity.Property(x => x.Email).HasMaxLength(254);
+        });
+        builder.Entity<CustomerLicence>(entity =>
+        {
+            entity.HasIndex(x => new { x.CustomerId, x.Status });
+            entity.Property(x => x.StorageKey).HasMaxLength(260);
+            entity.Property(x => x.ContentType).HasMaxLength(80);
+            entity.Property(x => x.ContentHash).HasMaxLength(64);
+            entity.Property(x => x.ExtractedName).HasMaxLength(150);
+            entity.Property(x => x.LicenceNumber).HasMaxLength(80);
+            entity.Property(x => x.LicenceClasses).HasMaxLength(32);
+            entity.Property(x => x.OcrFailureCode).HasMaxLength(80);
+            entity.HasOne(x => x.Customer).WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<ApplicationUser>(entity =>
