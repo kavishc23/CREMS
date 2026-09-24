@@ -299,6 +299,32 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         return Ok(bookings);
     }
 
+    [HttpPatch("{id:guid}/bond")]
+    public async Task<ActionResult> UpdateBond(Guid id, UpdateBondRequest request, CancellationToken cancellationToken)
+    {
+        var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (booking is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
+        if (booking.Status != BookingStatus.Confirmed || booking.BondSettledAt.HasValue)
+            return BadRequest(new { message = "Edit the bond on a confirmed booking before handover. For a draft, revise the quotation." });
+        if (await db.RentalAgreements.AnyAsync(x => x.BookingId == id, cancellationToken))
+            return BadRequest(new { message = "The bond is locked because the rental agreement has already been signed." });
+        if (request.Amount < 0 || request.Amount > 1000000 || request.Amount < booking.BondAmountHeld)
+            return BadRequest(new { message = "Enter a bond between zero and FJD 1,000,000, and no less than the amount already held." });
+        var previous = booking.DepositRequired;
+        booking.DepositRequired = request.Amount;
+        booking.BondStatus = request.Amount <= 0 ? BondStatus.NotRequired
+            : booking.BondAmountHeld >= request.Amount ? BondStatus.Held : BondStatus.AwaitingPayment;
+        booking.UpdatedAt = DateTimeOffset.UtcNow;
+        AuditWriter.Record(db, scope, "Refundable bond updated", "Booking", booking.Id,
+            $"{booking.BookingNumber}: refundable bond changed before handover.", booking.BranchId,
+            $"Required bond: {previous:0.00}", $"Required bond: {request.Amount:0.00}");
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(new { booking.DepositRequired, booking.BondStatus });
+    }
+
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<BookingResponse>> Update(
         Guid id,
@@ -547,3 +573,5 @@ public sealed record BookingWorkQueueRow(Guid Id, string BookingNumber, DateTime
 public sealed record PrepareBookingQuotationLine(string Description, decimal Quantity, decimal Rate, decimal CostRate, ChargeUnit Unit = ChargeUnit.Unit, ChargeCategory Category = ChargeCategory.Other);
 public sealed record PrepareBookingQuotationRequest(DateTimeOffset ValidUntil, decimal Deposit, decimal Discount, decimal TaxRate, string? RevisionReason, IReadOnlyList<PrepareBookingQuotationLine> Lines);
 public sealed record CustomerRequestDecision(bool Approved, string? Note);
+
+public sealed record UpdateBondRequest(decimal Amount);

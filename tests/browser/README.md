@@ -16,3 +16,10 @@ Coverage includes opening the file chooser, decoded previews, adding/removing fi
 corrupt-image feedback, resizing phone photos larger than 3 MB, complete guided
 pickup and return submissions, signatures/acknowledgement, and photo evidence in
 general asset inspections. Rental inspections are directed to Hire operations.
+
+Run `node tests/browser/return-charges-browser.cjs` to verify automatic overdue
+fees, restoring the calculated amount, waiving/editing the fee, and validation.
+Set `CREMS_TEST_URL` to use a frontend preview other than http://localhost:5173.
+The backend applies daily rate × overdue hours / 24, including partial hours,
+rounded to cents. The return preview timestamp is retained through submission.
+Bond requirements remain separate from rental invoice charges.

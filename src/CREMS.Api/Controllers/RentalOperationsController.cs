@@ -158,6 +158,19 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         return Ok(ToResponse(booking));
     }
 
+    [HttpGet("{bookingId:guid}/return-charges")]
+    public async Task<ActionResult> ReturnCharges(Guid bookingId, CancellationToken cancellationToken)
+    {
+        var booking = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset)
+            .FirstOrDefaultAsync(x => x.Id == bookingId, cancellationToken);
+        if (booking is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
+        if (booking.Status != BookingStatus.ConvertedToRental) return BadRequest(new { message = "Only an active rental can be returned." });
+        var returnedAt = DateTimeOffset.UtcNow;
+        return Ok(new { returnedAt, lateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt) });
+    }
+
     [HttpPost("{bookingId:guid}/return")]
     public async Task<ActionResult> Return(Guid bookingId, ReturnInspectionRequest request, CancellationToken cancellationToken)
     {
@@ -191,9 +204,16 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (request.MeterReading.HasValue && lastReading.HasValue && request.MeterReading < lastReading)
             return BadRequest(new { message = "The return meter reading cannot be lower than the recorded starting reading." });
 
-        db.RentalInspections.Add(CreateInspection(booking.Id, InspectionType.Return, request, scope));
+        var returnedAt = request.ReturnedAt ?? DateTimeOffset.UtcNow;
+        if (returnedAt > DateTimeOffset.UtcNow || booking.Items.Any(x => returnedAt < x.StartAt))
+            return BadRequest(new { message = "The return time must be after hire starts and no later than now." });
+        var calculatedLateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt);
+        var lateFee = request.LateFee ?? calculatedLateFee;
+        var returnInspection = CreateInspection(booking.Id, InspectionType.Return, request, scope);
+        returnInspection.CompletedAt = returnedAt;
+        db.RentalInspections.Add(returnInspection);
         var quotedChargeTotal = booking.Charges.Sum(x => x.Quantity * x.UnitRate);
-        var returnChargeTotal = request.AdditionalCharges + request.LateFee + request.ExcessUsageCharge + request.RefuellingCharge + request.CleaningCharge + request.DamageCharge;
+        var returnChargeTotal = request.AdditionalCharges + lateFee + request.ExcessUsageCharge + request.RefuellingCharge + request.CleaningCharge + request.DamageCharge;
         booking.AdditionalCharges = quotedChargeTotal + returnChargeTotal;
         var returnChargeDescription = Normalize(request.AdditionalChargesDescription);
         booking.AdditionalChargesDescription = string.Join(", ", booking.Charges.Select(x => x.Description)
@@ -239,7 +259,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             UnitPrice = x.UnitRate, TaxRate = booking.TaxRate, IsTaxable = x.IsTaxable }));
         foreach (var line in new[]
         {
-            ("Late return", request.LateFee), ("Excess kilometres / hours", request.ExcessUsageCharge),
+            ("Late return", lateFee), ("Excess kilometres / hours", request.ExcessUsageCharge),
             ("Refuelling", request.RefuellingCharge), ("Cleaning", request.CleaningCharge),
             ("Damage", request.DamageCharge), (request.AdditionalChargesDescription ?? "Other charges", request.AdditionalCharges),
         }.Where(x => x.Item2 > 0))
@@ -261,7 +281,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (agreement is not null) agreement.Status = AgreementStatus.Completed;
         AuditWriter.Record(db, scope, "Rental returned", "Booking", booking.Id,
             $"{booking.BookingNumber} was returned{(hasDamage ? " with damage requiring inspection" : string.Empty)}.", booking.BranchId,
-            null, $"Additional charges: {request.AdditionalCharges:0.00}");
+            null, $"Returned at: {returnedAt:O}; calculated late fee: {calculatedLateFee:0.00}; applied late fee: {lateFee:0.00}; additional charges: {returnChargeTotal:0.00}");
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToResponse(booking));
     }
@@ -322,7 +342,7 @@ public sealed record ReturnInspectionRequest(
     string? SignatureName,
     [Range(0, 1000000)] decimal AdditionalCharges,
     string? AdditionalChargesDescription,
-    [Range(0, 1000000)] decimal LateFee,
+    [Range(0, 1000000)] decimal? LateFee,
     [Range(0, 1000000)] decimal ExcessUsageCharge,
     [Range(0, 1000000)] decimal RefuellingCharge,
     [Range(0, 1000000)] decimal CleaningCharge,
@@ -331,7 +351,10 @@ public sealed record ReturnInspectionRequest(
     string? BondDeductionReason,
     PaymentMethod BondRefundMethod) : InspectionRequest(
         IdentificationVerified, DriverLicenceVerified, MeterReading, FuelLevelPercent,
-        ConditionNotes, DamageNotes, SignatureName);
+        ConditionNotes, DamageNotes, SignatureName)
+{
+    public DateTimeOffset? ReturnedAt { get; init; }
+}
 public sealed record RentalQueueCounts(int PickupToday, int OnHire, int DueToday, int Overdue, int ReturnInProgress, int RecentlyCompleted);
 public sealed record RentalWorkQueueResponse(IReadOnlyList<RentalWorkQueueRow> Items, RentalQueueCounts Counts, int Page, int PageSize, int Total);
 public sealed record RentalWorkQueueRow(Guid Id, string BookingNumber, string Status, string CustomerName, string? CustomerPhone,

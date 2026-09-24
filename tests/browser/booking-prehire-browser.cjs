@@ -7,6 +7,7 @@ const row={id:'00000000-0000-0000-0000-000000000001',bookingNumber:'TEST-001',st
 await page.route('**/api/**',async r=>{
 const url=r.request().url();if(!new URL(url).pathname.startsWith("/api/")){await r.continue();return}
 if(r.request().method()==='POST'){submissions.push({url,body:r.request().postDataJSON()});await r.fulfill({json:{}});return}
+if(url.includes('return-charges')){await r.fulfill({json:{returnedAt:new Date().toISOString(),lateFee:0}});return}
 if(url.includes('inspection-context')){await r.fulfill({json:{templates:[{id:'template',name:'Configured inspection checklist',stage:phase==='pickup'?'PreHire':'PostHire',checklistJson:JSON.stringify([{section:'Accessories',items:[{label:'Keys'},{label:'Tools'}]}])}],preHire:submissions.length?{conditionNotes:submissions[0].body.conditionNotes,meterReading:null,fuelLevelPercent:null,evidenceJson:JSON.stringify({photos:submissions[0].body.evidenceDataUrls,checklist:submissions[0].body.checklistItems})}:null}});return}
 if(url.includes('work-queue')){assert.equal(new URL(url).searchParams.get('bookingId'),row.id);await r.fulfill({json:{items:[{...row,status:phase==='pickup'?'Confirmed':'ConvertedToRental'}],counts:{pickupToday:1,onHire:1,dueToday:0,overdue:0,returnInProgress:0,recentlyCompleted:0},page:1,pageSize:25,total:1}});return}
 if(url.includes('rental-agreements')){await r.fulfill({json:{customer:{name:'Test Customer'},asset:{name:'Test bin',assetNumber:'TEST-ASSET'},rental:{startAt:row.startAt,endAt:row.endAt},pricing:{total:100,depositRequired:0}}});return}
