@@ -41,9 +41,9 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         {
             "OnHire" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayEnd)),
             "DueToday" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayStart && i.EndAt < todayEnd)),
-            "Overdue" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt < todayStart)),
+            "Overdue" => baseQuery.Where(x => (x.Status == BookingStatus.ConvertedToRental || (x.Status == BookingStatus.Completed && !x.Inspections.Any(i => i.Type == InspectionType.Return))) && x.Items.Any(i => i.EndAt < todayStart)),
             "ReturnInProgress" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Inspections.Any(i => i.Type == InspectionType.Return)),
-            "RecentlyCompleted" => baseQuery.Where(x => x.Status == BookingStatus.Completed && x.UpdatedAt >= recent),
+            "RecentlyCompleted" => baseQuery.Where(x => x.Status == BookingStatus.Completed && x.Inspections.Any(i => i.Type == InspectionType.Return) && x.UpdatedAt >= recent),
             _ => baseQuery.Where(x => x.Status == BookingStatus.Confirmed && x.Items.Any(i => i.StartAt < todayEnd)),
         };
         if (bookingId.HasValue) selected = baseQuery;
@@ -51,9 +51,9 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             await baseQuery.CountAsync(x => x.Status == BookingStatus.Confirmed && x.Items.Any(i => i.StartAt < todayEnd), cancellationToken),
             await baseQuery.CountAsync(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayEnd), cancellationToken),
             await baseQuery.CountAsync(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayStart && i.EndAt < todayEnd), cancellationToken),
-            await baseQuery.CountAsync(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt < todayStart), cancellationToken),
+            await baseQuery.CountAsync(x => (x.Status == BookingStatus.ConvertedToRental || (x.Status == BookingStatus.Completed && !x.Inspections.Any(i => i.Type == InspectionType.Return))) && x.Items.Any(i => i.EndAt < todayStart), cancellationToken),
             await baseQuery.CountAsync(x => x.Status == BookingStatus.ConvertedToRental && x.Inspections.Any(i => i.Type == InspectionType.Return), cancellationToken),
-            await baseQuery.CountAsync(x => x.Status == BookingStatus.Completed && x.UpdatedAt >= recent, cancellationToken));
+            await baseQuery.CountAsync(x => x.Status == BookingStatus.Completed && x.Inspections.Any(i => i.Type == InspectionType.Return) && x.UpdatedAt >= recent, cancellationToken));
         var total = await selected.CountAsync(cancellationToken);
         var rows = await selected.OrderBy(x => x.Items.Select(i => i.StartAt).FirstOrDefault()).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(x => new RentalWorkQueueRow(x.Id, x.BookingNumber, x.Status.ToString(), x.Customer!.Name, x.Customer.Phone,
@@ -61,14 +61,16 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
                 x.Items.Select(i => i.Asset!.AssetCategory!.Code).FirstOrDefault(), x.Items.Select(i => i.Asset!.Category).FirstOrDefault(),
                 x.Charges.Any(c => c.Category == ChargeCategory.Driver || c.Category == ChargeCategory.Operator),
                 x.Items.Select(i => (DateTimeOffset?)i.StartAt).FirstOrDefault(), x.Items.Select(i => (DateTimeOffset?)i.EndAt).FirstOrDefault(),
-                x.RentalAgreement != null, x.RentalAgreement != null ? x.RentalAgreement.Status.ToString() : "Not prepared",
+                x.RentalAgreement != null, x.RentalAgreement != null
+                    ? (x.Status == BookingStatus.ConvertedToRental || (x.Status == BookingStatus.Completed && !x.Inspections.Any(i => i.Type == InspectionType.Return)) ? "Active" : x.RentalAgreement.Status.ToString())
+                    : "Not prepared",
                 x.Payments.Where(p => p.Status == PaymentStatus.Recorded && (p.Type == PaymentType.RentalCharge || p.Type == PaymentType.AdditionalCharge)).Sum(p => (decimal?)p.Amount) ?? 0, x.DepositRequired,
                 x.BondStatus.ToString(), x.BondAmountHeld, x.BondDeductionAmount, x.BondRefundAmount,
                 x.Inspections.Any(i => i.Type == InspectionType.Handover), x.Inspections.Any(i => i.Type == InspectionType.Return),
                 x.Inspections.Where(i => i.Type == InspectionType.Handover).OrderByDescending(i => i.CompletedAt).Select(i => i.ConditionNotes).FirstOrDefault(),
                 x.Inspections.Where(i => i.Type == InspectionType.Handover).OrderByDescending(i => i.CompletedAt).Select(i => i.MeterReading).FirstOrDefault(),
                 x.Inspections.Where(i => i.Type == InspectionType.Handover).OrderByDescending(i => i.CompletedAt).Select(i => i.FuelLevelPercent).FirstOrDefault(),
-                x.Items.Any(i => i.EndAt < now) ? "Return is overdue" : x.Customer.IsBlocked ? "Customer account is blocked" : null))
+                (x.Status == BookingStatus.ConvertedToRental || (x.Status == BookingStatus.Completed && !x.Inspections.Any(i => i.Type == InspectionType.Return))) && x.Items.Any(i => i.EndAt < now) ? "Return is overdue" : x.Customer.IsBlocked ? "Customer account is blocked" : null))
             .ToListAsync(cancellationToken);
         return Ok(new RentalWorkQueueResponse(rows, counts, page, pageSize, total));
     }
@@ -131,7 +133,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
     [HttpGet("{bookingId:guid}/inspection-context")]
     public async Task<ActionResult> InspectionContext(Guid bookingId, CancellationToken cancellationToken)
     {
-        var booking = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset)
+        var booking = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset).Include(x => x.Inspections)
             .Include(x => x.Inspections).FirstOrDefaultAsync(x => x.Id == bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
@@ -178,6 +180,19 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         return Ok(ToResponse(booking));
     }
 
+    [HttpGet("{bookingId:guid}/return-charges")]
+    public async Task<ActionResult> ReturnCharges(Guid bookingId, CancellationToken cancellationToken)
+    {
+        var booking = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset).Include(x => x.Inspections)
+            .FirstOrDefaultAsync(x => x.Id == bookingId, cancellationToken);
+        if (booking is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
+        if (booking.Status != BookingStatus.ConvertedToRental && !(booking.Status == BookingStatus.Completed && !booking.Inspections.Any(x => x.Type == InspectionType.Return))) return BadRequest(new { message = "Only an active rental can be returned." });
+        var returnedAt = DateTimeOffset.UtcNow;
+        return Ok(new { returnedAt, lateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt) });
+}
+
     [HttpPost("{bookingId:guid}/return")]
     public async Task<ActionResult> Return(Guid bookingId, ReturnInspectionRequest request, CancellationToken cancellationToken)
     {
@@ -187,7 +202,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
-        if (booking.Status != BookingStatus.ConvertedToRental)
+        if (booking.Status != BookingStatus.ConvertedToRental && !(booking.Status == BookingStatus.Completed && !booking.Inspections.Any(x => x.Type == InspectionType.Return)))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["Only an active rental can be returned."] }));
         var allocatedAssetNumber = booking.Items.FirstOrDefault()?.Asset?.AssetNumber;
         if (string.IsNullOrWhiteSpace(request.ScannedAssetNumber) ||
