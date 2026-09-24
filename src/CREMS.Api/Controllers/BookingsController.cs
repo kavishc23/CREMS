@@ -86,7 +86,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                         ? 1
                         : (EF.Functions.DateDiffMinute(i.StartAt, i.EndAt) + 1439) / 1440))
                     - x.DiscountAmount + x.AdditionalCharges,
-                x.DepositRequired, x.ApprovedAt, x.RentalAgreement != null,
+                x.DepositRequired, x.TaxRate, x.ApprovedAt, x.RentalAgreement != null,
                 x.Customer.IsBlocked ? "Customer account is blocked" : x.Items.Count == 0 ? "Asset information is missing" :
                     x.Items.Any(i => !i.Asset!.IsActive || i.Asset.Status == AssetStatus.Maintenance || i.Asset.Status == AssetStatus.OutOfService) ? "Asset is not available" : null))
             .ToListAsync(cancellationToken);
@@ -569,7 +569,7 @@ public sealed record BookingWorkQueueRow(Guid Id, string BookingNumber, DateTime
     Guid CustomerId, string CustomerName, string? CustomerEmail, string? CustomerPhone, bool CustomerIsBlocked,
     string CustomerType, Guid BranchId, string BranchName, string DivisionName, string ServiceName,
     string? AssetNumber, string? AssetName, string? Category, DateTimeOffset? StartAt, DateTimeOffset? EndAt,
-    decimal EstimatedValue, decimal DepositRequired, DateTimeOffset? ApprovedAt, bool HasAgreement, string? Warning);
+    decimal EstimatedValue, decimal DepositRequired, decimal TaxRate, DateTimeOffset? ApprovedAt, bool HasAgreement, string? Warning);
 public sealed record PrepareBookingQuotationLine(string Description, decimal Quantity, decimal Rate, decimal CostRate, ChargeUnit Unit = ChargeUnit.Unit, ChargeCategory Category = ChargeCategory.Other);
 public sealed record PrepareBookingQuotationRequest(DateTimeOffset ValidUntil, decimal Deposit, decimal Discount, decimal TaxRate, string? RevisionReason, IReadOnlyList<PrepareBookingQuotationLine> Lines);
 public sealed record CustomerRequestDecision(bool Approved, string? Note);

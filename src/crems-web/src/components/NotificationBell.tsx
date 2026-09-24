@@ -10,7 +10,6 @@ type Notice = { id:string;title:string;message:string;url:string|null;createdAt:
 type Inbox = { items:Notice[];unreadCount:number;total:number;page:number;pageSize:number }
 const empty:Inbox = {items:[],unreadCount:0,total:0,page:1,pageSize:20}
 const categories = ['Booking','Approval','Maintenance','Finance','Administration','Announcement']
-const customerFacingTitles = new Set(['Booking confirmed','Quotation ready for your review','Rental started','Rental completed','Refundable bond updated'])
 
 export function NotificationBell({customer=false,canSend=false}:{customer?:boolean;canSend?:boolean}) {
   const endpoint = customer?'/customer-account/notifications':'/notifications'
@@ -18,14 +17,15 @@ export function NotificationBell({customer=false,canSend=false}:{customer?:boole
   const [compose,setCompose]=useState(false),[staffCompose,setStaffCompose]=useState(false),[preferences,setPreferences]=useState(false)
   const [category,setCategory]=useState(''),[severity,setSeverity]=useState(''),[unread,setUnread]=useState(false),[history,setHistory]=useState(false),[page,setPage]=useState(1)
   const seen=useRef<Set<string>|null>(null)
-  const load=useCallback(async(signal?:AbortSignal)=>{
+  const version=useRef<string|undefined>(undefined)
+  const load=useCallback(async(signal?:AbortSignal,wait=false)=>{
     try {
-      const latest=await api.get<Inbox>(endpoint,{signal})
+      const latest=await api.get<Inbox>(endpoint,{signal,timeout:35000,params:wait&&version.current?{since:version.current}:undefined})
       if(signal?.aborted)return
-      const customerInbox=(inbox:Inbox):Inbox=>customer?{...inbox,items:inbox.items.filter(n=>customerFacingTitles.has(n.title)),unreadCount:inbox.items.filter(n=>customerFacingTitles.has(n.title)&&!n.isRead).length,total:inbox.items.filter(n=>customerFacingTitles.has(n.title)).length}:inbox
-      const latestInbox=customerInbox(latest.data)
+      version.current=latest.headers["x-notification-version"]
+      const latestInbox=latest.data
       const fresh=latestInbox.items.filter(n=>!n.isRead&&!n.isExpired&&n.toastEnabled&&!seen.current?.has(n.id))
-      if(seen.current&&fresh.length)toast(fresh.length===1?fresh[0].title:`${fresh.length} new notifications`,fresh.some(n=>n.severity==='Urgent')?'error':'info')
+      if(seen.current&&fresh.length)toast(fresh.length===1?fresh[0].title+': '+fresh[0].message:fresh.length+' new notifications',fresh.some(n=>n.severity==='Urgent')?'error':'info')
       seen.current??=new Set()
       latestInbox.items.forEach(n=>seen.current?.add(n.id))
       setCount(latestInbox.unreadCount)
@@ -33,15 +33,24 @@ export function NotificationBell({customer=false,canSend=false}:{customer?:boole
         ? await api.get<Inbox>(endpoint,{signal,params:{category:category||undefined,severity:severity||undefined,unread,history,page}})
         : {data:latestInbox}
       if(signal?.aborted)return
-      setData(customerInbox(filtered.data));setError('')
+      setData(filtered.data);setError('')
     }catch{if(!signal?.aborted)setError('Notifications unavailable. Please refresh.')}
   },[endpoint,category,severity,unread,history,page])
   useEffect(()=>{
-    const controller=new AbortController();let busy=false
-    const refresh=()=>{if(document.hidden||busy)return;busy=true;void load(controller.signal).finally(()=>{busy=false})}
-    refresh();const timer=window.setInterval(refresh,45000)
-    window.addEventListener('crems:data-changed',refresh);document.addEventListener('visibilitychange',refresh)
-    return()=>{controller.abort();clearInterval(timer);window.removeEventListener('crems:data-changed',refresh);document.removeEventListener('visibilitychange',refresh)}
+    const controller=new AbortController()
+    let retry:ReturnType<typeof setTimeout>|undefined
+    const run=async()=>{
+      await load(controller.signal)
+      while(!controller.signal.aborted){
+        await load(controller.signal,true)
+        // Also prevents a tight retry loop when offline or signed out.
+        await new Promise<void>(resolve=>{const done=()=>{clearTimeout(retry);controller.signal.removeEventListener('abort',done);resolve()};retry=setTimeout(done,1000);controller.signal.addEventListener('abort',done,{once:true});if(controller.signal.aborted)done()})
+      }
+    }
+    void run()
+    const refresh=()=>{void load(controller.signal)}
+    window.addEventListener('crems:data-changed',refresh)
+    return()=>{controller.abort();clearTimeout(retry);window.removeEventListener('crems:data-changed',refresh)}
   },[load])
   async function read(ids:string[],all=false){try{await api.post(`${endpoint}/read`,{ids,all});await load()}catch{setError('Could not mark notifications as read.')}}
   async function visit(n:Notice){

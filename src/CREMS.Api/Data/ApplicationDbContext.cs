@@ -36,7 +36,11 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         if (!notificationsSuppressed) await CREMS.Api.Services.NotificationEvents.CaptureAsync(this, cancellationToken);
-        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        var notificationChanged = ChangeTracker.Entries<InAppNotification>().Any(x => x.State is EntityState.Added or EntityState.Modified)
+            || ChangeTracker.Entries<NotificationRead>().Any(x => x.State == EntityState.Added);
+        var result = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        if (notificationChanged && !notificationsSuppressed) CREMS.Api.Services.NotificationWakeup.Publish();
+        return result;
     }
     private static readonly JsonSerializerOptions HirePreferenceJsonOptions = new()
     {
