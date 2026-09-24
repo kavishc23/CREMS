@@ -1,3 +1,4 @@
+using System.Globalization;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
@@ -21,12 +22,28 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
     }
 
     [HttpGet("settings")]
-    public async Task<ActionResult> Settings(CancellationToken token) => Ok(await db.SystemSettings.AsNoTracking().OrderBy(x => x.Category).ThenBy(x => x.Key).Select(x => new { x.Id, x.Key, x.Value, x.Category, x.Description, x.IsSecret }).ToListAsync(token));
+    public async Task<ActionResult> Settings(CancellationToken token) => Ok(await db.SystemSettings.AsNoTracking().Where(x => !x.Key.StartsWith("rentals.fijiPricingDefaults.")).OrderBy(x => x.Category).ThenBy(x => x.Key).Select(x => new { x.Id, x.Key, x.Value, x.Category, x.Description, x.IsSecret }).ToListAsync(token));
 
     [HttpPut("settings/{key}")]
     public async Task<ActionResult> SaveSetting(string key, SettingRequest request, CancellationToken token)
     {
+        if (key.StartsWith("rentals.fijiPricingDefaults.", StringComparison.Ordinal)) return NotFound();
         var setting = await db.SystemSettings.FirstOrDefaultAsync(x => x.Key == key, token); if (setting is null) return NotFound();
+        if (key == "rentals.vatRate")
+        {
+            if (!decimal.TryParse(request.Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var rate) || rate < 0 || rate > 100)
+                return BadRequest(new { message = "Enter a VAT percentage between 0 and 100." });
+            var divisions = await db.Divisions.ToListAsync(token);
+            var actor = await staffScope.GetAsync(User);
+            foreach (var division in divisions.Where(x => x.DefaultTaxRate != rate))
+            {
+                var previousRate = division.DefaultTaxRate;
+                division.DefaultTaxRate = rate;
+                division.UpdatedAt = DateTimeOffset.UtcNow;
+                if (actor is not null) AuditWriter.Record(db, actor, "Division VAT updated", "Division", division.Id,
+                    "Global VAT applied to new rental requests.", null, previousRate.ToString(CultureInfo.InvariantCulture), rate.ToString(CultureInfo.InvariantCulture));
+            }
+        }
         var previous = setting.IsSecret ? "[protected]" : setting.Value; setting.Value = request.Value.Trim(); setting.UpdatedAt = DateTimeOffset.UtcNow;
         var scope = await staffScope.GetAsync(User); if (scope is not null) AuditWriter.Record(db, scope, "System setting updated", "SystemSetting", setting.Id, $"{setting.Key} was updated.", null, previous, setting.IsSecret ? "[protected]" : setting.Value);
         await db.SaveChangesAsync(token); return NoContent();

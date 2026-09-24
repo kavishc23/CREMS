@@ -101,7 +101,7 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
 
 public sealed record SaveDivisionRequest([Required, MaxLength(30)] string Code, [Required, MaxLength(150)] string Name,
     [MaxLength(1000)] string? Description, [EmailAddress, MaxLength(254)] string? ContactEmail,
-    [MaxLength(50)] string? ContactPhone, DivisionCapabilities Capabilities, bool IsPublic, bool IsActive = true, string? BrandingJson = "{}", string DefaultCurrency = "FJD", [Range(0,100)] decimal DefaultTaxRate = 15, string? DefaultRentalTerms = null, Guid? DefaultApprovalWorkflowId = null, string? CustomerBookingConfigurationJson = "{}", [Range(0,1_000_000)] decimal DefaultBondAmount = 0);
+    [MaxLength(50)] string? ContactPhone, DivisionCapabilities Capabilities, bool IsPublic, bool IsActive = true, string? BrandingJson = "{}", string DefaultCurrency = "FJD", [Range(0,100)] decimal DefaultTaxRate = FijiRentalDefaults.VatRate, string? DefaultRentalTerms = null, Guid? DefaultApprovalWorkflowId = null, string? CustomerBookingConfigurationJson = "{}", [Range(0,1_000_000)] decimal DefaultBondAmount = 0);
 public sealed record SaveServiceRequest([Required, MaxLength(40)] string Code, [Required, MaxLength(150)] string Name,
     [MaxLength(1000)] string? Description, ServiceOfferingType Type, PersonnelRequirement PersonnelRequirement,
     bool IsBookableOnline, bool RequiresQuote, bool IsActive = true, ChargeUnit DefaultHireUnit = ChargeUnit.Day, bool RequiresDelivery = false, string? RequiredDocumentsJson = "[]", [Range(0,1_000_000)] decimal DefaultDepositAmount = 0, string? InspectionRequirementsJson = "{}", string? MeterType = null, string? MaintenanceRulesJson = "{}", bool InheritBond = false);

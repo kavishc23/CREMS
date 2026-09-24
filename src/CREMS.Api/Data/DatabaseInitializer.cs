@@ -201,7 +201,7 @@ public static class DatabaseInitializer
         if (!await db.SystemSettings.AnyAsync(cancellationToken))
         {
             db.SystemSettings.AddRange(
-                new SystemSetting { Key = "rentals.vatRate", Value = "15", Category = "Rental", Description = "Default VAT percentage applied to new rentals." },
+                new SystemSetting { Key = "rentals.vatRate", Value = "12.5", Category = "Rental", Description = "Default VAT percentage applied to new rentals." },
                 new SystemSetting { Key = "rentals.defaultDeposit", Value = "500", Category = "Rental", Description = "Default security deposit in FJD." },
                 new SystemSetting { Key = "rentals.bookingPrefix", Value = "BK", Category = "Numbering", Description = "Booking reference prefix." },
                 new SystemSetting { Key = "rentals.agreementPrefix", Value = "RA", Category = "Numbering", Description = "Rental agreement reference prefix." },
@@ -610,6 +610,7 @@ public static class DatabaseInitializer
                 "BIG_BIN" => services["BIG_BIN_HIRE"].Id,
                 _ => services["EQUIPMENT_HIRE"].Id,
             };
+            asset.DefaultBondAmount = FijiRentalDefaults.SuggestedBond(asset.Type, asset.Name);
             asset.Category = categories[categoryCode].Name;
             asset.PersonnelRequirement = categories[categoryCode].PersonnelRequirement;
             asset.Status = asset.Status == AssetStatus.Rented ? AssetStatus.Rented : AssetStatus.Available;

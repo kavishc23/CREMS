@@ -15,7 +15,7 @@ const defaultQuoteDate = dateAfter(7), defaultHireStart = dateAfter(1), defaultH
 export function QuoteWorkspace({ quotes, reload }: { quotes:Quote[]; reload:()=>Promise<void> }) {
   const [open,setOpen]=useState(false), [selected,setSelected]=useState<Quote|null>(null), [saving,setSaving]=useState(false)
   const [error,setError]=useState(''), [note,setNote]=useState(''); const [customers,setCustomers]=useState<Option[]>([]), [branches,setBranches]=useState<Option[]>([]), [divisions,setDivisions]=useState<Option[]>([]), [assets,setAssets]=useState<Asset[]>([])
-  const [form,setForm]=useState({customerId:'',branchId:'',divisionId:'',validUntil:defaultQuoteDate,discount:'0',taxRate:'15',jobSite:'',purchaseOrderNumber:''})
+  const [form,setForm]=useState({customerId:'',branchId:'',divisionId:'',validUntil:defaultQuoteDate,discount:'0',taxRate:'12.5',jobSite:'',purchaseOrderNumber:''})
   const [lines,setLines]=useState<Line[]>([{description:'Equipment hire',quantity:'1',rate:'',costRate:'0',unit:'Day',category:'BaseHire',chargeDefinitionId:null}]); const [definitions,setDefinitions]=useState<ChargeDefinition[]>([])
   const [conversion,setConversion]=useState({assetId:'',startAt:defaultHireStart,endAt:defaultHireEnd,dailyRate:'',depositRequired:''})
   useEffect(()=>{setConversion(current=>({...current,assetId:'',dailyRate:'',depositRequired:''}))},[selected?.id])

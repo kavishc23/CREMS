@@ -220,7 +220,7 @@ app.UseAuthorization();
 app.UseMiddleware<WindowSessionMiddleware>();
 
 app.MapControllers();
-app.MapGet("/api/health", () => Results.Ok(new { status = "healthy" }));
+app.MapGet("/api/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymous();
 
 app.Run();
 

@@ -12,7 +12,7 @@ public sealed class Division : Entity
     public DivisionCapabilities Capabilities { get; set; }
     public string BrandingJson { get; set; } = "{}";
     public string DefaultCurrency { get; set; } = "FJD";
-    public decimal DefaultTaxRate { get; set; } = 15m;
+    public decimal DefaultTaxRate { get; set; } = FijiRentalDefaults.VatRate;
     public decimal DefaultBondAmount { get; set; }
     public string? DefaultRentalTerms { get; set; }
     public Guid? DefaultApprovalWorkflowId { get; set; }

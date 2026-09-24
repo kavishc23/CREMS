@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { classifyApiFailure } from './errors'
+import { sessionFailureEvent } from './sessionFailure'
 
 function getWindowSessionId() {
   const key = 'crems.window-session-id'
@@ -37,12 +38,9 @@ api.interceptors.response.use(
   (error) => {
     const status = error?.response?.status
     const requestUrl = String(error?.config?.url ?? '')
-    const isAuthenticationAttempt = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/mfa/verify')
-    if (status === 401 && !isAuthenticationAttempt) {
-      const eventName = requestUrl.includes('/customer-account/')
-        ? 'crems:customer-session-expired'
-        : 'crems:staff-session-expired'
-      window.dispatchEvent(new CustomEvent(eventName))
+    if (status === 401) {
+      const eventName = sessionFailureEvent(requestUrl, error?.config?.method)
+      if (eventName) window.dispatchEvent(new CustomEvent(eventName))
     }
     if (!axios.isCancel(error) && !['get', 'head'].includes(error?.config?.method ?? 'get') && status !== 401 && !requestUrl.includes('/notifications/read') && !requestUrl.includes('/public/booking-requests')) {
       const message = classifyApiFailure(error, 'The action could not be completed. Check the details and try again.').message

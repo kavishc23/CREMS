@@ -14,7 +14,7 @@ public sealed class Booking : Entity
     public BookingStatus Status { get; set; } = BookingStatus.Draft;
     public string? Notes { get; set; }
     public decimal DiscountAmount { get; set; }
-    public decimal TaxRate { get; set; } = 15m;
+    public decimal TaxRate { get; set; } = FijiRentalDefaults.VatRate;
     public decimal DepositRequired { get; set; }
     public BondStatus BondStatus { get; set; } = BondStatus.NotRequired;
     public decimal BondAmountHeld { get; set; }

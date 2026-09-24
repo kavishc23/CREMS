@@ -112,9 +112,9 @@ let publicCatalogueCache: { expiresAt: number; promise: Promise<PublicCatalogueB
 function loadPublicCatalogueBootstrap() {
   const now = Date.now()
   if (publicCatalogueCache && publicCatalogueCache.expiresAt > now) return publicCatalogueCache.promise
-  const promise = api.get('/health',{timeout:3000}).then(()=>Promise.all([
+  const promise = Promise.all([
     api.get<Branch[]>('/public/branches'), api.get<PublicDivision[]>('/public/divisions'), api.get<PublicAsset[]>('/public/assets'),
-  ])).then(([branchResponse, divisionResponse, assetResponse]) => ({
+  ]).then(([branchResponse, divisionResponse, assetResponse]) => ({
     branches: branchResponse.data,
     divisions: divisionResponse.data,
     assets: assetResponse.data,
@@ -153,6 +153,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [booking, setBooking] = useState<BookingForm>(emptyBooking)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [catalogueRetry, setCatalogueRetry] = useState(0)
   const [reference, setReference] = useState('')
   const [responseKind, setResponseKind] = useState<'Booking' | 'Quotation'>('Booking')
   const [requestQuotation, setRequestQuotation] = useState(false)
@@ -165,6 +166,21 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [quoteSwitchReason, setQuoteSwitchReason] = useState('')
   const [requestBaseline, setRequestBaseline] = useState('')
+
+  useEffect(() => {
+    if (!selected) return
+    let cancelled = false
+    const refreshPricing = () => {
+      if (document.visibilityState === 'hidden') return
+      void api.get<CheckoutDetail>(`/public/assets/${selected.id}`, { params: { startDate, endDate } })
+        .then(({data}) => { if (!cancelled) setCheckoutDetail(data) })
+        .catch(() => { if (!cancelled) setError('Unable to refresh pricing. Close and reopen this request before submitting.') })
+    }
+    window.addEventListener('focus', refreshPricing)
+    window.addEventListener('crems:data-changed', refreshPricing)
+    document.addEventListener('visibilitychange', refreshPricing)
+    return () => { cancelled = true; window.removeEventListener('focus', refreshPricing); window.removeEventListener('crems:data-changed', refreshPricing); document.removeEventListener('visibilitychange', refreshPricing) }
+  }, [selected?.id, startDate, endDate])
 
   function changeStartDate(value: string) {
     setStartDate(value)
@@ -203,6 +219,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
 
   useEffect(() => {
     let active = true
+    setError(''); setLoading(true)
     void loadPublicCatalogueBootstrap()
       .then(data => {
         if (!active) return
@@ -214,7 +231,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       .catch(reason => { if (active) setError(apiErrorMessage(reason, 'We could not load the rental catalogue. Please try again or contact a branch.')) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [])
+  }, [catalogueRetry])
 
   const displayedAssets = useMemo(() => (searched ? assets : catalogueAssets).filter((asset) => {
     if (divisionId && asset.divisionId !== divisionId) return false
@@ -257,7 +274,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   [booking.fulfilment, booking.personnelHours, booking.personnelRequested, checkoutDetail, rentalDays, selected, selectedExtras])
   const baseHire = (selected?.dailyRate ?? 0) * rentalDays
   const extrasTotal = checkoutCharges.reduce((sum, charge) => sum + charge.defaultSellingRate * charge.quantity, 0)
-  const taxRate = checkoutDetail?.taxRate ?? 15
+  const taxRate = checkoutDetail?.taxRate ?? 12.5
   const bondAmount = checkoutDetail?.bondAmount ?? selected?.bondAmount ?? 0
   const estimatedTax = Math.round((baseHire + checkoutCharges.filter(x => x.isTaxable).reduce((sum,x) => sum + x.defaultSellingRate*x.quantity,0)) * taxRate) / 100
   const estimatedTotal = baseHire + extrasTotal + estimatedTax
@@ -440,7 +457,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     </Container></Box>}
 
     <Container id="rentals" maxWidth={false} sx={{ py: { xs: 5, md: 6 }, px: { xs: 2, md: 5, lg: 7 } }}>
-      {error && !selected && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+      {error && !selected && <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => setCatalogueRetry(value => value + 1)}>Try again</Button>}>{error}</Alert>}
       {searched && <Card variant="outlined" sx={{ mb: 3, bgcolor: 'white', borderRadius: 3 }}><CardContent sx={{ p: 2.5 }}><Stack direction="row" gap={1.25} alignItems="center" flexWrap="wrap" sx={{ '& > .MuiFormControl-root': { flex: '1 1 145px' } }}>
         <FormControl size="small" sx={{ minWidth: 175 }}><InputLabel>Division</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Division" value={divisionId} onChange={event => { const value = event.target.value; setDivisionId(value); setType('') }}><MenuItem value="">All divisions</MenuItem>{divisions.map(division => <MenuItem key={division.id} value={division.id}>{division.name}</MenuItem>)}</Select></FormControl>
         <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Rental category</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Rental category" value={category} onChange={event => setCategory(event.target.value)}>{['All', 'Cars & SUVs', 'Vans & trucks', 'Earthmoving', 'Lifting', 'Power & site'].map(item => <MenuItem key={item} value={item}>{item === 'All' ? 'All categories' : item}</MenuItem>)}</Select></FormControl>

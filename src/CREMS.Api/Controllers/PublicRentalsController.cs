@@ -206,7 +206,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         return Ok(new
         {
             asset.Id, asset.Name, asset.Type, asset.Category, asset.DailyRate, PersonnelRequirement = AssetCategoryPolicy.Personnel(asset),
-            BondAmount = AssetCategoryPolicy.Bond(asset), TaxRate = asset.Division?.DefaultTaxRate ?? 15m,
+            BondAmount = AssetCategoryPolicy.Bond(asset), TaxRate = asset.Division?.DefaultTaxRate ?? FijiRentalDefaults.VatRate,
             asset.Manufacturer, asset.Model, asset.ModelYear, asset.PhotoUrlsJson,
             Division = asset.Division is null ? null : new { asset.Division.Id, asset.Division.Code, asset.Division.Name },
             Branch = new { asset.BranchId, asset.Branch!.Name, asset.Branch.Address, asset.Branch.Phone,
@@ -334,7 +334,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             }).ToList();
         var baseSubtotal = hireDays * asset.DailyRate;
         var chargeSubtotal = charges.Sum(x => x.Quantity * x.Definition.DefaultSellingRate);
-        var taxRate = asset.Division?.DefaultTaxRate ?? 15m;
+        var taxRate = asset.Division?.DefaultTaxRate ?? FijiRentalDefaults.VatRate;
         var tax = decimal.Round((baseSubtotal + charges.Where(x => x.Definition.IsTaxable).Sum(x => x.Quantity * x.Definition.DefaultSellingRate)) * taxRate / 100m, 2);
         var total = baseSubtotal + chargeSubtotal + tax;
         var booking = new Booking

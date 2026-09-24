@@ -54,6 +54,7 @@ public sealed class WindowSessionMiddleware(RequestDelegate next)
         // the X-CREMS-Window-Id header used by protected API calls.
         if (context.User.Identity?.IsAuthenticated != true ||
             context.Request.Path.StartsWithSegments("/api/public") ||
+            (HttpMethods.IsGet(context.Request.Method) && context.Request.Path == "/api/health") ||
             context.Request.Path.StartsWithSegments("/api/auth/login"))
         {
             await next(context);

@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { sessionFailureEvent } from './sessionFailure'
 
 export type ApiFailureKind = 'validation' | 'session' | 'network' | 'timeout' | 'server' | 'unexpected'
 export type ApiFailure = { kind: ApiFailureKind; message: string }
@@ -22,8 +23,13 @@ export function classifyApiFailure(error: unknown, fallback = 'The request could
     return { kind: 'timeout', message: 'The request timed out. Please try again.' }
   if (!error.response)
     return { kind: 'network', message: 'CREMS could not connect to the API. Start the backend on http://localhost:5080 and try again.' }
-  if (error.response.status === 401)
-    return { kind: 'session', message: 'Your customer session has expired. Sign in again, then resubmit your request.' }
+  if (error.response.status === 401) {
+    const event = sessionFailureEvent(error.config?.url ?? '', error.config?.method)
+    if (!event) return { kind: 'unexpected', message: fallback }
+    return { kind: 'session', message: event === 'crems:customer-session-expired'
+      ? 'Your customer session has expired. Sign in again, then resubmit your request.'
+      : 'Your staff session has expired. Sign in again, then retry your request.' }
+  }
   const safeDetail = validationMessage(error.response.data)
   if (error.response.status === 400 || error.response.status === 404 || error.response.status === 409 || error.response.status === 422)
     return { kind: 'validation', message: safeDetail || fallback }
