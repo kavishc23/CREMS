@@ -27,13 +27,18 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
         var since = DateTimeOffset.UtcNow.AddDays(-90);
         var now = DateTimeOffset.UtcNow;
         var query = db.InAppNotifications.AsNoTracking().Where(x => x.CreatedAt >= since && (history || x.ExpiresAt == null || x.ExpiresAt > now));
-        if (customer) return query.Where(x => x.Audience == "Customer" && user.CustomerId != null && x.CustomerId == user.CustomerId &&
-            (x.Title == "Booking confirmed" || x.Title == "Quotation ready for your review" || x.Title == "Rental started" || x.Title == "Rental completed" || x.Title == "Refundable bond updated"));
+        // Customer notifications are already scoped to the authenticated customer's record.
+        // Do not whitelist system titles here: staff announcements use the same audience and
+        // must be visible in the customer's inbox.
+        if (customer) return query.Where(x => x.Audience == "Customer" && user.CustomerId != null && x.CustomerId == user.CustomerId);
         return await NotificationAccess.StaffAsync(db, user, User, authorization, history);
     }
     private async Task<ActionResult> Inbox(bool customer, CancellationToken token, string? category = null, bool unread = false, string? severity = null, bool history = false, int page = 1)
     {
         var user = await users.GetUserAsync(User); if (user is null || !user.IsActive) return Unauthorized();
+        if (long.TryParse(Request.Query["since"], out var since))
+            await NotificationWakeup.WaitAsync(since, token);
+        Response.Headers["X-Notification-Version"] = NotificationWakeup.Version.ToString();
         var visible = await Visible(user, customer, history);
         if (!customer && !history) visible = visible.Where(x => !db.StaffNotificationPreferences.Any(p => p.UserId == user.Id && p.Category == x.Kind && !p.InAppEnabled));
         var now = DateTimeOffset.UtcNow;
