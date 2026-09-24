@@ -19,6 +19,14 @@ export async function downloadRentalAgreementPdf(data: RentalAgreementData) {
   doc.save(`${data.agreementNumber}.pdf`)
 }
 
+export async function openRentalAgreementPdf(data: RentalAgreementData) {
+  const [{ jsPDF }, logo] = await Promise.all([import('jspdf'), loadLogo()])
+  const doc = createRentalAgreementPdf(data, logo, jsPDF)
+  const url = String(doc.output('bloburl'))
+  window.open(url, '_blank', 'noopener,noreferrer')
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
 function createRentalAgreementPdf(data: RentalAgreementData, logo: string, Pdf: typeof import('jspdf').jsPDF) {
   if (!data.approved || !data.agreementNumber) throw new Error('Only approved agreements can be exported.')
   const doc = new Pdf({ unit: 'mm', format: 'a4' }); const pageWidth = 210; const margin = 16; const contentWidth = pageWidth - margin * 2

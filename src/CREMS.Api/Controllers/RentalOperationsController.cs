@@ -109,6 +109,21 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         inspection.CompletedAt = DateTimeOffset.UtcNow;
         inspection.CompletedByUserId = scope.UserId;
         inspection.CompletedByName = scope.UserName;
+        if (request.MeterReading.HasValue && asset.CurrentMeterReading != request.MeterReading)
+        {
+            asset.CurrentMeterReading = request.MeterReading;
+            db.AssetMeterReadings.Add(new AssetMeterReading
+            {
+                AssetId = asset.Id,
+                BookingId = booking.Id,
+                Type = asset.MeterUnit?.Contains("hour", StringComparison.OrdinalIgnoreCase) == true ? MeterType.EngineHours : MeterType.Odometer,
+                Unit = asset.MeterUnit ?? "unit",
+                Reading = request.MeterReading.Value,
+                FuelPercent = request.FuelLevelPercent,
+                Source = MeterReadingSource.PreHireInspection,
+                RecordedByUserId = scope.UserId
+            });
+        }
         AuditWriter.Record(db, scope, "Pre-hire inspection saved", "Booking", booking.Id, $"Pre-hire inspection prepared for {booking.BookingNumber}; asset release remains pending.", booking.BranchId);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(new { inspection.Id, message = "Pre-hire inspection saved. Complete agreement signing and checkout at handover." });
@@ -126,7 +141,12 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             .Where(x => x.IsActive && x.AssetCategoryId == categoryId && (x.Stage == InspectionStage.PreHire || x.Stage == InspectionStage.PostHire))
             .OrderBy(x => x.Name).Select(x => new { x.Id, x.Name, x.Stage, x.ChecklistJson }).ToListAsync(cancellationToken);
         var preHire = booking.Inspections.Where(x => x.Type == InspectionType.Handover).OrderByDescending(x => x.CompletedAt).FirstOrDefault();
-        return Ok(new { templates, preHire = preHire is null ? null : new { preHire.ConditionNotes, preHire.DamageNotes, preHire.EvidenceJson, preHire.MeterReading, preHire.FuelLevelPercent } });
+        return Ok(new
+        {
+            templates,
+            assetCurrentMeterReading = booking.Items.FirstOrDefault()?.Asset?.CurrentMeterReading,
+            preHire = preHire is null ? null : new { preHire.ConditionNotes, preHire.DamageNotes, preHire.EvidenceJson, preHire.MeterReading, preHire.FuelLevelPercent }
+        });
     }
     [HttpPost("{bookingId:guid}/handover")]
     public async Task<ActionResult> Handover(Guid bookingId, InspectionRequest request, CancellationToken cancellationToken)
