@@ -167,4 +167,11 @@ public sealed class CustomerLicenceOcrTests
 
         Assert.Equal([2], result.Classes);
     }
-}
+
+    [Theory]
+    [InlineData("Rakesh Kumar", "")]
+    [InlineData("Rakesh Kumar", "---")]
+    [InlineData("Rakesh Kumar", "Kumar")]
+    [InlineData("Rakesh Kumar", "Rakesh Kumar Singh")]
+    public void Partial_or_empty_names_do_not_verify_another_identity(string stored, string scanned) =>
+        Assert.False(CustomerLicenceService.NamesMatch(stored, scanned));}
