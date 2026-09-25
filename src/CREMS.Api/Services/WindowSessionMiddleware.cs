@@ -71,8 +71,7 @@ public sealed class WindowSessionMiddleware(RequestDelegate next)
         var ticket = context.Request.Cookies[cookieName];
         if (string.IsNullOrWhiteSpace(userId) || !Guid.TryParse(windowId, out _) || string.IsNullOrWhiteSpace(ticket))
         {
-            if (!string.IsNullOrWhiteSpace(userId)) registry.End(userId);
-            context.Response.Cookies.Delete(cookieName);
+            // A malformed request must not revoke a valid session in another window.
             await Reject(context, "A valid browser-window session is required.");
             return;
         }
@@ -81,8 +80,7 @@ public sealed class WindowSessionMiddleware(RequestDelegate next)
         var result = registry.Validate(userId, windowId, fingerprint, DateTimeOffset.UtcNow);
         if (result != WindowSessionResult.Valid)
         {
-            registry.End(userId);
-            context.Response.Cookies.Delete(cookieName);
+            if (result == WindowSessionResult.Expired) context.Response.Cookies.Delete(cookieName);
             await Reject(context, result == WindowSessionResult.Expired
                 ? "Your session expired. Sign in again."
                 : "This session is active in another browser window. Sign in here to continue.");

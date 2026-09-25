@@ -310,7 +310,7 @@ public sealed class CustomerLicenceService(ApplicationDbContext db, ILicenceOcrP
             .Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(part => Regex.Replace(part, "[^A-Z]", string.Empty))
             .Where(part => part.Length > 0).Order().Aggregate(string.Empty, (all, part) => all + part);
         var left = Normalize(expected); var right = Normalize(extracted);
-        return left.Length >= 3 && (left == right || left.Contains(right, StringComparison.Ordinal) || right.Contains(left, StringComparison.Ordinal));
+        return left.Length >= 3 && right.Length >= 3 && left == right;
     }
 
     public async Task<CustomerLicence?> CurrentAsync(Guid customerId, CancellationToken token) =>
