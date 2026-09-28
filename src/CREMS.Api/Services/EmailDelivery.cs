@@ -23,6 +23,8 @@ public sealed class EmailOptions
     public string FromAddress { get; set; } = string.Empty;
     public string FromName { get; set; } = "Carpenters Rentals";
     public string? RedirectAllTo { get; set; }
+    public string? NotificationCopyTo { get; set; }
+    public bool NotificationDirectDelivery { get; set; }
     public bool AllowDirectDeliveryOutsideProduction { get; set; }
     public string ApiKey { get; set; } = string.Empty;
     public bool PreferHttpApi { get; set; } = true;
@@ -78,7 +80,7 @@ public sealed class EmailDeliveryWorker(IServiceScopeFactory scopeFactory, IOpti
         foreach (var message in messages)
         {
             message.Status = EmailDeliveryStatus.Sending; message.Attempts++; await db.SaveChangesAsync(token);
-            try { message.ProviderMessageId=await Send(message.Recipient, message.Subject, message.HtmlBody, message.TextBody, token); message.Status = EmailDeliveryStatus.Sent; message.SentAt = DateTimeOffset.UtcNow; message.FailureReason = null; }
+            try { message.ProviderMessageId=await Send(message.Recipient, message.Subject, message.HtmlBody, message.TextBody, token, message.Category); message.Status = EmailDeliveryStatus.Sent; message.SentAt = DateTimeOffset.UtcNow; message.FailureReason = null; }
             catch (Exception ex) { message.Status = EmailDeliveryStatus.Failed; message.FailureReason = Failure(ex); message.NextAttemptAt = DateTimeOffset.UtcNow.AddMinutes(Math.Pow(2, message.Attempts)); logger.LogError(ex,"SMTP delivery failed for message {MessageId}, category {Category}, attempt {Attempt}.",message.Id,message.Category,message.Attempts); }
             await db.SaveChangesAsync(token);
         }
@@ -92,21 +94,34 @@ public sealed class EmailDeliveryWorker(IServiceScopeFactory scopeFactory, IOpti
         }
     }
 
-    private async Task<string?> Send(string recipient, string subject, string html, string? text, CancellationToken token)
+    private async Task<string?> Send(string recipient, string subject, string html, string? text, CancellationToken token, string? category = null)
     {
-        var settings = options.Value; var actualRecipient = string.IsNullOrWhiteSpace(settings.RedirectAllTo) ? recipient : settings.RedirectAllTo;
+        var settings = options.Value; var actualRecipient = string.IsNullOrWhiteSpace(settings.RedirectAllTo) || settings.NotificationDirectDelivery && IsCopyNotification(category) ? recipient : settings.RedirectAllTo;
+        var copyTo = NotificationCopyRecipient(settings, actualRecipient!, category);
         var actualSubject = environment.IsProduction() ? subject : $"[{environment.EnvironmentName.ToUpperInvariant()}] {subject}";
-        if(settings.PreferHttpApi&&!string.IsNullOrWhiteSpace(settings.ApiKey))return await SendWithBrevoApi(actualRecipient!,actualSubject,html,text,token);
+        if(settings.PreferHttpApi&&!string.IsNullOrWhiteSpace(settings.ApiKey))return await SendWithBrevoApi(actualRecipient!,actualSubject,html,text,token,copyTo);
         using var message = new MailMessage { From = new MailAddress(settings.FromAddress, settings.FromName), Subject = actualSubject, Body = html, IsBodyHtml = true };
+        if (copyTo != null) message.Bcc.Add(copyTo);
         message.To.Add(actualRecipient!); if (!string.IsNullOrWhiteSpace(text)) message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(text, null, "text/plain"));
         using var client = new SmtpClient(settings.Host, settings.Port) { EnableSsl = settings.UseSsl, UseDefaultCredentials = false, Credentials = new NetworkCredential(settings.Username, settings.Password), DeliveryMethod = SmtpDeliveryMethod.Network, Timeout = 20_000 };
         await client.SendMailAsync(message, token);
         return null;
     }
 
-    private async Task<string?> SendWithBrevoApi(string recipient,string subject,string html,string? plainText,CancellationToken token)
+    private async Task<string?> SendWithBrevoApi(string recipient,string subject,string html,string? plainText,CancellationToken token,string? copyTo)
     {
-        var settings=options.Value;var client=httpClients.CreateClient("Brevo");using var request=new HttpRequestMessage(HttpMethod.Post,"v3/smtp/email");request.Headers.Add("api-key",settings.ApiKey);request.Content=JsonContent.Create(new{sender=new{name=settings.FromName,email=settings.FromAddress},to=new[]{new{email=recipient}},subject,htmlContent=html,textContent=plainText,tags=new[]{"crems"}});using var response=await client.SendAsync(request,token);var body=await response.Content.ReadAsStringAsync(token);if(!response.IsSuccessStatusCode)throw new InvalidOperationException($"Brevo API returned {(int)response.StatusCode}: {body[..Math.Min(body.Length,500)]}");using var json=JsonDocument.Parse(body);return json.RootElement.TryGetProperty("messageId",out var id)?id.GetString():null;
+        var settings=options.Value;var client=httpClients.CreateClient("Brevo");using var request=new HttpRequestMessage(HttpMethod.Post,"v3/smtp/email");request.Headers.Add("api-key",settings.ApiKey);request.Content=JsonContent.Create(new{sender=new{name=settings.FromName,email=settings.FromAddress},to=new[]{new{email=recipient}},bcc=copyTo == null ? null : new[]{new{email=copyTo}},subject,htmlContent=html,textContent=plainText,tags=new[]{"crems"}});using var response=await client.SendAsync(request,token);var body=await response.Content.ReadAsStringAsync(token);if(!response.IsSuccessStatusCode)throw new InvalidOperationException($"Brevo API returned {(int)response.StatusCode}: {body[..Math.Min(body.Length,500)]}");using var json=JsonDocument.Parse(body);return json.RootElement.TryGetProperty("messageId",out var id)?id.GetString():null;
+    }
+
+    private static bool IsCopyNotification(string? category) =>
+        category == "ManualNotification" || category == "StaffActionNotifications" || category?.StartsWith("StaffDigest:", StringComparison.Ordinal) == true;
+
+    public static string? NotificationCopyRecipient(EmailOptions settings, string recipient, string? category)
+    {
+        if ((!string.IsNullOrWhiteSpace(settings.RedirectAllTo) && !settings.NotificationDirectDelivery) || string.IsNullOrWhiteSpace(settings.NotificationCopyTo)) return null;
+        if (!IsCopyNotification(category)) return null;
+        var copy = settings.NotificationCopyTo.Trim();
+        return string.Equals(copy, recipient.Trim(), StringComparison.OrdinalIgnoreCase) ? null : copy;
     }
 
     private void ValidateConfiguration()
