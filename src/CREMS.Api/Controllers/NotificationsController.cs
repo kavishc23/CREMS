@@ -7,11 +7,12 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CREMS.Api.Controllers;
 
 [ApiController]
-public sealed class NotificationsController(ApplicationDbContext db, UserManager<ApplicationUser> users, CurrentStaffScope staffScope, IAuthorizationService authorization) : ControllerBase
+public sealed class NotificationsController(ApplicationDbContext db, UserManager<ApplicationUser> users, CurrentStaffScope staffScope, IAuthorizationService authorization, IOptions<EmailOptions>? emailOptions = null) : ControllerBase
 {
     [HttpGet("api/notifications"), Authorize(Policy = SystemPolicies.StaffPortal)]
     public Task<ActionResult> Staff([FromQuery] string? category, [FromQuery] bool unread, [FromQuery] string? severity, [FromQuery] bool history, [FromQuery] int page = 1, CancellationToken token = default) => Inbox(false, token, category, unread, severity, history, page);
@@ -111,6 +112,7 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
             branches = await db.Branches.Where(x => x.IsActive && (scope.IsAdministrator || scope.BranchIds.Contains(x.Id))).Select(x => new { x.Id, x.Name }).ToListAsync(token),
             divisions = await db.Divisions.Where(x => x.IsActive && (scope.IsAdministrator || scope.DivisionIds.Contains(x.Id))).Select(x => new { x.Id, x.Name }).ToListAsync(token),
             roles = scope.IsAdministrator ? SystemRoles.Staff : SystemRoles.BranchScoped, scope.IsAdministrator,
+            emailEnabled = emailOptions?.Value.Enabled == true,
         });
     }
 
@@ -122,17 +124,16 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
             request.Severity is not ("Info" or "Warning" or "Urgent") || request.ExpiresAt <= DateTimeOffset.UtcNow ||
             request.RequiredRole != null && !SystemRoles.Staff.Contains(request.RequiredRole))
             return BadRequest(new { message = "Enter a title, message, valid priority and future expiry." });
-        if (!request.RecipientUserId.HasValue && !request.BranchId.HasValue && !request.DivisionId.HasValue && request.RequiredRole == null)
+        var recipientIds = (request.RecipientUserIds ?? []).Concat(request.RecipientUserId.HasValue ? [request.RecipientUserId.Value] : Array.Empty<Guid>()).Distinct().ToArray();
+        if (recipientIds.Length > 0 && (request.RequiredRole != null || request.BranchId.HasValue || request.DivisionId.HasValue) && request.RecipientUserIds is { Length: > 0 })
+            return BadRequest(new { message = "Choose named staff members or an audience, rather than combining them." });
+        if (recipientIds.Length == 0 && !request.BranchId.HasValue && !request.DivisionId.HasValue && request.RequiredRole == null)
             return BadRequest(new { message = "Choose a staff member, role, branch or division." });
         Guid? branch = request.BranchId, division = request.DivisionId;
-        if (request.RecipientUserId.HasValue)
-        {
-            var recipient = await db.Users.FirstOrDefaultAsync(x => x.Id == request.RecipientUserId && x.IsActive, token);
-            if (recipient is null || !(await users.GetRolesAsync(recipient)).Any(SystemRoles.Staff.Contains)) return NotFound();
-            if (!scope.IsAdministrator && (!recipient.BranchId.HasValue || !scope.HasAssetAccess(recipient.BranchId.Value, recipient.DivisionId))) return Forbid();
-            branch ??= recipient.BranchId; division ??= recipient.DivisionId;
-        }
-        if (!scope.IsAdministrator && (!branch.HasValue || !scope.HasAssetAccess(branch.Value, division))) return Forbid();
+        var recipients = await db.Users.Where(x => recipientIds.Contains(x.Id) && x.IsActive && db.UserRoles.Any(r => r.UserId == x.Id && db.Roles.Any(role => role.Id == r.RoleId && SystemRoles.Staff.Contains(role.Name!)))).ToListAsync(token);
+        if (recipients.Count != recipientIds.Length) return BadRequest(new { message = "One or more selected staff members are unavailable." });
+        if (!scope.IsAdministrator && recipients.Any(x => !x.BranchId.HasValue || !scope.HasAssetAccess(x.BranchId.Value, x.DivisionId))) return Forbid();
+        if (recipientIds.Length == 0 && !scope.IsAdministrator && (!branch.HasValue || !scope.HasAssetAccess(branch.Value, division))) return Forbid();
         if (branch.HasValue && !await db.Branches.AnyAsync(x => x.Id == branch && x.IsActive, token) ||
             division.HasValue && !await db.Divisions.AnyAsync(x => x.Id == division && x.IsActive, token))
             return BadRequest(new { message = "Select an active branch and division." });
@@ -148,38 +149,62 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
             url = NotificationAccess.BookingUrl(request.BookingId.Value);
         }
         var key = $"staff:{scope.UserId}:{request.RequestId}";
-        if (await db.InAppNotifications.AnyAsync(x => x.EventKey == key, token)) return Ok(new { message = "Notification already sent." });
-        db.InAppNotifications.Add(new InAppNotification { Title = request.Title.Trim(), Message = request.Message.Trim(),
-            Kind = "Announcement", RecipientUserId = request.RecipientUserId, RequiredRole = request.RequiredRole,
-            BranchId = branch, DivisionId = division, Severity = request.Severity, SentByUserId = scope.UserId,
-            ExpiresAt = request.ExpiresAt, Url = url, ActionType = url == null ? null : "OpenBooking",
-            ActionLabel = url == null ? null : "Open booking", RelatedEntityId = request.BookingId,
-            RelatedEntityType = request.BookingId.HasValue ? "Booking" : null, EventKey = key });
+        if (await db.InAppNotifications.AnyAsync(x => x.EventKey == key || x.EventKey.StartsWith(key + ":"), token)) return Ok(new { message = "Notification already sent." });
+        foreach (var recipientId in recipientIds.Length > 0 ? recipientIds.Select(x => (Guid?)x) : new Guid?[] { null })
+        {
+            var recipient = recipients.FirstOrDefault(x => x.Id == recipientId);
+            db.InAppNotifications.Add(new InAppNotification { Title = request.Title.Trim(), Message = request.Message.Trim(),
+                Kind = "Announcement", RecipientUserId = recipientId, RequiredRole = request.RequiredRole,
+                BranchId = branch ?? recipient?.BranchId, DivisionId = division ?? recipient?.DivisionId, Severity = request.Severity, SentByUserId = scope.UserId,
+                ExpiresAt = request.ExpiresAt, Url = url, ActionType = url == null ? null : "OpenBooking",
+                ActionLabel = url == null ? null : "Open booking", RelatedEntityId = request.BookingId,
+                RelatedEntityType = request.BookingId.HasValue ? "Booking" : null, EventKey = recipientId.HasValue ? key + ":" + recipientId : key });
+        }
         await db.SaveChangesAsync(token);
-        return Ok(new { message = "Staff notification sent to the selected audience." });
+        return Ok(new { message = recipientIds.Length > 0 ? $"Message sent to {recipientIds.Length} staff member{(recipientIds.Length == 1 ? "" : "s")}." : "Message sent to the selected staff audience." });
     }
 
     [HttpPost("api/notifications/send"), Authorize(Policy = SystemPolicies.ManageRentals)]
     public async Task<ActionResult> Send(SendNotification request, CancellationToken token)
     {
         var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid();
-        if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Message) || request.RequestId == Guid.Empty || request.AllCustomers == request.CustomerId.HasValue)
-            return BadRequest(new { message = "Choose one customer or all accessible customers, and enter a title and message." });
+        var selectedIds = (request.CustomerIds ?? []).Concat(request.CustomerId.HasValue ? [request.CustomerId.Value] : Array.Empty<Guid>()).Distinct().ToArray();
+        var staffIds = (request.RecipientUserIds ?? []).Distinct().ToArray();
+        if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Message) || request.RequestId == Guid.Empty ||
+            request.AllCustomers && selectedIds.Length > 0 || !request.AllCustomers && selectedIds.Length == 0 && staffIds.Length == 0)
+            return BadRequest(new { message = "Choose customers, staff members or both, and enter a title and message." });
         var customers = db.Customers.AsNoTracking().AsQueryable();
         if (!scope.IsAdministrator) customers = customers.Where(c => db.Bookings.Any(b => b.CustomerId == c.Id && scope.BranchIds.Contains(b.BranchId) && b.Items.Any() && b.Items.All(i => i.Asset != null && i.Asset.DivisionId.HasValue && scope.DivisionIds.Contains(i.Asset.DivisionId.Value))));
-        if (request.CustomerId.HasValue) customers = customers.Where(c => c.Id == request.CustomerId);
+        if (!request.AllCustomers) customers = customers.Where(c => selectedIds.Contains(c.Id));
         var ids = await customers.Select(c => c.Id).ToListAsync(token);
-        if (ids.Count == 0) return NotFound(new { message = "No accessible customers match this selection." });
+        if (!request.AllCustomers && ids.Count != selectedIds.Length) return BadRequest(new { message = "One or more selected customers are no longer accessible. Review your selection and try again." });
+        if (ids.Count == 0 && staffIds.Length == 0) return NotFound(new { message = "No accessible customers match this selection." });
+        var recipients = await db.Users.Where(x => staffIds.Contains(x.Id) && x.IsActive && db.UserRoles.Any(r => r.UserId == x.Id && db.Roles.Any(role => role.Id == r.RoleId && SystemRoles.Staff.Contains(role.Name!)))).ToListAsync(token);
+        if (recipients.Count != staffIds.Length) return BadRequest(new { message = "One or more selected staff members are unavailable." });
+        if (!scope.IsAdministrator && recipients.Any(x => !x.BranchId.HasValue || !scope.HasAssetAccess(x.BranchId.Value, x.DivisionId))) return Forbid();
         var prefix = $"custom:{scope.UserId}:{request.RequestId}:";
         var existing = await db.InAppNotifications.CountAsync(x => x.EventKey.StartsWith(prefix), token);
         if (existing > 0) return Ok(new { sent = existing, message = "This notification was already sent." });
         foreach (var id in ids) db.InAppNotifications.Add(new InAppNotification { Audience = "Customer", CustomerId = id, Kind = "Announcement", Title = request.Title.Trim(), Message = request.Message.Trim(), SentByUserId = scope.UserId, EventKey = prefix + id });
+        foreach (var recipient in recipients) db.InAppNotifications.Add(new InAppNotification {
+            Audience = "Staff", RecipientUserId = recipient.Id, BranchId = recipient.BranchId, DivisionId = recipient.DivisionId,
+            Kind = "Announcement", Title = request.Title.Trim(), Message = request.Message.Trim(),
+            SentByUserId = scope.UserId, EventKey = prefix + "staff:" + recipient.Id });
+        var emailSummary = "";
+        if (request.SendEmail)
+        {
+            var notices = db.ChangeTracker.Entries<InAppNotification>().Where(x => x.State == EntityState.Added && x.Entity.EventKey.StartsWith(prefix)).Select(x => x.Entity).ToList();
+            emailSummary = await MessageEmailDelivery.QueueAsync(db, notices, emailOptions?.Value.Enabled == true, token);
+        }
         await db.SaveChangesAsync(token);
-        return Ok(new { sent = ids.Count, message = $"Notification sent to {ids.Count} customer inbox(es)." });
+        var audience = new List<string>();
+        if (ids.Count > 0) audience.Add($"{ids.Count} customer{(ids.Count == 1 ? "" : "s")}");
+        if (recipients.Count > 0) audience.Add($"{recipients.Count} staff member{(recipients.Count == 1 ? "" : "s")}");
+        return Ok(new { sent = ids.Count + recipients.Count, message = $"Message sent to {string.Join(" and ", audience)}." + emailSummary });
     }
 }
 public sealed record ReadNotifications([Required] Guid[] Ids, bool All = false);
-public sealed record SendNotification(Guid RequestId, Guid? CustomerId, bool AllCustomers, [Required, MaxLength(160)] string Title, [Required, MaxLength(2000)] string Message);
+public sealed record SendNotification(Guid RequestId, Guid? CustomerId, bool AllCustomers, [Required, MaxLength(160)] string Title, [Required, MaxLength(2000)] string Message, [MaxLength(200)] Guid[]? CustomerIds = null, [MaxLength(200)] Guid[]? RecipientUserIds = null, bool SendEmail = false);
 public sealed record NotificationPreferenceRequest(string Category, bool InAppEnabled, bool ToastEnabled, bool EmailEnabled, string EmailFrequency);
 public sealed record SendStaffNotification(Guid RequestId, Guid? RecipientUserId, string? RequiredRole, Guid? BranchId, Guid? DivisionId,
-    [Required, MaxLength(160)] string Title, [Required, MaxLength(2000)] string Message, string Severity = "Info", DateTimeOffset? ExpiresAt = null, Guid? BookingId = null);
+    [Required, MaxLength(160)] string Title, [Required, MaxLength(2000)] string Message, string Severity = "Info", DateTimeOffset? ExpiresAt = null, Guid? BookingId = null, [MaxLength(200)] Guid[]? RecipientUserIds = null);
