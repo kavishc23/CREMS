@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined'
 import ArrowBackOutlined from '@mui/icons-material/ArrowBackOutlined'
 import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined'
 import CheckCircleOutline from '@mui/icons-material/CheckCircleOutline'
@@ -9,7 +10,7 @@ import LocationOnOutlined from '@mui/icons-material/LocationOnOutlined'
 import PaidOutlined from '@mui/icons-material/PaidOutlined'
 import QrCode2Outlined from '@mui/icons-material/QrCode2Outlined'
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined'
-import { Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, Grid, IconButton, LinearProgress, MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material'
+import { Accordion, AccordionSummary, AccordionDetails, Pagination, Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, Grid, IconButton, LinearProgress, MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material'
 import { InspectionRecord, type Inspection } from './RentalInspectionHistory'
 import { InspectionPhotos } from './InspectionPhotos'
 import { api } from '../api/client'
@@ -79,7 +80,7 @@ function Financials({finance,asset}:{finance:Finance|null;asset:Asset}){if(!fina
 function Lifecycle({rows}:{rows:Row[]}){return <Card variant="outlined"><CardContent sx={{p:3}}><SectionHeading title="Asset lifecycle" subtitle="A permanent chronology from commissioning through disposal."/>{rows.length?<Stack mt={2}>{rows.map((row,index)=><Stack key={String(row.id||index)} direction="row" gap={2}><Box display="flex" flexDirection="column" alignItems="center"><Avatar sx={{width:34,height:34,bgcolor:index===0?'secondary.main':'grey.200',color:'#111'}}>{index===0?<CheckCircleOutline fontSize="small"/>:<Typography variant="caption">{rows.length-index}</Typography>}</Avatar>{index<rows.length-1&&<Box width={2} flex={1} bgcolor="divider" minHeight={36}/>}</Box><Box pb={3}><Typography fontWeight={800}>{pretty(String(row.type||row.action||'Lifecycle event'))}</Typography><Typography variant="body2" color="text.secondary">{format(row.occurredAt||row.createdAt)} · {format(row.recordedByName)}</Typography>{Boolean(row.notes)&&<Typography mt={.5}>{String(row.notes)}</Typography>}<Stack direction="row" gap={.5} mt={1}>{Boolean(row.fromStatus)&&<Chip size="small" label={String(row.fromStatus)}/>} {Boolean(row.toStatus)&&<Chip size="small" color="primary" label={String(row.toStatus)}/>}</Stack></Box></Stack>)}</Stack>:<Alert severity="info">No lifecycle events have been recorded.</Alert>}</CardContent></Card>}
 
 function RecordSection({title,subtitle,rows,empty}:{title:string;subtitle:string;rows:Row[];empty:string}){return <Card variant="outlined"><CardContent sx={{p:3}}><SectionHeading title={title} subtitle={subtitle}/>{rows.length?<RecordList rows={rows}/>:<Box py={4} textAlign="center"><Avatar sx={{mx:'auto',mb:1.5,bgcolor:'grey.100',color:'text.secondary'}}><EngineeringOutlined/></Avatar><Typography fontWeight={750}>{empty}</Typography></Box>}</CardContent></Card>}
-function RecordList({rows}:{rows:Row[]}){return <Stack gap={1.25} mt={2}>{rows.slice(0,100).map((row,index)=><Box key={String(row.id||index)} sx={{p:2,border:1,borderColor:'divider',borderRadius:2,bgcolor:'white'}}><Grid container spacing={1.5}>{Object.entries(row).filter(([key,value])=>!['id','assetId','bookingId','templateId','evidenceJson','responsesJson','signatureDataUrl','inspectionJson','proofJson'].includes(key)&&value!=null&&typeof value!=='object').slice(0,7).map(([key,value])=><Grid key={key} size={{xs:12,sm:6,lg:4}}><Typography variant="caption" color="text.secondary">{pretty(key)}</Typography><Typography variant="body2" fontWeight={650}>{format(value)}</Typography></Grid>)}</Grid><InspectionEvidence value={row.evidenceJson}/></Box>)}</Stack>}
+function RecordList({rows,detailed=false}:{rows:Row[];detailed?:boolean}){return <Stack gap={1.25} mt={2}>{rows.slice(0,100).map((row,index)=><Box key={String(row.id||index)} sx={{p:2,border:1,borderColor:'divider',borderRadius:2,bgcolor:'white'}}><Grid container spacing={1.5}>{Object.entries(row).filter(([key,value])=>!['id','assetId','bookingId','templateId','evidenceJson','responsesJson','signatureDataUrl','customerSignatureDataUrl','staffSignatureDataUrl','damageMapJson','inspectionJson','proofJson'].includes(key)&&value!=null&&typeof value!=='object').slice(0,detailed?undefined:7).map(([key,value])=><Grid key={key} size={{xs:12,sm:6,lg:4}}><Typography variant="caption" color="text.secondary">{pretty(key)}</Typography><Typography variant="body2" fontWeight={650}>{format(value)}</Typography></Grid>)}</Grid><InspectionEvidence value={row.evidenceJson}/></Box>)}</Stack>}
 function SectionHeading({title,subtitle}:{title:string;subtitle?:string}){return <Box mb={2}><Typography variant="h6" fontWeight={850}>{title}</Typography>{subtitle&&<Typography variant="body2" color="text.secondary" mt={.25}>{subtitle}</Typography>}</Box>}
 function InfoGrid({entries}:{entries:[string,unknown][]}){return <Grid container spacing={2} mt={.25}>{entries.map(([label,value])=><Grid key={label} size={{xs:12,sm:6,lg:4}}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography fontWeight={700}>{format(value)}</Typography></Grid>)}</Grid>}
 function Metric({icon,label,value}:{icon:React.ReactNode;label:string;value:string}){return <Grid size={{xs:12,sm:6}}><Stack direction="row" gap={1.5} alignItems="center" sx={{p:2,bgcolor:'#f7f7f4',borderRadius:2}}><Avatar sx={{bgcolor:'secondary.main',color:'#111'}}>{icon}</Avatar><Box><Typography variant="caption" color="text.secondary">{label}</Typography><Typography fontWeight={800}>{value}</Typography></Box></Stack></Grid>}
@@ -100,16 +101,36 @@ function InspectionEvidence({value}:{value:unknown}){
 
 function AssetInspectionHistory({data}:{data:Profile}) {
   const [photo,setPhoto]=useState<string|null>(null)
-  const rentals=data.rentalInspections??[]
-  return <Stack spacing={3}>
-    <Card variant="outlined"><CardContent>
-      <SectionHeading title="Pre-hire and post-hire inspections" subtitle="Latest 50 saved rental inspections for this asset, including condition, checklist and photo evidence."/>
-      {rentals.length?<Stack spacing={2}>{rentals.map(record=><Box key={record.id}>
-        <Typography variant="h6" mb={1}>{record.bookingNumber} · {record.type==='Handover'?'Pre-hire':'Post-hire'}</Typography>
-        <InspectionRecord record={record} onPhoto={setPhoto}/>
-      </Box>)}</Stack>:<Alert severity="info">No rental inspections are available for this asset.</Alert>}
-    </CardContent></Card>
-    <RecordSection title="Other asset inspections" subtitle="General inspections, maintenance and transfer condition records." rows={data.inspections} empty="No other inspections have been completed for this asset."/>
+  const [search,setSearch]=useState('')
+  const [stage,setStage]=useState('All')
+  const [page,setPage]=useState(1)
+  const [expanded,setExpanded]=useState<string|false>(false)
+  const entries=[
+    ...(data.rentalInspections??[]).map(record=>({id:`rental-${record.id}`,stage:record.type==='Handover'?'Pre-hire':'Post-hire',reference:record.bookingNumber,date:record.completedAt,staff:record.completedByName||'Not recorded',rental:record,other:null})),
+    ...data.inspections.map(record=>({id:`asset-${record.id}`,stage:pretty(String(record.stage||'Inspection')).trim(),reference:String(record.bookingNumber||'Asset inspection'),date:String(record.completedAt||record.createdAt||''),staff:String(record.completedByName||record.staffSignatureName||'Not recorded'),rental:null,other:record})),
+  ].sort((a,b)=>(Date.parse(b.date)||0)-(Date.parse(a.date)||0)||a.id.localeCompare(b.id))
+  const filtered=entries.filter(entry=>(stage==='All'||entry.stage===stage)&&`${entry.reference} ${entry.stage} ${entry.staff}`.toLowerCase().includes(search.toLowerCase().trim()))
+  const pageCount=Math.max(1,Math.ceil(filtered.length/10))
+  const currentPage=Math.min(page,pageCount)
+  return <Stack spacing={2}>
+    <SectionHeading title="Inspection history" subtitle="All saved inspections, newest first. Expand an inspection to view its results and photos."/>
+    <Stack direction={{xs:'column',sm:'row'}} gap={2}>
+      <TextField fullWidth size="small" label="Search booking or inspecting staff" value={search} onChange={event=>{setSearch(event.target.value);setPage(1);setExpanded(false)}}/>
+      <TextField select size="small" label="Inspection type" value={stage} onChange={event=>{setStage(event.target.value);setPage(1);setExpanded(false)}} sx={{minWidth:200}}>
+        <MenuItem value="All">All types</MenuItem>{[...new Set(entries.map(entry=>entry.stage))].map(value=><MenuItem key={value} value={value}>{value}</MenuItem>)}
+      </TextField>
+    </Stack>
+    <Typography color="text.secondary">{filtered.length} of {entries.length} inspections</Typography>
+    {!filtered.length&&<Alert severity="info">{entries.length?'No inspections match your search.':'No inspections are available for this asset.'}</Alert>}
+    <Box>{filtered.slice((currentPage-1)*10,currentPage*10).map(entry=><Accordion key={entry.id} expanded={expanded===entry.id} onChange={(_,open)=>setExpanded(open?entry.id:false)} slotProps={{transition:{unmountOnExit:true}}}>
+      <AccordionSummary expandIcon={<ExpandMoreOutlined/>} id={`${entry.id}-header`} aria-controls={`${entry.id}-details`}>
+        <Box><Typography fontWeight={750}>{entry.reference} · {entry.stage}</Typography><Typography variant="body2" color="text.secondary">{format(entry.date)} · {entry.staff}</Typography></Box>
+      </AccordionSummary>
+      <AccordionDetails id={`${entry.id}-details`}>
+        {entry.rental?<InspectionRecord record={entry.rental} onPhoto={setPhoto}/>:<RecordList rows={[entry.other!]} detailed/>}
+      </AccordionDetails>
+    </Accordion>)}</Box>
+    {pageCount>1&&<Stack alignItems="center"><Pagination count={pageCount} page={currentPage} onChange={(_,value)=>{setPage(value);setExpanded(false)}}/></Stack>}
     <Dialog open={Boolean(photo)} onClose={()=>setPhoto(null)} fullWidth maxWidth="lg">
       <DialogTitle>Inspection photo</DialogTitle>
       <DialogContent>{photo&&<Box component="img" src={photo} alt="Inspection evidence enlarged" sx={{width:'100%',maxHeight:'75vh',objectFit:'contain'}}/>}</DialogContent>

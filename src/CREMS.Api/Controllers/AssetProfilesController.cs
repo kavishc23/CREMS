@@ -23,12 +23,12 @@ public sealed class AssetProfilesController(ApplicationDbContext db, CurrentStaf
         const int historyLimit = 50;
         var bookingItems=await db.BookingItems.AsNoTracking().Where(x=>x.AssetId==assetId).Include(x=>x.Booking).OrderByDescending(x=>x.StartAt).Take(historyLimit).ToListAsync(token);
         var maintenance=await db.MaintenanceJobs.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.ReportedAt).Take(historyLimit).ToListAsync(token);
-        var inspections=await db.AssetInspections.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.CompletedAt).Take(historyLimit).ToListAsync(token);
+        var inspections=await db.AssetInspections.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.CompletedAt).ThenByDescending(x=>x.Id).ToListAsync(token);
         var rentalQuery = db.RentalInspections.AsNoTracking()
             .Where(x => x.Booking!.Items.Any(item => item.AssetId == assetId));
         if (!scope.IsAdministrator)
             rentalQuery = rentalQuery.Where(x => scope.BranchIds.Contains(x.Booking!.BranchId));
-        var rentalInspections = await rentalQuery.OrderByDescending(x => x.CompletedAt).Take(historyLimit)
+        var rentalInspections = await rentalQuery.OrderByDescending(x => x.CompletedAt).ThenByDescending(x => x.Id)
             .Select(x => new { x.Id, x.BookingId, x.Booking!.BookingNumber, x.Type, x.CompletedAt,
                 x.CompletedByName, x.ConditionNotes, x.DamageNotes, x.MeterReading, x.FuelLevelPercent,
                 x.EvidenceJson, x.SignatureName, x.SignatureDataUrl }).ToListAsync(token);
