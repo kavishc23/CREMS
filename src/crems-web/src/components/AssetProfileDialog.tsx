@@ -10,12 +10,13 @@ import PaidOutlined from '@mui/icons-material/PaidOutlined'
 import QrCode2Outlined from '@mui/icons-material/QrCode2Outlined'
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined'
 import { Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, Grid, IconButton, LinearProgress, MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material'
+import { InspectionRecord, type Inspection } from './RentalInspectionHistory'
 import { InspectionPhotos } from './InspectionPhotos'
 import { api } from '../api/client'
 
 type Row = Record<string, unknown>
 type Asset = Row & { id:string; assetNumber:string; name:string; status:string; registrationNumber?:string; serialNumber?:string; manufacturer?:string; model?:string; modelYear?:number; currentMeterReading?:number; meterUnit?:string; nextServiceDate?:string; currentLocation?:string; acquisitionCost?:number; currentBookValue?:number; dailyRate?:number; insuranceExpiry?:string; warrantyExpiry?:string; branch?:{name:string}; division?:{name:string}; serviceOffering?:{name:string}; assetCategory?:{name:string}; attributeValues:Row[] }
-type Profile = { asset:Asset; availability:{isAvailable:boolean; unavailableReason:string|null; expectedAvailableAt:string|null; bookings:Row[]; maintenance:Row[]; transfers:Row[]}; alternatives:Row[]; inspections:Row[]; meters:Row[]; maintenance:Row[]; documents:Row[]; lifecycle:Row[]; audits:Row[] }
+type Profile = { asset:Asset; availability:{isAvailable:boolean; unavailableReason:string|null; expectedAvailableAt:string|null; bookings:Row[]; maintenance:Row[]; transfers:Row[]}; alternatives:Row[]; inspections:Row[]; rentalInspections?:(Inspection & {bookingNumber:string})[]; meters:Row[]; maintenance:Row[]; documents:Row[]; lifecycle:Row[]; audits:Row[] }
 type Finance = { rentalRevenue:number; maintenanceExpense:number; operatingExpense:number; transferExpense:number; totalExpense:number; operatingProfit:number; lifetimeNetAfterAcquisition:number; rentalCount:number; rentalDays:number; inspectionCount:number }
 type MeterForm = { type:string; unit:string; reading:string; fuelPercent:string; source:string }
 type InspectionForm = { stage:string; outcome:string; meterReading:string; fuelPercent:string; notes:string; staffSignatureName:string; photos:string[] }
@@ -58,7 +59,7 @@ function ProfileContent({tab,data,finance}:{tab:number;data:Profile;finance:Fina
   if(tab===0)return <Overview data={data} finance={finance}/>
   if(tab===1)return <Specifications asset={data.asset}/>
   if(tab===2)return <Availability data={data}/>
-  if(tab===3)return <RecordSection title="Inspection history" subtitle="Condition records, signatures, meter readings and reported defects." rows={data.inspections} empty="No inspections have been completed for this asset."/>
+  if(tab===3)return <AssetInspectionHistory data={data}/>
   if(tab===4)return <RecordSection title="Meter readings" subtitle="A chronological record of kilometres, operating hours and fuel readings." rows={data.meters} empty="No meter readings have been recorded."/>
   if(tab===5)return <RecordSection title="Maintenance history" subtitle="Preventive services, repairs, downtime and expenditure." rows={data.maintenance} empty="No maintenance jobs have been recorded."/>
   if(tab===6)return <Financials finance={finance} asset={data.asset}/>
@@ -95,4 +96,24 @@ function InspectionEvidence({value}:{value:unknown}){
     if(Array.isArray(candidates))photos=candidates.filter((photo:unknown):photo is string=>typeof photo==='string'&&['data:image/jpeg;base64,','data:image/png;base64,','data:image/webp;base64,'].some(prefix=>photo.startsWith(prefix)))
   }catch{ /* Older inspections can have no photo evidence. */ }
   return photos.length?<Stack direction="row" gap={1} flexWrap="wrap" mt={2}>{photos.map((photo,index)=><Box key={index} component="img" src={photo} alt={`Saved inspection photo ${index+1}`} sx={{width:180,height:130,objectFit:'contain',border:1,borderColor:'divider',borderRadius:1}}/>)}</Stack>:null
+}
+
+function AssetInspectionHistory({data}:{data:Profile}) {
+  const [photo,setPhoto]=useState<string|null>(null)
+  const rentals=data.rentalInspections??[]
+  return <Stack spacing={3}>
+    <Card variant="outlined"><CardContent>
+      <SectionHeading title="Pre-hire and post-hire inspections" subtitle="Latest 50 saved rental inspections for this asset, including condition, checklist and photo evidence."/>
+      {rentals.length?<Stack spacing={2}>{rentals.map(record=><Box key={record.id}>
+        <Typography variant="h6" mb={1}>{record.bookingNumber} · {record.type==='Handover'?'Pre-hire':'Post-hire'}</Typography>
+        <InspectionRecord record={record} onPhoto={setPhoto}/>
+      </Box>)}</Stack>:<Alert severity="info">No rental inspections are available for this asset.</Alert>}
+    </CardContent></Card>
+    <RecordSection title="Other asset inspections" subtitle="General inspections, maintenance and transfer condition records." rows={data.inspections} empty="No other inspections have been completed for this asset."/>
+    <Dialog open={Boolean(photo)} onClose={()=>setPhoto(null)} fullWidth maxWidth="lg">
+      <DialogTitle>Inspection photo</DialogTitle>
+      <DialogContent>{photo&&<Box component="img" src={photo} alt="Inspection evidence enlarged" sx={{width:'100%',maxHeight:'75vh',objectFit:'contain'}}/>}</DialogContent>
+      <DialogActions><Button onClick={()=>setPhoto(null)}>Close photo</Button></DialogActions>
+    </Dialog>
+  </Stack>
 }

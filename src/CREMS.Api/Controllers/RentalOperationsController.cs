@@ -43,6 +43,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             "DueToday" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt >= todayStart && i.EndAt < todayEnd)),
             "Overdue" => baseQuery.Where(x => (x.Status == BookingStatus.ConvertedToRental || (x.Status == BookingStatus.Completed && !x.Inspections.Any(i => i.Type == InspectionType.Return))) && x.Items.Any(i => i.EndAt < todayStart)),
             "ReturnInProgress" => baseQuery.Where(x => x.Status == BookingStatus.ConvertedToRental && x.Inspections.Any(i => i.Type == InspectionType.Return)),
+            "AllCompleted" => baseQuery.Where(x => x.Status == BookingStatus.Completed && x.Inspections.Any(i => i.Type == InspectionType.Return)),
             "RecentlyCompleted" => baseQuery.Where(x => x.Status == BookingStatus.Completed && x.Inspections.Any(i => i.Type == InspectionType.Return) && x.UpdatedAt >= recent),
             _ => baseQuery.Where(x => x.Status == BookingStatus.Confirmed && x.Items.Any(i => i.StartAt < todayEnd)),
         };
@@ -331,7 +332,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             Subtotal = subtotal, TaxAmount = taxable * booking.TaxRate / 100m, Total = taxable * (1 + booking.TaxRate / 100m),
             Inspections = booking.Inspections.OrderBy(item => item.CompletedAt).Select(item => new { item.Id, item.Type,
                 item.IdentificationVerified, item.DriverLicenceVerified, item.MeterReading, item.FuelLevelPercent,
-                item.ConditionNotes, item.DamageNotes, item.SignatureName, item.CompletedByName, item.CompletedAt }) };
+                item.ConditionNotes, item.DamageNotes, item.EvidenceJson, item.SignatureName, item.SignatureDataUrl, item.CompletedByName, item.CompletedAt }) };
     }
 
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

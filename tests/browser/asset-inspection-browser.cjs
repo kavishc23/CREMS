@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const browser=await chromium.launch({channel:'chrome',headless:true});const page=await browser.newPage({viewport:{width:1400,height:1000}});let submitted;
 await page.route('**/api/assets/**',async r=>{
 if(r.request().method()==='POST'){submitted=r.request().postDataJSON();await r.fulfill({json:{}});return}
-await r.fulfill({json:{asset:{id:'test',assetNumber:'TEST',name:'Test asset',status:'Available',attributeValues:[]},availability:{isAvailable:true,bookings:[],maintenance:[],transfers:[]},alternatives:[],inspections:submitted?[{id:"saved",stage:submitted.stage,evidenceJson:submitted.evidenceJson}]:[],meters:[],maintenance:[],documents:[],lifecycle:[],audits:[]}});
+await r.fulfill({json:{asset:{id:'test',assetNumber:'TEST',name:'Test asset',status:'Available',attributeValues:[]},availability:{isAvailable:true,bookings:[],maintenance:[],transfers:[]},alternatives:[],rentalInspections:[{id:'rental',bookingNumber:'BOOK-123',type:'Return',completedAt:'2026-09-01T00:00:00Z',conditionNotes:'Rental returned safely',evidenceJson:JSON.stringify({photos:submitted?JSON.parse(submitted.evidenceJson).photos:[]})}],inspections:submitted?[{id:"saved",stage:submitted.stage,evidenceJson:submitted.evidenceJson}]:[],meters:[],maintenance:[],documents:[],lifecycle:[],audits:[]}});
 });
 await page.route('**/__asset_inspection_test',r=>r.fulfill({contentType:'text/html',body:`<div id="root"></div><script type="module">
 import RefreshRuntime from '/@react-refresh';RefreshRuntime.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;window.__vite_plugin_react_preamble_installed__=true;
@@ -25,6 +25,7 @@ await page.waitForTimeout(300);
 assert(submitted);assert(JSON.parse(submitted.evidenceJson).photos[0].startsWith('data:image/jpeg'));
 assert.equal(submitted.notes,'Test condition');assert.equal(submitted.bookingId,null);
 await page.getByRole('tab',{name:'Inspections',exact:true}).click();await page.getByAltText('Saved inspection photo 1',{exact:true}).waitFor();
+await page.getByText('BOOK-123 · Post-hire',{exact:true}).waitFor();await page.getByText('Rental returned safely',{exact:true}).waitFor();await page.getByRole('button',{name:'Enlarge inspection photo 1'}).click();await page.getByAltText('Inspection evidence enlarged').waitFor();await page.getByRole('button',{name:'Close photo'}).click();
 console.log('PASS: Asset register general inspection photo selection, saved evidence and rental-workflow link; rental stages excluded. API writes mocked.');
 await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});
