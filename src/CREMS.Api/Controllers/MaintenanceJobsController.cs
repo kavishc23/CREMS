@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using CREMS.Api.Data;
+using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
@@ -19,12 +20,12 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
     public async Task<ActionResult> GetAll(CancellationToken cancellationToken)
     {
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
+        if (scope is null || (!scope.IsAdministrator && scope.BranchIds.Count == 0)) return Forbid();
         var query = db.MaintenanceJobs.AsNoTracking();
-        if (!scope.IsAdministrator) query = query.Where(job => job.BranchId == scope.BranchId && job.Asset!.DivisionId == scope.DivisionId);
+        if (!scope.IsAdministrator) query = query.Where(job => scope.BranchIds.Contains(job.BranchId) && job.Asset!.DivisionId.HasValue && scope.DivisionIds.Contains(job.Asset.DivisionId.Value));
         return Ok(await query.OrderByDescending(job => job.ReportedAt).Select(job => new {
-            job.Id, job.JobNumber, job.AssetId, AssetNumber = job.Asset!.AssetNumber, AssetName = job.Asset.Name,
-            job.BranchId, BranchName = job.Branch!.Name, job.Status, job.ServiceType, job.FaultDescription,
+            job.Id, job.JobNumber, job.SupplierId, job.AssetId, AssetNumber = job.Asset!.AssetNumber, AssetName = job.Asset.Name,
+            job.BranchId, BranchName = job.Branch!.Name, job.Status, job.Priority, CompletionNotes = job.Description, job.ServiceType, job.FaultDescription,
             job.AssignedTo, job.Supplier, job.EstimatedCost, job.ActualCost, job.PartsCost, job.LabourCost, job.TransportCost, job.ExternalServiceCost, job.TaxCost, job.OtherCost,
             job.PartsUsed, job.InvoiceNumber, job.MeterReading, job.DowntimeHours, job.IsPreventive, job.NextServiceMeter, job.WarrantyCovered, job.WarrantyClaimNumber, job.ParentFailureJobId, job.ReportedAt,
             job.CompletedAt, job.NextServiceDate }).ToListAsync(cancellationToken));
@@ -37,11 +38,13 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
         if (asset is null) return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["assetId"] = ["Select a valid asset."] }));
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
+        if (!asset.IsActive || asset.Status is not (AssetStatus.Available or AssetStatus.Maintenance))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["assetId"] = ["Only available assets or assets already in maintenance can enter maintenance. Resolve any hire, reservation or inspection first."] }));
         var job = new MaintenanceJob { JobNumber = $"MNT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
             AssetId = asset.Id, BranchId = asset.BranchId, ServiceType = request.ServiceType.Trim(),
             FaultDescription = request.FaultDescription.Trim(), AssignedTo = Normalize(request.AssignedTo),
             Supplier = Normalize(request.Supplier), SupplierId = request.SupplierId, EstimatedCost = request.EstimatedCost, IsPreventive = request.IsPreventive, NextServiceMeter = request.NextServiceMeter, WarrantyCovered = request.WarrantyCovered, WarrantyClaimNumber = Normalize(request.WarrantyClaimNumber), ParentFailureJobId = request.ParentFailureJobId,
-            NextServiceDate = request.NextServiceDate, Status = MaintenanceStatus.Open };
+            NextServiceDate = request.NextServiceDate, Priority = request.Priority, Status = MaintenanceStatus.Open };
         var previousAssetStatus = asset.Status;
         asset.Status = AssetStatus.Maintenance;
         db.MaintenanceJobs.Add(job);
@@ -59,7 +62,15 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
         if (job is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(job.BranchId, job.Asset?.DivisionId)) return Forbid();
+        if (request.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled)
+            && (job.Asset is null || !job.Asset.IsActive || job.Asset.Status is not (AssetStatus.Available or AssetStatus.Maintenance)))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["This asset cannot enter maintenance in its current state."] }));
+        if (request.Status == MaintenanceStatus.Completed && request.MeterReading.HasValue
+            && job.Asset?.CurrentMeterReading > request.MeterReading)
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["meterReading"] = ["The meter reading cannot be lower than the asset's current reading."] }));
+        var previousStatus = job.Status;
         var previous = $"Status: {job.Status}; Actual cost: {job.ActualCost:0.00}";
+        job.Priority = request.Priority; job.Description = Normalize(request.CompletionNotes);
         job.Status = request.Status; job.ServiceType = request.ServiceType.Trim();
         job.FaultDescription = request.FaultDescription.Trim(); job.AssignedTo = Normalize(request.AssignedTo);
         job.Supplier = Normalize(request.Supplier); job.EstimatedCost = request.EstimatedCost;
@@ -70,12 +81,36 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
         job.ActualCost = detailedTotal > 0 ? detailedTotal : request.ActualCost;
         job.PartsUsed = Normalize(request.PartsUsed); job.InvoiceNumber = Normalize(request.InvoiceNumber); job.MeterReading = request.MeterReading; job.DowntimeHours = request.DowntimeHours;
         job.NextServiceDate = request.NextServiceDate; job.UpdatedAt = DateTimeOffset.UtcNow;
-        if (request.Status == MaintenanceStatus.Completed)
+        var closed = request.Status is MaintenanceStatus.Completed or MaintenanceStatus.Cancelled;
+        job.CompletedAt = request.Status == MaintenanceStatus.Completed
+            ? job.CompletedAt ?? DateTimeOffset.UtcNow : null;
+        if (job.Asset is not null)
         {
-            job.CompletedAt ??= DateTimeOffset.UtcNow;
-            if (job.Asset is not null) { var fromStatus = job.Asset.Status; job.Asset.Status = AssetStatus.Available; job.Asset.NextServiceDate = request.NextServiceDate; if (request.MeterReading.HasValue) { job.Asset.CurrentMeterReading = request.MeterReading; db.AssetMeterReadings.Add(new AssetMeterReading { AssetId = job.AssetId, Type = job.Asset.MeterUnit?.Contains("hour", StringComparison.OrdinalIgnoreCase) == true ? MeterType.EngineHours : MeterType.Odometer, Unit = job.Asset.MeterUnit ?? "unit", Reading = request.MeterReading.Value, Source = MeterReadingSource.Maintenance, RecordedByUserId = scope.UserId }); } db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = job.AssetId, Type = AssetLifecycleEventType.ReturnedToService, FromStatus = fromStatus, ToStatus = AssetStatus.Available, MeterReading = request.MeterReading, Notes = $"Maintenance {job.JobNumber} completed", RecordedByUserId = scope.UserId, RecordedByName = scope.UserName }); }
+            var asset = job.Asset;
+            var otherOpenJobs = await db.MaintenanceJobs.AnyAsync(item => item.AssetId == job.AssetId && item.Id != job.Id
+                && item.Status != MaintenanceStatus.Completed && item.Status != MaintenanceStatus.Cancelled, cancellationToken);
+            var fromStatus = asset.Status;
+            if (!closed) asset.Status = AssetStatus.Maintenance;
+            else if (!otherOpenJobs && asset.Status == AssetStatus.Maintenance) asset.Status = AssetStatus.Available;
+
+            if (request.Status == MaintenanceStatus.Completed)
+            {
+                asset.NextServiceDate = request.NextServiceDate;
+                if (request.MeterReading.HasValue && (previousStatus != MaintenanceStatus.Completed || asset.CurrentMeterReading != request.MeterReading))
+                {
+                    asset.CurrentMeterReading = request.MeterReading;
+                    db.AssetMeterReadings.Add(new AssetMeterReading { AssetId = job.AssetId,
+                        Type = asset.MeterUnit?.Contains("hour", StringComparison.OrdinalIgnoreCase) == true ? MeterType.EngineHours : MeterType.Odometer,
+                        Unit = asset.MeterUnit ?? "unit", Reading = request.MeterReading.Value,
+                        Source = MeterReadingSource.Maintenance, RecordedByUserId = scope.UserId });
+                }
+            }
+            if (fromStatus != asset.Status)
+                db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = job.AssetId,
+                    Type = closed ? AssetLifecycleEventType.ReturnedToService : AssetLifecycleEventType.MaintenanceStarted,
+                    FromStatus = fromStatus, ToStatus = asset.Status, MeterReading = request.MeterReading,
+                    Notes = $"Maintenance {job.JobNumber}: {request.Status}", RecordedByUserId = scope.UserId, RecordedByName = scope.UserName });
         }
-        else if (job.Asset is not null) job.Asset.Status = AssetStatus.Maintenance;
         AuditWriter.Record(db, scope, "Maintenance updated", "MaintenanceJob", job.Id,
             $"{job.JobNumber} was updated.", job.BranchId, previous,
             $"Status: {job.Status}; Actual cost: {job.ActualCost:0.00}");
@@ -88,12 +123,12 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
 
 public sealed record SaveMaintenanceJobRequest(Guid AssetId, [Required] string ServiceType,
     [Required] string FaultDescription, string? AssignedTo, string? Supplier,
-    [Range(0, 1000000)] decimal EstimatedCost, DateOnly? NextServiceDate, Guid? SupplierId = null, bool IsPreventive = false, decimal? NextServiceMeter = null, bool WarrantyCovered = false, string? WarrantyClaimNumber = null, Guid? ParentFailureJobId = null);
-public sealed record UpdateMaintenanceJobRequest(MaintenanceStatus Status, [Required] string ServiceType,
+    [Range(0, 1000000)] decimal EstimatedCost, DateOnly? NextServiceDate, Guid? SupplierId = null, bool IsPreventive = false, [Range(0, 100000000)] decimal? NextServiceMeter = null, bool WarrantyCovered = false, string? WarrantyClaimNumber = null, Guid? ParentFailureJobId = null, [EnumDataType(typeof(MaintenancePriority))] MaintenancePriority Priority = MaintenancePriority.Normal);
+public sealed record UpdateMaintenanceJobRequest([EnumDataType(typeof(MaintenanceStatus))] MaintenanceStatus Status, [Required] string ServiceType,
     [Required] string FaultDescription, string? AssignedTo, string? Supplier,
-    decimal EstimatedCost, decimal? ActualCost, string? PartsUsed, DateOnly? NextServiceDate,
+    [Range(0, 1000000)] decimal EstimatedCost, [Range(0, 100000000)] decimal? ActualCost, string? PartsUsed, DateOnly? NextServiceDate,
     [Range(0, 100000000)] decimal PartsCost = 0, [Range(0, 100000000)] decimal LabourCost = 0,
     [Range(0, 100000000)] decimal TransportCost = 0, [Range(0, 100000000)] decimal ExternalServiceCost = 0,
     [Range(0, 100000000)] decimal TaxCost = 0, [Range(0, 100000000)] decimal OtherCost = 0,
     string? InvoiceNumber = null, [Range(0, 100000000)] decimal? MeterReading = null, [Range(0, 100000)] int DowntimeHours = 0,
-    Guid? SupplierId = null, bool IsPreventive = false, decimal? NextServiceMeter = null, bool WarrantyCovered = false, string? WarrantyClaimNumber = null, Guid? ParentFailureJobId = null);
+    Guid? SupplierId = null, bool IsPreventive = false, [Range(0, 100000000)] decimal? NextServiceMeter = null, bool WarrantyCovered = false, string? WarrantyClaimNumber = null, Guid? ParentFailureJobId = null, [EnumDataType(typeof(MaintenancePriority))] MaintenancePriority Priority = MaintenancePriority.Normal, [StringLength(4000)] string? CompletionNotes = null);

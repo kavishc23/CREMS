@@ -44,6 +44,23 @@ public sealed class CustomerLicencesController(CustomerLicenceService licences, 
         catch (LicenceException e) { return BadRequest(new { code = e.Code, message = e.Message }); }
     }
 
+    [HttpPost("api/customer-account/licence/manual")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    [RequestSizeLimit(CustomerLicenceService.MaximumFileSize + 64_000)]
+    public async Task<ActionResult> ManualMine(IFormFile file, [FromForm] string licenceNumber, [FromForm] string classes, CancellationToken token)
+    {
+        var user = await users.GetUserAsync(User);
+        if (user?.CustomerId is not Guid customerId) return Unauthorized();
+        try
+        {
+            var values = classes.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray();
+            return Ok(ToResponse(await licences.SaveManualAsync(customerId, file, licenceNumber, values,
+                LicenceUploadSource.Customer, user.Id, token)));
+        }
+        catch (FormatException) { return BadRequest(new { code = "invalid_licence_class", message = "Licence classes must be numbers from 1 through 9." }); }
+        catch (LicenceException e) { return BadRequest(new { code = e.Code, message = e.Message }); }
+    }
+
     [HttpGet("api/customer-account/licence/image")]
     [Authorize(Policy = SystemPolicies.CustomerPortal)]
     public async Task<ActionResult> MineImage(CancellationToken token)
