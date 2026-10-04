@@ -79,66 +79,11 @@ builder.Services.AddAuthentication().AddCookie(SystemAuthenticationSchemes.Custo
     options.Events.OnRedirectToAccessDenied = context => { context.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
 });
 
-builder.Services.AddAuthorizationBuilder()
-    .AddPolicy(SystemPolicies.StaffPortal, policy =>
-        policy.AddAuthenticationSchemes(IdentityConstants.ApplicationScheme).RequireRole(SystemRoles.Staff))
-    .AddPolicy(SystemPolicies.AdministerSystem, policy =>
-        policy.RequireRole(SystemRoles.SuperAdministrator))
-    .AddPolicy(SystemPolicies.ManageUsers, policy =>
-        policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator))
-    .AddPolicy(SystemPolicies.ManageDivisions, policy =>
-        policy.RequireRole(SystemRoles.SuperAdministrator))
-    .AddPolicy(SystemPolicies.ManageBranch, policy =>
-        policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager))
-    .AddPolicy(SystemPolicies.ManageRentals, policy =>
-        policy.RequireRole(
-            SystemRoles.SuperAdministrator,
-            SystemRoles.Administrator,
-            SystemRoles.BranchManager,
-            SystemRoles.RentalOfficer))
-    .AddPolicy(SystemPolicies.ViewAssets, policy =>
-        policy.RequireRole(
-            SystemRoles.SuperAdministrator,
-            SystemRoles.Administrator,
-            SystemRoles.BranchManager,
-            SystemRoles.RentalOfficer,
-            SystemRoles.MaintenanceOfficer))
-    .AddPolicy(SystemPolicies.ManageMaintenance, policy =>
-        policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager, SystemRoles.MaintenanceOfficer))
-    .AddPolicy(SystemPolicies.ManageFinance, policy =>
-        policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager))
-    .AddPolicy(SystemPolicies.UseAssetQr, policy =>
-        policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager, SystemRoles.RentalOfficer, SystemRoles.MaintenanceOfficer))
-    .AddPolicy(SystemPolicies.ViewReports, policy =>
-        policy.RequireRole(SystemRoles.SuperAdministrator, SystemRoles.Administrator, SystemRoles.BranchManager))
-    .AddPolicy(SystemPolicies.CustomerPortal, policy =>
-        policy.AddAuthenticationSchemes(SystemAuthenticationSchemes.Customer).RequireRole(SystemRoles.Customer))
-    .AddPolicy(SystemPermissions.UsersCreate, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.UsersCreate)))
-    .AddPolicy(SystemPermissions.UsersResetPassword, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.UsersResetPassword)))
-    .AddPolicy(SystemPermissions.UsersManageAccess, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.UsersManageAccess)))
-    .AddPolicy(SystemPermissions.CustomersManageAccess, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.CustomersManageAccess)))
-    .AddPolicy(SystemPermissions.RentalsApprove, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.RentalsApprove)))
-    .AddPolicy(SystemPermissions.MaintenanceComplete, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.MaintenanceComplete)))
-    .AddPolicy(SystemPermissions.PaymentsRefund, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.PaymentsRefund)))
-    .AddPolicy(SystemPermissions.ReportsFinancial, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.ReportsFinancial)))
-    .AddPolicy(SystemPermissions.DivisionsConfigure, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.DivisionsConfigure)))
-    .AddPolicy(SystemPermissions.BranchesConfigure, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.BranchesConfigure)))
-    .AddPolicy(SystemPermissions.ServicesConfigure, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.ServicesConfigure)))
-    .AddPolicy(SystemPermissions.AssetCategoriesConfigure, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.AssetCategoriesConfigure)))
-    .AddPolicy(SystemPermissions.BranchCalendarManage, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.BranchCalendarManage)))
-    .AddPolicy(SystemPermissions.PricingConfigure, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.PricingConfigure)))
-    .AddPolicy(SystemPermissions.AssetsView, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.AssetsView)))
-    .AddPolicy(SystemPermissions.AssetsCreate, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.AssetsCreate)))
-    .AddPolicy(SystemPermissions.AssetsEdit, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.AssetsEdit)))
-    .AddPolicy(SystemPermissions.AssetsTransfer, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.AssetsTransfer)))
-    .AddPolicy(SystemPermissions.AssetsInspect, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.AssetsInspect)))
-    .AddPolicy(SystemPermissions.AssetsRecordMeter, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.AssetsRecordMeter)))
-    .AddPolicy(SystemPermissions.AssetsRetire, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.AssetsRetire)))
-    .AddPolicy(SystemPermissions.AssetsViewFinancials, policy => policy.AddRequirements(new PermissionRequirement(SystemPermissions.AssetsViewFinancials)));
+builder.Services.AddApplicationAuthorization();
 
 builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(ApiDocumentation.Configure);
 builder.Services.AddProblemDetails();
 builder.Services.AddResponseCompression(options =>
 {
@@ -201,7 +146,65 @@ await app.InitializeAsync();
 app.UseExceptionHandler();
 if (app.Environment.IsDevelopment())
 {
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path == "/swagger/crems-environment.json")
+        {
+            var target = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connectionString);
+            context.Response.Headers.CacheControl = "no-store";
+            await context.Response.WriteAsJsonAsync(new { environment = app.Environment.EnvironmentName,
+                server = target.DataSource, database = target.InitialCatalog });
+            return;
+        }
+        var asset = context.Request.Path.Value switch
+        {
+            "/swagger/panel.js" => "panel.js",
+            "/swagger/panel.css" => "panel.css",
+            _ => null
+        };
+        if (asset is not null)
+        {
+            context.Response.ContentType = asset.EndsWith(".js") ? "application/javascript" : "text/css";
+            context.Response.Headers.CacheControl = "no-store";
+            await using var stream = typeof(Program).Assembly.GetManifestResourceStream($"CREMS.Api.Swagger.{asset}")!;
+            await stream.CopyToAsync(context.Response.Body);
+            return;
+        }
+        await next(context);
+    });
     app.MapOpenApi();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/openapi/v1.json", "CREMS API v1");
+        options.DocumentTitle = "CREMS API — Swagger";
+        options.InjectJavascript("/swagger/panel.js");
+        options.InjectStylesheet("/swagger/panel.css");
+        options.EnableFilter();
+        options.EnableDeepLinking();
+        options.DisplayRequestDuration();
+        options.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.None);
+        options.DefaultModelsExpandDepth(-1);
+        options.ConfigObject.AdditionalItems["tagsSorter"] = "alpha";
+        options.ConfigObject.AdditionalItems["operationsSorter"] = "method";
+        options.UseRequestInterceptor("""
+            (request) => {
+                if (new URL(request.url, window.location.origin).pathname.startsWith('/openapi/')) {
+                    request.credentials = 'omit';
+                    return request;
+                }
+                const key = 'crems.swagger.windowId';
+                let windowId = sessionStorage.getItem(key);
+                if (!windowId) {
+                    windowId = crypto.randomUUID();
+                    sessionStorage.setItem(key, windowId);
+                }
+                request.headers['X-CREMS-Window-Id'] = windowId;
+                request.credentials = 'same-origin';
+                if (!window.cremsSwaggerGuard) throw new Error('Session panel is not ready. Refresh Swagger.');
+                return window.cremsSwaggerGuard(request);
+            }
+            """.ReplaceLineEndings(" "));
+    });
 }
 
 // The development launch profile is intentionally HTTP-only because Vite proxies
