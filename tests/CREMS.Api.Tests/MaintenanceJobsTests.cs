@@ -57,6 +57,27 @@ public sealed class MaintenanceJobsTests
         Assert.Equal(AssetStatus.Available, asset.Status);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Staff_cannot_read_or_update_job_outside_branch_or_division(bool otherBranch)
+    {
+        await using var db = Database();
+        var (controller, asset) = await Setup(db, administrator: false);
+        var user = await db.Users.SingleAsync(TestContext.Current.CancellationToken);
+        asset.DivisionId = otherBranch ? user.DivisionId : Guid.NewGuid();
+        if (!otherBranch) user.BranchId = asset.BranchId;
+        var job = new MaintenanceJob { JobNumber = "OTHER-BRANCH", AssetId = asset.Id, Asset = asset,
+            BranchId = asset.BranchId, ServiceType = "Service", FaultDescription = "Private fault", Status = MaintenanceStatus.Open };
+        db.Add(job);
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var result = Assert.IsType<OkObjectResult>(await controller.GetAll(TestContext.Current.CancellationToken));
+        Assert.Equal("[]", System.Text.Json.JsonSerializer.Serialize(result.Value));
+        Assert.IsType<ForbidResult>(await controller.Update(job.Id, Request(MaintenanceStatus.Completed), TestContext.Current.CancellationToken));
+        Assert.Equal(MaintenanceStatus.Open, job.Status);
+        Assert.Null(job.CompletedAt);
+    }
+
     private static UpdateMaintenanceJobRequest Request(MaintenanceStatus status) =>
         new(status, "Repair", "Fault", "Technician", null, 50, null, null, null, PartsCost: 10, LabourCost: 20, MeterReading: 100);
 

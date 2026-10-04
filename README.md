@@ -65,6 +65,26 @@ docs/            Project decisions and requirement records
 
 Open `http://localhost:5173`. During development, Vite proxies `/api` requests to `http://localhost:5080`.
 
+Swagger UI is available at `http://localhost:5080/swagger` while the API runs in Development.
+Use the **API session** panel to sign in, verify/resend MFA codes, view the account and roles,
+refresh your session, or sign out. Credentials are not stored in browser storage.
+The banner shows the connected environment, database server and database name, without credentials.
+Review it and check **Allow data changes** before executing non-authentication write requests.
+This browser-side guard is a testing aid; server authorization still applies.
+Examples for customer creation, maintenance creation and booking updates use fictional data;
+replace zero GUIDs with accessible record IDs and review dates and rates.
+Expand an endpoint and select **Try it out**, then **Execute**. For protected endpoints,
+you can alternatively execute `POST /api/auth/login` in Swagger with your email and password (and
+`POST /api/auth/mfa/verify` if prompted). Subsequent requests use the session cookie;
+Swagger supplies the required browser-window header automatically.
+The OpenAPI document is at `http://localhost:5080/openapi/v1.json`.
+Use the filter to find endpoint groups. Lock icons indicate required authentication,
+not current session status. This API uses HttpOnly login cookies, not a bearer token;
+the Swagger Authorize dialog cannot sign you in or out. Use the login endpoint above
+and `POST /api/auth/logout` (staff) or `POST /api/customer-account/logout` (customers).
+A 401 means you need a valid session in this browser window; a 403 means your account
+lacks the necessary role, permission, or resource access.
+
 ## Current status
 
 ### API session security
