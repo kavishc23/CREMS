@@ -188,18 +188,25 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, token);
         if (customer is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
-        if (scope is null || (!scope.IsAdministrator && !await db.Bookings.AnyAsync(x => x.CustomerId == id && x.BranchId == scope.BranchId, token))) return Forbid();
+        if (scope is null || (!scope.IsAdministrator && !await db.Bookings.AnyAsync(x => x.CustomerId == id &&
+            scope.BranchIds.Contains(x.BranchId) && x.Items.Any() && x.Items.All(item => item.Asset != null &&
+                item.Asset.DivisionId.HasValue && scope.DivisionIds.Contains(item.Asset.DivisionId.Value)), token))) return Forbid();
 
         pageSize = Math.Clamp(pageSize, 4, 10); page = Math.Max(1, page); var term = search?.Trim();
-        var bookingQuery = db.Bookings.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator || x.BranchId == scope.BranchId));
-        var quoteQuery = db.SalesQuotes.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator || x.BranchId == scope.BranchId));
-        var invoiceQuery = db.RentalInvoices.AsNoTracking().Where(x => x.Booking!.CustomerId == id && (scope.IsAdministrator || x.Booking.BranchId == scope.BranchId));
+        var bookingQuery = db.Bookings.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator ||
+            scope.BranchIds.Contains(x.BranchId) && x.Items.Any() && x.Items.All(item => item.Asset != null &&
+                item.Asset.DivisionId.HasValue && scope.DivisionIds.Contains(item.Asset.DivisionId.Value))));
+        var quoteQuery = db.SalesQuotes.AsNoTracking().Where(x => x.CustomerId == id && (scope.IsAdministrator ||
+            scope.BranchIds.Contains(x.BranchId) && (!x.DivisionId.HasValue || scope.DivisionIds.Contains(x.DivisionId.Value))));
+        var invoiceQuery = db.RentalInvoices.AsNoTracking().Where(x => x.Booking!.CustomerId == id && (scope.IsAdministrator ||
+            scope.BranchIds.Contains(x.Booking.BranchId) && x.Booking.Items.Any() && x.Booking.Items.All(item => item.Asset != null &&
+                item.Asset.DivisionId.HasValue && scope.DivisionIds.Contains(item.Asset.DivisionId.Value))));
         if (!string.IsNullOrWhiteSpace(term)) { bookingQuery = bookingQuery.Where(x => x.BookingNumber.Contains(term) || x.Branch!.Name.Contains(term)); quoteQuery = quoteQuery.Where(x => x.QuoteNumber.Contains(term) || db.Branches.Any(branch => branch.Id == x.BranchId && branch.Name.Contains(term))); invoiceQuery = invoiceQuery.Where(x => x.InvoiceNumber.Contains(term) || x.Booking!.Branch!.Name.Contains(term)); }
         var bookingCount = await bookingQuery.CountAsync(token); var quoteCount = await quoteQuery.CountAsync(token); var invoiceCount = await invoiceQuery.CountAsync(token);
         var bookings = await bookingQuery.OrderByDescending(x => x.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new { x.Id, x.BookingNumber, x.Status, x.CreatedAt, x.ApprovedAt, x.BranchId, branchName = x.Branch!.Name, assetCount = x.Items.Count }).ToListAsync(token);
         var quotations = await quoteQuery.OrderByDescending(x => x.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new { x.Id, x.QuoteNumber, x.Status, x.Total, x.ValidUntil, x.CreatedAt, branchName = db.Branches.Where(branch => branch.Id == x.BranchId).Select(branch => branch.Name).FirstOrDefault()! }).ToListAsync(token);
         var invoices = await invoiceQuery.OrderByDescending(x => x.IssuedAt).Skip((page - 1) * pageSize).Take(pageSize).Select(x => new { x.Id, x.BookingId, x.InvoiceNumber, x.Status, x.Total, x.AmountPaid, x.BalanceDue, x.IssuedAt }).ToListAsync(token);
-        var totals = await db.RentalInvoices.AsNoTracking().Where(x => x.Booking!.CustomerId == id && (scope.IsAdministrator || x.Booking.BranchId == scope.BranchId)).GroupBy(_ => 1).Select(x => new { totalBilled = x.Sum(y => y.Total), outstanding = x.Sum(y => y.BalanceDue) }).FirstOrDefaultAsync(token);
+        var totals = await invoiceQuery.GroupBy(_ => 1).Select(x => new { totalBilled = x.Sum(y => y.Total), outstanding = x.Sum(y => y.BalanceDue) }).FirstOrDefaultAsync(token);
         var licence = await db.CustomerLicences.AsNoTracking().Where(x => x.CustomerId == id && x.Status == LicenceVerificationStatus.Verified).OrderByDescending(x => x.ConfirmedAt).Select(x => new { x.LicenceNumber, x.LicenceClasses, x.Status, x.UpdatedAt }).FirstOrDefaultAsync(token);
         var account = await db.Users.AsNoTracking().Where(x => x.CustomerId == id).Select(x => new { x.Id, x.Email, x.EmailConfirmed, x.IsActive, x.LastLoginAt, x.LastActivityAt, x.LockoutEnd }).FirstOrDefaultAsync(token);
         return Ok(new { customer = new { customer.Id, customer.CustomerNumber, customer.Name, customer.Email, customer.Phone, customer.Address, customer.HirePreferences, customer.IsActive, customer.IsBlocked }, account, licence, bookings, quotations, invoices,

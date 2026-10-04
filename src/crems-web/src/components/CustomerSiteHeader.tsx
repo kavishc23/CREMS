@@ -7,6 +7,7 @@ import MenuOutlined from '@mui/icons-material/MenuOutlined'
 import {
   AppBar, Box, Button, Container, Divider, Drawer, IconButton, Menu, MenuItem, Stack, Toolbar, Typography,
 } from '@mui/material'
+import { isNotificationModuleEnabled } from '../config/demoMode'
 
 export type CustomerSiteSection = 'top' | 'search' | 'services' | 'rentals' | 'how-it-works' | 'faq' | 'contact'
 
@@ -50,7 +51,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
       aria-current={accountActive ? 'page' : undefined}
       sx={{ ml: 1, color: '#111', boxShadow: accountActive ? '0 0 0 2px #fff' : 'none' }}
     >{accountLabel}</Button>
-    {authenticated && <NotificationBell customer key={accountName}/>}
+    {authenticated && isNotificationModuleEnabled && <NotificationBell customer key={accountName}/>}
   </Stack>
 
   return <>

@@ -18,3 +18,4 @@ src/CREMS.Api/App_Data/customer-licences/
 *.user
 .data-protection/
 *.suo
+src/CREMS.Api/App_Data/maintenance-documents/
