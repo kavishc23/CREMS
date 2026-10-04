@@ -6,9 +6,10 @@ const configuredStage = String(import.meta.env.VITE_CREMS_DEMO_STAGE ?? 'full').
 
 export const demoStage: DemoStage = configuredStage === 'demo' ? 'demo' : 'full'
 export const isDemoMode = demoStage === 'demo'
+export const isNotificationModuleEnabled = true
 
 // Demo is the cumulative, presentation-safe environment. It now includes
-// staged approvals and the guided QR-supported pickup and return lifecycle.
+// staged approvals, the guided pickup/return lifecycle, and maintenance.
 const demoPages = new Set<AppPage>([
   'dashboard',
   'assets',
@@ -17,6 +18,7 @@ const demoPages = new Set<AppPage>([
   'customers',
   'bookings',
   'rentals',
+  'maintenance',
   'scan',
   'operations',
   'configuration',

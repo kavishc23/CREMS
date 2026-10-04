@@ -23,3 +23,5 @@ Set `CREMS_TEST_URL` to use a frontend preview other than http://localhost:5173.
 The backend applies daily rate × overdue hours / 24, including partial hours,
 rounded to cents. The return preview timestamp is retained through submission.
 Bond requirements remain separate from rental invoice charges.
+
+Run `node tests/browser/inspection-history-browser.cjs` to verify saved pre/post-hire details, photo enlargement, mobile layout, missing or malformed evidence, and access-error retry. API reads are mocked.
