@@ -300,7 +300,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         var maintenance = await db.MaintenanceJobs.AsNoTracking().Where(x => x.AssetId == id).OrderByDescending(x => x.ReportedAt).ToListAsync(cancellationToken);
         var costs = await db.AssetCostEntries.AsNoTracking().Where(x => x.AssetId == id).OrderByDescending(x => x.OccurredOn).ToListAsync(cancellationToken);
         var transferCost = await db.AssetTransfers.AsNoTracking().Where(x => x.AssetId == id && (x.Status == CREMS.Api.Domain.Corporate.TransferStatus.Received || x.Status == CREMS.Api.Domain.Corporate.TransferStatus.Inspected)).SumAsync(x => (decimal?)x.TransferCost, cancellationToken) ?? 0;
-        var maintenanceExpense = maintenance.Where(x => x.Status != MaintenanceStatus.Cancelled).Sum(x => x.ActualCost ?? 0);
+        var maintenanceExpense = maintenance.Sum(x => x.ActualCost ?? 0);
         var operatingExpense = costs.Sum(x => x.Amount) + componentExpense; var totalExpense = maintenanceExpense + operatingExpense + transferCost;
         var inspectionCount = await db.RentalInspections.CountAsync(x => x.Booking!.Items.Any(i => i.AssetId == id), cancellationToken);
         return Ok(new { asset.Id, asset.AssetNumber, asset.Name, asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear, asset.Status, branchName = asset.Branch!.Name, divisionName = asset.Division?.Name,

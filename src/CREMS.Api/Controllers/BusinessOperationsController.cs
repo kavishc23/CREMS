@@ -9,6 +9,7 @@ using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Operations;
 using CREMS.Api.Domain.Rentals;
+using CREMS.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -49,7 +50,7 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
         var ids = assets.Select(x => x.Id).ToList();
         var items = await db.BookingItems.AsNoTracking().Where(x => ids.Contains(x.AssetId) && x.Booking != null && (x.Booking.Status == BookingStatus.Completed || x.Booking.Status == BookingStatus.ConvertedToRental)).Select(x => new { x.AssetId, x.BookingId, x.StartAt, x.EndAt, x.DailyRate, x.CreatedAt }).ToListAsync(token);
         var charges = await db.BookingCharges.AsNoTracking().Where(x => x.AssetId.HasValue && ids.Contains(x.AssetId.Value)).ToListAsync(token);
-        var maintenance = await db.MaintenanceJobs.AsNoTracking().Where(x => ids.Contains(x.AssetId) && x.Status != MaintenanceStatus.Cancelled).ToListAsync(token);
+        var maintenance = await db.MaintenanceJobs.AsNoTracking().Where(x => ids.Contains(x.AssetId)).ToListAsync(token);
         var costs = await db.AssetCostEntries.AsNoTracking().Where(x => ids.Contains(x.AssetId)).ToListAsync(token);
         var timesheets = await db.PersonnelTimesheets.AsNoTracking().Include(x => x.Assignment).Where(x => x.Assignment != null && db.BookingItems.Any(i => i.BookingId == x.Assignment.BookingId && ids.Contains(i.AssetId))).ToListAsync(token);
         var rows = assets.Select(asset =>
@@ -101,12 +102,15 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     [Authorize(Policy = SystemPolicies.ManageBranch)]
     public async Task<ActionResult> RecordLifecycle(Guid assetId, LifecycleRequest request, CancellationToken token)
     {
+        await using var transaction = await MaintenanceRules.BeginAsync(db, token);
         var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == assetId, token); if (asset is null) return NotFound(); var scope = await Scope(); if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
         if (!AllowedLifecycleTransitions.TryGetValue(asset.Status, out var destinations) || !destinations.Contains(request.ToStatus)) return Validation(nameof(request.ToStatus), $"An asset cannot move directly from {asset.Status} to {request.ToStatus}.");
         if (request.Type is AssetLifecycleEventType.PreHireInspection or AssetLifecycleEventType.PostHireInspection && !request.BookingId.HasValue) return Validation(nameof(request.BookingId), "An inspection transition must be linked to a booking.");
         if (request.MeterReading.HasValue && asset.CurrentMeterReading.HasValue && request.MeterReading < asset.CurrentMeterReading) return Validation(nameof(request.MeterReading), "The meter reading cannot be lower than its previous reading.");
         var item = new AssetLifecycleEvent { AssetId = assetId, Type = request.Type, FromStatus = asset.Status, ToStatus = request.ToStatus, BookingId = request.BookingId, MeterReading = request.MeterReading, Notes = Clean(request.Notes), EvidenceJson = string.IsNullOrWhiteSpace(request.EvidenceJson) ? "[]" : request.EvidenceJson, RecordedByUserId = scope.UserId, RecordedByName = scope.UserName }; asset.Status = request.ToStatus; if (request.MeterReading.HasValue) asset.CurrentMeterReading = request.MeterReading; if (request.Type is AssetLifecycleEventType.Retired or AssetLifecycleEventType.Disposed or AssetLifecycleEventType.Sold) asset.IsActive = false;
-        db.AssetLifecycleEvents.Add(item); AuditWriter.Record(db, scope, "Asset lifecycle updated", nameof(Asset), asset.Id, $"{asset.AssetNumber}: {item.Type}, {item.FromStatus} to {item.ToStatus}", asset.BranchId); await db.SaveChangesAsync(token); return Ok(item);
+        db.AssetLifecycleEvents.Add(item); AuditWriter.Record(db, scope, "Asset lifecycle updated", nameof(Asset), asset.Id, $"{asset.AssetNumber}: {item.Type}, {item.FromStatus} to {item.ToStatus}", asset.BranchId); await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return Ok(item);
     }
 
     [HttpPost("personnel")]
@@ -155,8 +159,32 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     [Authorize(Policy = SystemPolicies.ManageBranch)]
     public async Task<ActionResult> UsePart(Guid jobId, PartUsageRequest request, CancellationToken token)
     {
-        var job = await db.MaintenanceJobs.FirstOrDefaultAsync(x => x.Id == jobId, token); var part = await db.InventoryParts.FirstOrDefaultAsync(x => x.Id == request.InventoryPartId, token); if (job is null || part is null) return NotFound(); var scope = await Scope(); if (scope is null || !scope.HasBranchAccess(job.BranchId)) return Forbid(); if (part.QuantityOnHand - part.QuantityAllocated < request.Quantity) return Validation("quantity", "Insufficient available stock.");
-        var item = new MaintenancePartUsage { MaintenanceJobId = jobId, InventoryPartId = part.Id, Quantity = request.Quantity, UnitCost = part.UnitCost }; part.QuantityOnHand -= (int)Math.Ceiling(request.Quantity); job.PartsCost += request.Quantity * part.UnitCost; job.ActualCost = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost; db.MaintenancePartUsages.Add(item); await db.SaveChangesAsync(token); return Ok(item);
+        if (request.Quantity < 1 || request.Quantity > 100000 || request.Quantity != decimal.Truncate(request.Quantity))
+            return Validation("quantity", "Issue a whole number of stock units between 1 and 100000.");
+        await using var transaction = await MaintenanceRules.BeginAsync(db, token);
+        var job = await db.MaintenanceJobs.Include(x => x.Asset).FirstOrDefaultAsync(x => x.Id == jobId, token);
+        var part = await db.InventoryParts.FirstOrDefaultAsync(x => x.Id == request.InventoryPartId, token);
+        if (job is null || part is null) return NotFound();
+        var scope = await Scope();
+        if (scope is null || !scope.HasAssetAccess(job.BranchId, job.Asset?.DivisionId) || !scope.HasBranchAccess(part.BranchId)) return Forbid();
+        if (part.BranchId != job.BranchId) return Validation("inventoryPartId", "Transfer stock to the job's branch before issuing it.");
+        if (job.Status is MaintenanceStatus.Completed or MaintenanceStatus.Cancelled)
+            return Validation("status", "Parts can only be issued to an open maintenance job.");
+        if (part.QuantityOnHand - part.QuantityAllocated < request.Quantity) return Validation("quantity", "Insufficient available stock.");
+        var item = new MaintenancePartUsage { MaintenanceJobId = jobId, InventoryPartId = part.Id, Quantity = request.Quantity, UnitCost = part.UnitCost };
+        part.QuantityOnHand -= (int)request.Quantity;
+        // Preserve an existing invoice-only total when adding a newly issued part.
+        var previousBreakdown = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost;
+        job.OtherCost += Math.Max(0, (job.ActualCost ?? previousBreakdown) - previousBreakdown);
+        job.PartsCost += request.Quantity * part.UnitCost;
+        job.ActualCost = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost;
+        job.UpdatedAt = DateTimeOffset.UtcNow;
+        db.MaintenancePartUsages.Add(item);
+        AuditWriter.Record(db, scope, "Maintenance parts issued", nameof(MaintenanceJob), job.Id,
+            $"{request.Quantity} units of {part.PartNumber} issued to {job.JobNumber}.", job.BranchId);
+        await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return Ok(item);
     }
 
     [HttpPost("delivery-zones")]
@@ -177,11 +205,11 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     [Authorize(Policy = SystemPolicies.ManageBranch)]
     public async Task<ActionResult> RefreshAlerts(CancellationToken token)
     {
-        var scope = await Scope(); if (scope is null) return Forbid(); var now = DateTimeOffset.UtcNow; var today = DateOnly.FromDateTime(now.DateTime); var created = 0;
+        var scope = await Scope(); if (scope is null) return Forbid(); var now = DateTimeOffset.UtcNow; var today = MaintenanceRules.LocalDate(now); var created = 0;
         var overdue = await db.Bookings.AsNoTracking().Where(x => x.Status == BookingStatus.ConvertedToRental && x.Items.Any(i => i.EndAt < now) && (scope.IsAdministrator || x.BranchId == scope.BranchId)).Select(x => new { x.Id, x.BookingNumber, x.BranchId }).ToListAsync(token);
         foreach (var x in overdue) created += await AddAlert(AlertCategory.OverdueReturn, $"Overdue rental {x.BookingNumber}", "The scheduled return time has passed.", nameof(Booking), x.Id, x.BranchId, null, TaskPriority.High, token);
-        var dueMaintenance = await AssetScope(scope).AsNoTracking().Where(x => x.NextServiceDate != null && x.NextServiceDate <= today.AddDays(7)).Select(x => new { x.Id, x.AssetNumber, x.BranchId, x.DivisionId }).ToListAsync(token);
-        foreach (var x in dueMaintenance) created += await AddAlert(AlertCategory.MaintenanceDue, $"Maintenance due: {x.AssetNumber}", "Service is due within seven days or is overdue.", nameof(Asset), x.Id, x.BranchId, x.DivisionId, TaskPriority.High, token);
+        var dueMaintenance = await MaintenanceRules.DueAssets(db, AssetScope(scope).AsNoTracking(), today.AddDays(7)).Select(x => new { x.Id, x.AssetNumber, x.BranchId, x.DivisionId }).ToListAsync(token);
+        foreach (var x in dueMaintenance) created += await AddAlert(AlertCategory.MaintenanceDue, $"Maintenance due: {x.AssetNumber}", "Service is due within seven days or the meter threshold has been reached.", nameof(Asset), x.Id, x.BranchId, x.DivisionId, TaskPriority.High, token);
         var expiringInsurance = await AssetScope(scope).AsNoTracking().Where(x => x.InsuranceExpiry != null && x.InsuranceExpiry <= today.AddDays(30)).Select(x => new { x.Id, x.AssetNumber, x.BranchId, x.DivisionId }).ToListAsync(token);
         foreach (var x in expiringInsurance) created += await AddAlert(AlertCategory.ExpiringInsurance, $"Insurance expiry: {x.AssetNumber}", "Insurance expires within 30 days or has expired.", nameof(Asset), x.Id, x.BranchId, x.DivisionId, TaskPriority.Critical, token);
         var qualifications = await db.PersonnelQualifications.AsNoTracking().Where(x => x.ExpiresOn <= today.AddDays(30) && (scope.IsAdministrator || x.Personnel!.BranchId == scope.BranchId && x.Personnel.DivisionId == scope.DivisionId)).Select(x => new { x.Id, x.Name, x.ExpiresOn, x.Personnel!.FullName, x.Personnel.BranchId, x.Personnel.DivisionId }).ToListAsync(token);
@@ -231,6 +259,6 @@ public sealed record QualificationRequest([Required] string Name, [Required] str
 public sealed record AssignmentRequest(Guid BookingId, Guid PersonnelId, [Required] string Role, DateTimeOffset StartAt, DateTimeOffset EndAt, decimal? CustomerHourlyRate, decimal? InternalHourlyCost);
 public sealed record TimesheetRequest(DateOnly WorkDate, [Range(0, 24)] decimal RegularHours, [Range(0, 24)] decimal OvertimeHours, string? Notes);
 public sealed record SupplierRequest([Required] string SupplierNumber, [Required] string Name, string? Email, string? Phone, string? Address, string? TaxNumber, [Range(0, 365)] int PaymentTermsDays);
-public sealed record PartUsageRequest(Guid InventoryPartId, [Range(0.01, 100000)] decimal Quantity);
+public sealed record PartUsageRequest(Guid InventoryPartId, [Range(1, 100000)] decimal Quantity);
 public sealed record DeliveryZoneRequest([Required] string Name, Guid? BranchId, Guid? DivisionId, decimal BaseCharge, decimal CostPerKilometre, decimal ChargePerKilometre, decimal FailedDeliveryCharge);
 public sealed record AlertRuleRequest([Required] string Name, AlertCategory Category, Guid? BranchId, Guid? DivisionId, decimal? Threshold, int LeadTimeHours, TaskPriority Priority, bool EmailEnabled);

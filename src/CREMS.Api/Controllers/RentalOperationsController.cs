@@ -197,6 +197,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
     [HttpPost("{bookingId:guid}/return")]
     public async Task<ActionResult> Return(Guid bookingId, ReturnInspectionRequest request, CancellationToken cancellationToken)
     {
+        await using var transaction = await MaintenanceRules.BeginAsync(db, cancellationToken);
         var booking = await db.Bookings.Include(item => item.Customer).Include(item => item.Items).ThenInclude(item => item.Asset)
             .Include(item => item.Inspections).Include(item => item.Payments).Include(item => item.Charges)
             .FirstOrDefaultAsync(item => item.Id == bookingId, cancellationToken);
@@ -259,7 +260,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var hasDamage = !string.IsNullOrWhiteSpace(request.DamageNotes);
         foreach (var item in booking.Items.Where(item => item.Asset is not null))
         {
-            var asset=item.Asset!;var from=asset.Status;asset.Status=hasDamage?AssetStatus.Inspection:AssetStatus.Available;
+            var asset=item.Asset!;var from=asset.Status;asset.Status=hasDamage || await db.MaintenanceJobs.AnyAsync(x => x.AssetId == asset.Id && x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled, cancellationToken)?AssetStatus.Maintenance:AssetStatus.Available;
             db.AssetLifecycleEvents.Add(new AssetLifecycleEvent{AssetId=asset.Id,BookingId=booking.Id,Type=hasDamage?AssetLifecycleEventType.DamageReported:AssetLifecycleEventType.PostHireInspection,FromStatus=from,ToStatus=asset.Status,MeterReading=request.MeterReading,Notes=Normalize(request.DamageNotes)??$"Returned on {booking.BookingNumber}",RecordedByUserId=scope.UserId,RecordedByName=scope.UserName});
             if(request.MeterReading.HasValue){asset.CurrentMeterReading=request.MeterReading;db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=asset.MeterUnit?.Contains("hour",StringComparison.OrdinalIgnoreCase)==true?MeterType.EngineHours:MeterType.Odometer,Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PostHireInspection,RecordedByUserId=scope.UserId});}
             if (hasDamage && !await db.MaintenanceJobs.AnyAsync(x => x.AssetId == asset.Id && x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled, cancellationToken))
@@ -306,6 +307,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             $"{booking.BookingNumber} was returned{(hasDamage ? " with damage requiring inspection" : string.Empty)}.", booking.BranchId,
             null, $"Returned at: {returnedAt:O}; calculated late fee: {calculatedLateFee:0.00}; applied late fee: {lateFee:0.00}; additional charges: {returnChargeTotal:0.00}");
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return Ok(ToResponse(booking));
     }
 

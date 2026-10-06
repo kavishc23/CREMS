@@ -1,4 +1,5 @@
 using CREMS.Api.Data;
+using CREMS.Api.Services;
 using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
@@ -20,7 +21,7 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
         var scope = await staffScope.GetAsync(User);
         if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
         var now = DateTimeOffset.UtcNow;
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = MaintenanceRules.LocalDate(now);
         var assetQuery = db.Assets.AsNoTracking().Where(asset => asset.IsActive);
         var bookingQuery = db.Bookings.AsNoTracking();
         if (!scope.IsAdministrator)
@@ -32,8 +33,7 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
             .GroupBy(asset => new { asset.Type, asset.Status })
             .Select(group => new { group.Key.Type, group.Key.Status, Count = group.Count() })
             .ToListAsync(cancellationToken);
-        var servicesDueSoon = await assetQuery.CountAsync(asset => asset.NextServiceDate.HasValue &&
-            asset.NextServiceDate.Value >= today && asset.NextServiceDate.Value <= today.AddDays(30), cancellationToken);
+        var servicesDueSoon = await MaintenanceRules.DueAssets(db, assetQuery, today.AddDays(30)).CountAsync(cancellationToken);
 
         var bookingCounts = await bookingQuery
             .GroupBy(booking => booking.Status)
@@ -87,7 +87,7 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
             assets = assets.Where(asset => scope.BranchIds.Contains(asset.BranchId) && asset.DivisionId.HasValue && scope.DivisionIds.Contains(asset.DivisionId.Value));
             bookings = bookings.Where(booking => scope.BranchIds.Contains(booking.BranchId));
             invoices = invoices.Where(invoice => scope.BranchIds.Contains(invoice.Booking!.BranchId));
-            maintenance = maintenance.Where(job => scope.BranchIds.Contains(job.BranchId));
+            maintenance = maintenance.Where(job => scope.BranchIds.Contains(job.BranchId) && job.Asset!.DivisionId.HasValue && scope.DivisionIds.Contains(job.Asset.DivisionId.Value));
             approvals = approvals.Where(item => scope.BranchIds.Contains(item.BranchId));
             audit = audit.Where(item => !item.BranchId.HasValue || scope.BranchIds.Contains(item.BranchId.Value));
         }
@@ -98,7 +98,7 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
         var fleet = await assets.GroupBy(item => new { Division = item.Division != null ? item.Division.Name : "Unassigned", item.Status }).Select(group => new { group.Key.Division, Status = group.Key.Status.ToString(), Count = group.Count() }).ToListAsync(cancellationToken);
         var alerts = new List<object>();
         alerts.AddRange(await bookings.Where(item => item.Status == BookingStatus.ConvertedToRental && item.Items.Any(line => line.EndAt < now)).OrderBy(item => item.BookingNumber).Take(5).Select(item => new { Type = "Overdue return", Detail = item.BookingNumber + " requires return follow-up", Priority = "High", Page = "rentals" }).ToListAsync(cancellationToken));
-        alerts.AddRange(await assets.Where(item => item.NextServiceDate.HasValue && item.NextServiceDate.Value <= DateOnly.FromDateTime(now.UtcDateTime).AddDays(14)).OrderBy(item => item.NextServiceDate).Take(5).Select(item => new { Type = "Maintenance due", Detail = item.AssetNumber + " · " + item.Name, Priority = "Medium", Page = "maintenance" }).ToListAsync(cancellationToken));
+        alerts.AddRange(await MaintenanceRules.DueAssets(db, assets, MaintenanceRules.LocalDate(now).AddDays(14)).OrderBy(item => item.NextServiceDate).Take(5).Select(item => new { Type = "Maintenance due", Detail = item.AssetNumber + " · " + item.Name, Priority = "Medium", Page = "maintenance" }).ToListAsync(cancellationToken));
         alerts.AddRange(await approvals.Where(item => item.Status == ApprovalStatus.Pending).OrderBy(item => item.CreatedAt).Take(5).Select(item => new { Type = "Approval pending", Detail = item.RequestNumber + " · " + item.Reason, Priority = "Medium", Page = "operations" }).ToListAsync(cancellationToken));
         var activity = await audit.OrderByDescending(item => item.OccurredAt).Take(8).Select(item => new { item.Id, item.Action, item.Summary, item.UserName, item.OccurredAt, BranchName = item.Branch != null ? item.Branch.Name : null }).ToListAsync(cancellationToken);
         return Ok(new { currentRevenue, previousRevenue, currentCosts, previousCosts, fleet, alerts = alerts.Take(8), activity, updatedAt = now });

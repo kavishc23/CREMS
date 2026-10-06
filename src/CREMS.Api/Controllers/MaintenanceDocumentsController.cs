@@ -7,6 +7,7 @@ using CREMS.Api.Domain.Operations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using SkiaSharp;
 
 namespace CREMS.Api.Controllers;
 
@@ -41,13 +42,8 @@ public sealed class MaintenanceDocumentsController(ApplicationDbContext db, Curr
         await using var stream = new MemoryStream();
         await file.CopyToAsync(stream, token);
         var bytes = stream.ToArray();
-        var valid = extension switch {
-            ".pdf" => bytes.Length >= 5 && bytes.AsSpan(0, 5).SequenceEqual("%PDF-"u8),
-            ".jpg" or ".jpeg" => bytes.Length >= 3 && bytes[0] == 255 && bytes[1] == 216 && bytes[2] == 255,
-            ".png" => bytes.Length >= 8 && bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }),
-            _ => false
-        };
-        if (!valid) return BadRequest(new { message = "The file must be a valid PDF, JPEG or PNG." });
+        if (!IsReadableDocument(bytes, extension))
+            return BadRequest(new { message = "Choose a readable, unprotected PDF or a complete JPEG/PNG image up to 40 megapixels." });
         var root = Path.Combine(environment.ContentRootPath, "App_Data", "maintenance-documents");
         Directory.CreateDirectory(root);
         var storageName = $"{Guid.NewGuid():N}{extension}";
@@ -63,6 +59,30 @@ public sealed class MaintenanceDocumentsController(ApplicationDbContext db, Curr
         try { await db.SaveChangesAsync(token); }
         catch { System.IO.File.Delete(path); throw; }
         return Ok(new { record.Id, record.FileName, record.Type });
+    }
+
+    private static bool IsReadableDocument(byte[] bytes, string extension)
+    {
+        try
+        {
+            if (extension == ".pdf")
+            {
+                if (!bytes.AsSpan().StartsWith("%PDF-"u8)) return false;
+#pragma warning disable CA1416 // Same PDF reader and supported server platforms as licence processing.
+                return PDFtoImage.Conversion.GetPageCount(bytes) > 0;
+#pragma warning restore CA1416
+            }
+            if (extension is not (".png" or ".jpg" or ".jpeg")) return false;
+            using var input = new MemoryStream(bytes);
+            using var codec = SKCodec.Create(input);
+            if (codec is null || codec.EncodedFormat != (extension == ".png" ? SKEncodedImageFormat.Png : SKEncodedImageFormat.Jpeg)) return false;
+            var info = codec.Info;
+            if (info.Width <= 0 || info.Height <= 0 || (long)info.Width * info.Height > 40_000_000) return false;
+            using var bitmap = new SKBitmap(new SKImageInfo(info.Width, info.Height, SKColorType.Rgba8888, SKAlphaType.Premul));
+            return codec.GetPixels(bitmap.Info, bitmap.GetPixels()) == SKCodecResult.Success;
+        }
+        catch (PDFtoImage.Exceptions.PdfException) { return false; }
+        catch (ArgumentException) { return false; }
     }
 
     [HttpGet("{id:guid}")]

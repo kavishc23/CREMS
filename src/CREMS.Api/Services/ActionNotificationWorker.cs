@@ -84,10 +84,10 @@ public sealed class ActionNotificationWorker(IServiceScopeFactory scopes, ILogge
                 "Review approval", nameof(ApprovalRequest), a.Id, now.AddDays(1), "Urgent", stage.AssignedUserId.HasValue ? null : stage.AssignedRole ?? SystemRoles.BranchManager, stage.AssignedUserId);
         }
 
-        var today = DateOnly.FromDateTime(now.UtcDateTime);
-        var assets = await db.Assets.AsNoTracking().Where(x => x.IsActive && x.NextServiceDate < today && x.Status != AssetStatus.Retired)
+        var today = MaintenanceRules.LocalDate(now);
+        var assets = await MaintenanceRules.DueAssets(db, db.Assets.AsNoTracking(), today)
             .Select(x => new { x.Id, x.AssetNumber, x.BranchId, x.DivisionId }).ToListAsync(token);
-        foreach (var a in assets) Add($"maintenance-due:{a.Id}:{now:yyyyMMdd}", a.BranchId, a.DivisionId, "Maintenance", "Asset maintenance overdue", a.AssetNumber,
+        foreach (var a in assets) Add($"maintenance-due:{a.Id}:{today:yyyyMMdd}", a.BranchId, a.DivisionId, "Maintenance", "Asset maintenance due", a.AssetNumber,
             "/staff/assets?search=" + Uri.EscapeDataString(a.AssetNumber), "Open asset", nameof(Asset), a.Id, now.AddDays(1));
         await db.SaveChangesAsync(token);
     }

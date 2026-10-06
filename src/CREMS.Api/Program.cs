@@ -139,6 +139,7 @@ builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
         .AllowAnyMethod()
         .AllowCredentials()));
 
+builder.Services.AddExceptionHandler<MaintenanceConflictHandler>();
 var app = builder.Build();
 
 await app.InitializeAsync();

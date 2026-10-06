@@ -35,10 +35,17 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
+        var releasingAsset = ChangeTracker.Entries<Asset>().Any(entry => entry.State == EntityState.Modified
+            && (entry.Property(asset => asset.BranchId).IsModified || (entry.Property(asset => asset.Status).IsModified
+            && entry.Entity.Status is AssetStatus.Available or AssetStatus.Reserved or AssetStatus.Rented)));
+        await using var maintenanceTransaction = releasingAsset
+            ? await CREMS.Api.Services.MaintenanceRules.BeginAsync(this, cancellationToken) : null;
+        await CREMS.Api.Services.MaintenanceRules.CheckAssetReleaseAsync(this, cancellationToken);
         if (!notificationsSuppressed) await CREMS.Api.Services.NotificationEvents.CaptureAsync(this, cancellationToken);
         var notificationChanged = ChangeTracker.Entries<InAppNotification>().Any(x => x.State is EntityState.Added or EntityState.Modified)
             || ChangeTracker.Entries<NotificationRead>().Any(x => x.State == EntityState.Added);
         var result = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        if (maintenanceTransaction is not null) await maintenanceTransaction.CommitAsync(cancellationToken);
         if (notificationChanged && !notificationsSuppressed) CREMS.Api.Services.NotificationWakeup.Publish();
         return result;
     }
