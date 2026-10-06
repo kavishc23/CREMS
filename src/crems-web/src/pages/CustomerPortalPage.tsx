@@ -263,6 +263,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
         <Box sx={{ py: { xs: 2.5, md: 2.75 }, px: { xs: 2, md: 4, lg: 5 }, minWidth: 0, maxWidth: 1660, mx: 'auto' }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" gap={1} mb={2}><Typography variant="h4" fontWeight={800}>{accountSections.find(item => item.value === section)?.label}</Typography></Stack>
       {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
+      {notice && <Alert severity="success" sx={{ mb: 3 }} onClose={() => setNotice('')}>{notice}</Alert>}
 
       {section === 'bookings' && <RentalJourneys bookings={bookings} quotes={quotes} search={referenceSearch} filter={activityFilter} sort={journeySort} page={journeyPage} expanded={expandedJourney} loading={loadingBooking} onSearch={value => { setReferenceSearch(value); sessionStorage.setItem('crems.customerReferenceSearch', value); setJourneyPage(0) }} onFilter={value => { setActivityFilter(value); setJourneyPage(0) }} onSort={value => { setJourneySort(value); setJourneyPage(0) }} onPage={setJourneyPage} onExpand={setExpandedJourney} onOpenBooking={openBooking} onChangeBooking={openChange} onViewQuote={setSelectedQuote} onBrowse={onBack} />}
 
