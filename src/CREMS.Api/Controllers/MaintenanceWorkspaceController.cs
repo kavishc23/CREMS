@@ -149,6 +149,10 @@ public sealed class MaintenanceWorkspaceController(ApplicationDbContext db, Curr
         var financial = await Allowed(SystemPermissions.AssetsViewFinancials);
         var template = await db.InspectionTemplates.AsNoTracking().Where(x => x.IsActive && x.AssetCategoryId == job.Asset.AssetCategoryId && x.Stage == InspectionStage.Maintenance).OrderBy(x => x.Id).FirstOrDefaultAsync(token);
         var history = await Jobs(scope).Where(x => x.AssetId == job.AssetId).OrderByDescending(x => x.ReportedAt).Take(50).Include(x => x.Asset).Include(x => x.Branch).ToListAsync(token);
+        // Query blockers independently of the capped history so older open repairs remain visible.
+        var blockingJobs = await Jobs(scope).Where(x => x.AssetId == job.AssetId && x.Id != id && x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled)
+            .OrderBy(x => x.ReportedAt).ThenBy(x => x.Id).Include(x => x.Asset).Include(x => x.Branch).ToListAsync(token);
+        var blockingJobCount = await db.MaintenanceJobs.CountAsync(x => x.AssetId == job.AssetId && x.Id != id && x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled, token);
         var audits = await db.AuditEvents.AsNoTracking().Where(x => x.EntityType == nameof(MaintenanceJob) && x.EntityId == id).OrderByDescending(x => x.OccurredAt).Take(50)
             .Select(x => new { x.Id, x.Action, x.UserName, x.OccurredAt, Summary = financial ? x.Summary : x.Action }).ToListAsync(token);
         var meters = await db.AssetMeterReadings.AsNoTracking().Where(x => x.AssetId == job.AssetId).OrderByDescending(x => x.RecordedAt).Take(20).Select(x => new { x.Reading, x.Unit, x.RecordedAt, x.Source }).ToListAsync(token);
@@ -159,7 +163,7 @@ public sealed class MaintenanceWorkspaceController(ApplicationDbContext db, Curr
         if (financial) { metrics["totalRecordedCost"] = await Jobs(scope).Where(x => x.AssetId == job.AssetId).SumAsync(x => x.ActualCost ?? 0, token); var total = await closed.SumAsync(x => x.ActualCost ?? 0, token); metrics["totalCost"] = total; metrics["bookValue"] = job.Asset.CurrentBookValue; metrics["costToBookValuePercent"] = job.Asset.CurrentBookValue > 0 ? decimal.Round(total / job.Asset.CurrentBookValue.Value * 100, 1) : null; }
         var servicePlan = (await MaintenanceRules.PlansAsync(db, Assets(scope).Where(x => x.Id == job.AssetId), MaintenanceRules.LocalDate(DateTimeOffset.UtcNow), token)).Single();
         var issuedCost = financial ? await db.MaintenancePartUsages.Where(x => x.MaintenanceJobId == id).SumAsync(x => (decimal?)(x.Quantity * x.UnitCost), token) ?? 0 : 0;
-        return Ok(new { servicePlan, job = MaintenanceWorkspace.Record(job, financial, issuedCost), history = history.Select(x => MaintenanceWorkspace.Record(x, financial)), audits, meters, inspections, metrics,
+        return Ok(new { blockingJobs = blockingJobs.Select(x => MaintenanceWorkspace.Record(x, financial)), restrictedBlockingJobCount = blockingJobCount - blockingJobs.Count, servicePlan, job = MaintenanceWorkspace.Record(job, financial, issuedCost), history = history.Select(x => MaintenanceWorkspace.Record(x, financial)), audits, meters, inspections, metrics,
             safetyChecks = MaintenanceWorkspace.Checks(job.Asset, template?.ChecklistJson), templateId = template?.Id,
             permissions = new { canComplete = await Allowed(SystemPermissions.MaintenanceComplete), canInspect = await Allowed(SystemPermissions.AssetsInspect), canFinancial = financial } });
     }

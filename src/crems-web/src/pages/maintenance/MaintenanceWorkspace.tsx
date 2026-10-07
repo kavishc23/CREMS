@@ -129,11 +129,18 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
       else { const result = await api.post<{ id: string; jobNumber: string }>('/maintenance-jobs', payload('Open')); setDirty(false); onSaved(`${result.data.jobNumber} logged. The asset is unavailable while maintenance is open.`, result.data.id) }
     } catch (requestError) { setError(failure(requestError)); setTransition(null) } finally { setBusy(false) }
   }
+  async function refreshOpenWork(id: string) {
+    const result = await api.get<Detail>(`/maintenance-jobs/${id}/workspace`)
+    setDetail(current => current ? { ...current, blockingJobs: result.data.blockingJobs, restrictedBlockingJobCount: result.data.restrictedBlockingJobCount } : current)
+  }
   async function release() {
     if (!jobId || !job) return
     setBusy(true); setError('')
     try { const result = await api.post<{ message: string }>(`/maintenance-jobs/${jobId}/release`, { expectedVersion: job.version, notes: safetyNotes, meterReading: safetyMeter === '' ? null : Number(safetyMeter), passedChecks: checks }); setDirty(false); await loadDetail(jobId); onSaved(result.data.message) }
-    catch (requestError) { setError(failure(requestError)) } finally { setBusy(false) }
+    catch (requestError) {
+      setError(failure(requestError))
+      try { await refreshOpenWork(jobId) } catch { /* Keep the release error and entered safety details. */ }
+    } finally { setBusy(false) }
   }
   async function upload(file?: File) {
     if (!file || !jobId) return
@@ -212,6 +219,26 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
               </Stack>}
               {tab === 'Safety' && job && <Stack spacing={2.5}>
                 {job.releasedAt ? <Alert severity="success">Returned to service {date(job.releasedAt, true)} by {job.releasedByName}.</Alert> : !closed(job) ? <Alert severity="info">Complete or cancel the work before recording the final safety check.</Alert> : <Alert severity="warning">The work is closed. The asset remains unavailable until its safety check passes and all other blockers are resolved.</Alert>}
+                {!job.releasedAt && <Stack spacing={1.5}>
+                  <Typography variant="subtitle1" fontWeight={700}>Other open maintenance work{detail?.blockingJobs ? ` (${detail.blockingJobs.length + (detail.restrictedBlockingJobCount ?? 0)})` : ' — unavailable'}</Typography>
+                  <Typography variant="body2" color="text.secondary">These jobs must be completed or cancelled before this asset can return to service.</Typography>
+                  {!detail?.blockingJobs && <Alert severity="warning">The server did not provide the open-work list. Refresh after the maintenance API has been updated. This does not mean there are no blocking jobs.</Alert>}
+                  {detail?.blockingJobs?.map(item => <Box key={item.id} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                    <Button disabled={busy} onClick={() => guard(() => onOpenJob(item.id))} sx={{ overflowWrap: 'anywhere' }}>Open {item.jobNumber}</Button>
+                    <MaintenanceStatusDisplay job={item} />
+                    <Typography variant="body2" fontWeight={700}>{item.serviceType}</Typography>
+                    <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{item.faultDescription}</Typography>
+                    <Typography variant="body2">Assigned: {item.assignedTo || item.supplier || 'Unassigned'}</Typography>
+                    <Typography variant="body2">Expected release: {item.expectedReleaseAt ? date(item.expectedReleaseAt, true) : 'Not set'}</Typography>
+                  </Box>)}
+                  {Boolean(detail?.restrictedBlockingJobCount) && <Alert severity="warning">{detail?.restrictedBlockingJobCount} other open job(s) are outside your access. Ask an administrator to review them.</Alert>}
+                  {detail?.blockingJobs?.length === 0 && !detail.restrictedBlockingJobCount && <Typography variant="body2">No other open maintenance jobs. The safety check and other release requirements still apply.</Typography>}
+                  <Button disabled={busy} onClick={async () => {
+                    setBusy(true)
+                    try { await refreshOpenWork(job.id) }
+                    catch (requestError) { setError(failure(requestError)) } finally { setBusy(false) }
+                  }}>Refresh open work</Button>
+                </Stack>}
                 {!job.releasedAt && closed(job) && access.canComplete && access.canInspect ? <>
                   <Typography variant="subtitle1" fontWeight={700}>Confirm every applicable safety check</Typography>
                   {detail?.safetyChecks.map(check => <FormControlLabel key={check} control={<Checkbox checked={checks.includes(check)} disabled={busy} onChange={e => { setChecks(values => e.target.checked ? [...values, check] : values.filter(x => x !== check)); setDirty(true) }} />} label={check} />)}

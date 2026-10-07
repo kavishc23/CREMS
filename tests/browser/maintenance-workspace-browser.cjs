@@ -9,7 +9,7 @@ const path = require('node:path');
   const page = await browser.newPage({ timezoneId: 'Pacific/Fiji', viewport: { width: 1440, height: 1000 } }); page.setDefaultTimeout(15000);
   const errors = []; page.on('pageerror', e => { errors.push(e.message); console.error('PAGE ERROR:', e.message); });
   page.on('response', r => { if (r.status() >= 400) console.error('HTTP', r.status(), r.url()); });
-  let jobs = [], documents = [], ledger = [], available = 5, sequence = 0, denied = false;
+  let jobs = [], documents = [], ledger = [], available = 5, sequence = 0, denied = false, legacyBlockers = false;
   const writes = [], queries = [];
   const asset = { id: 'a1', assetNumber: 'VEH-SUV-1001', name: 'Nissan Navara VL 4x4', branchId: 'b1', divisionId: 'v1', branchName: 'Suva', status: 'Available', meterUnit: 'km', currentMeterReading: 45000, nextServiceDate: '2026-10-01' };
   const plan = () => ({...asset, nextServiceMeter: 50000, meterInterval: 5000, serviceIntervalMonths: 3, meterTargetSource: 'Completed service target', isDue: true, isOverdue: true});
@@ -38,7 +38,7 @@ const path = require('node:path');
     return json({ items, total: items.length, page: 1, pageSize: 25, permissions: permissions(), counts: { active: all.filter(j => !['Completed','Cancelled'].includes(j.status)).length, unassigned: all.filter(j => !j.assignedTo && !['Completed','Cancelled'].includes(j.status)).length, inProgress: all.filter(j => j.status === 'InProgress').length, waiting: all.filter(j => j.status === 'WaitingForParts').length, awaitingRelease: all.filter(j => ['Completed','Cancelled'].includes(j.status) && !j.releasedAt).length, preventive: 0, overdueRepairs: all.filter(j => j.expectedReleaseAt && new Date(j.expectedReleaseAt) < new Date() && !j.releasedAt && j.status !== 'Cancelled').length } });
    }
    const job = jobs.find(j => pathname.includes('/' + j.id));
-   if (pathname.endsWith('/workspace') && job) return json({ servicePlan: plan(), job: shape(job), history: jobs.map(shape), audits: [{ id: 'audit1', action: 'Maintenance updated', userName: 'Maintenance supervisor', occurredAt: job.version, summary: 'Repair details recorded' }], meters: [], inspections: [], metrics: { completedJobs: job.status === 'Completed' ? 1 : 0, downtimeHours: 4, repeatFailures: 0, ...(denied ? {} : { totalCost: job.actualCost || 0, bookValue: 48000, costToBookValuePercent: 0.2 }) }, safetyChecks: checks, permissions: permissions() });
+   if (pathname.endsWith('/workspace') && job) return json({ blockingJobs: legacyBlockers ? undefined : jobs.filter(x => x.id !== job.id && x.assetId === job.assetId && !['Completed','Cancelled'].includes(x.status)).map(shape), restrictedBlockingJobCount: 0, servicePlan: plan(), job: shape(job), history: jobs.map(shape), audits: [{ id: 'audit1', action: 'Maintenance updated', userName: 'Maintenance supervisor', occurredAt: job.version, summary: 'Repair details recorded' }], meters: [], inspections: [], metrics: { completedJobs: job.status === 'Completed' ? 1 : 0, downtimeHours: 4, repeatFailures: 0, ...(denied ? {} : { totalCost: job.actualCost || 0, bookValue: 48000, costToBookValuePercent: 0.2 }) }, safetyChecks: checks, permissions: permissions() });
    if (pathname.endsWith('/release') && job) { const body = request.postDataJSON(); writes.push(body); assert.equal(body.expectedVersion, job.version); assert.deepEqual(body.passedChecks, checks); job.releasedAt = version(); job.releasedByName = 'Maintenance supervisor'; job.version = version(); asset.status = 'Available'; return json({ message: `${asset.assetNumber} passed its safety check and is available.` }); }
    if (pathname.includes('/documents') && job) { if (method === 'POST') documents.push({ id: 'd1', fileName: 'repair-photo.png', type: 'CompletionEvidence' }); return json(documents); }
    if (pathname.includes('/parts') && job) {
@@ -152,6 +152,25 @@ const path = require('node:path');
   await page.getByRole('tab', { name: 'Evidence', exact: true }).click(); await page.locator('input[type=file]').setInputFiles({ name: 'repair-photo.png', mimeType: 'image/png', buffer: Buffer.from('test-image') }); await page.getByRole('button', { name: /repair-photo.png/ }).waitFor();
   await page.getByRole('button', { name: 'Complete work', exact: true }).click(); await page.getByRole('button', { name: 'Confirm', exact: true }).click(); await page.getByText('Work completed', { exact: true }).waitFor(); assert.equal(asset.status, 'Inspection');
   await page.getByRole('tab', { name: 'Safety check', exact: true }).click(); assert.equal(await page.getByRole('button', { name: 'Confirm safety and return to service' }).isEnabled(), false);
+  legacyBlockers = true;
+  await page.getByRole('button', {name:'Refresh open work'}).click();
+  await page.getByText('Other open maintenance work — unavailable',{exact:true}).waitFor();
+  assert.equal(await page.getByText('Other open maintenance work (0)',{exact:true}).count(),0);
+  legacyBlockers = false;
+  jobs.push({...jobs[0], id:'blocker', jobNumber:'MNT-BLOCKER', status:'WaitingForParts', serviceType:'Brake repair', faultDescription:'Waiting for brake pads', expectedReleaseAt:null});
+  await page.getByRole('button', {name:'Refresh open work'}).click();
+  await page.getByRole('button', {name:'Open MNT-BLOCKER',exact:true}).waitFor();
+  await page.getByText('Waiting for brake pads',{exact:true}).waitFor();
+  await page.getByText('Expected release: Not set',{exact:true}).waitFor();
+  await page.getByLabel('Safety check / test run notes').fill('Keep these notes');
+  await page.getByRole('button', {name:'Open MNT-BLOCKER',exact:true}).click();
+  await page.getByRole('dialog', {name:'Discard unsaved changes?'}).waitFor();
+  await page.getByRole('button', {name:'Keep editing',exact:true}).click();
+  jobs = jobs.filter(x => x.id !== 'blocker');
+  await page.getByRole('button', {name:'Refresh open work'}).click();
+  await page.getByText('No other open maintenance jobs.',{exact:false}).waitFor();
+  assert.equal(await page.getByLabel('Safety check / test run notes').inputValue(),'Keep these notes');
+  console.log('PASS blocking work details, guarded navigation and refresh preserving safety notes');
   for (const check of checks) await page.getByLabel(check, { exact: true }).check(); await page.getByLabel('Safety check / test run notes').fill('Supervisor checked repairs and road test. Safe for hire.'); await page.getByRole('button', { name: 'Confirm safety and return to service' }).click(); await page.getByText(/^Safety passed:/).first().waitFor(); assert.equal(asset.status, 'Available'); console.log('PASS evidence, work completion and separate safety release');
   await page.getByRole('tab', { name: 'Job details', exact: true }).click(); jobs[0].version = version(); await page.getByRole('button', { name: 'Save details' }).click(); await page.getByRole('alert').filter({ hasText: 'This maintenance job changed.' }).waitFor();
   await page.getByRole('button', { name: 'Close maintenance workspace' }).click();

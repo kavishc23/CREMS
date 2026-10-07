@@ -9,6 +9,26 @@ namespace CREMS.Api.Tests;
 public class MaintenanceStatusRegressionTests
 {
     [Fact]
+    public async Task Blocking_jobs_include_old_open_work_beyond_history_limit_and_exclude_closed_jobs()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var db = MaintenanceJobsTests.Database(); var (jobs, asset) = await MaintenanceJobsTests.Setup(db);
+        await jobs.Create(new(asset.Id, "Repair", "Fault", null, null, 0, null), token);
+        var job = await db.MaintenanceJobs.SingleAsync(token);
+        foreach (var status in new[] { MaintenanceStatus.Open, MaintenanceStatus.InProgress, MaintenanceStatus.WaitingForParts })
+            db.Add(new MaintenanceJob { JobNumber = "BLOCK-" + status, AssetId = asset.Id, BranchId = asset.BranchId, ServiceType = "Outstanding repair", Status = status, ReportedAt = DateTimeOffset.UtcNow.AddYears(-1) });
+        for (var i = 0; i < 55; i++) db.Add(new MaintenanceJob { JobNumber = "CLOSED-" + i, AssetId = asset.Id, BranchId = asset.BranchId, ServiceType = "Closed repair", Status = i % 2 == 0 ? MaintenanceStatus.Completed : MaintenanceStatus.Cancelled });
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
+        var workspace = new MaintenanceWorkspaceController(db, new CurrentStaffScope(db), new MaintenanceJobsTests.MaintenanceAuthorization(db)) { ControllerContext = jobs.ControllerContext };
+        var result = System.Text.Json.JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(await workspace.Detail(job.Id, token)).Value);
+        Assert.Equal(50, result.GetProperty("history").GetArrayLength());
+        var blockers = result.GetProperty("blockingJobs").EnumerateArray().ToArray();
+        Assert.Equal(3, blockers.Length);
+        Assert.All(blockers, row => Assert.StartsWith("BLOCK-", row.GetProperty("jobNumber").GetString()));
+        Assert.Equal(0, result.GetProperty("restrictedBlockingJobCount").GetInt32());
+    }
+
+    [Fact]
     public async Task Invoice_total_mode_should_ignore_previous_labour_hours()
     {
         var token = TestContext.Current.CancellationToken;
