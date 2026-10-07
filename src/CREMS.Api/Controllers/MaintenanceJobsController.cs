@@ -85,6 +85,8 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
             && !(await authorization.AuthorizeAsync(User, SystemPermissions.MaintenanceComplete)).Succeeded) return Forbid();
         var referenceError = await ValidateReferences(job.AssetId, job.Id, request.SupplierId, request.ParentFailureJobId, cancellationToken);
         if (referenceError is not null) return referenceError;
+        if (job.Status == MaintenanceStatus.Completed && request.Status == MaintenanceStatus.Cancelled)
+            return BadRequest(new { message = "Reopen completed work with a reason before cancelling it." });
         var reopening = job.Status is MaintenanceStatus.Completed or MaintenanceStatus.Cancelled && request.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled);
         if (reopening && !(await authorization.AuthorizeAsync(User, SystemPermissions.MaintenanceComplete)).Succeeded) return Forbid();
         if ((reopening || request.Status == MaintenanceStatus.Cancelled && job.Status != MaintenanceStatus.Cancelled || request.Status == MaintenanceStatus.WaitingForParts && job.Status != MaintenanceStatus.WaitingForParts) && string.IsNullOrWhiteSpace(request.TransitionReason)) return BadRequest(new { message = "Enter a reason for this status change." });
@@ -96,6 +98,11 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
         }
         var financial = (await authorization.AuthorizeAsync(User, SystemPermissions.AssetsViewFinancials)).Succeeded;
         if (!financial) request = request with { HasEstimate = job.HasEstimate, EstimatedCost = job.EstimatedCost, ActualCost = job.ActualCost, PartsCost = job.PartsCost, LabourCost = job.LabourCost, TransportCost = job.TransportCost, ExternalServiceCost = job.ExternalServiceCost, TaxCost = job.TaxCost, OtherCost = job.OtherCost, FuelCost = job.FuelCost, LabourHours = job.LabourHours, LabourRate = job.LabourRate, InvoiceNumber = job.InvoiceNumber, UseDetailedCosts = job.UseDetailedCosts, TaxMode = job.TaxMode, TaxRate = job.TaxRate, TaxableCosts = job.TaxableCosts, TaxOverrideReason = job.TaxOverrideReason };
+        // Invoice totals take precedence over stale hidden breakdown inputs.
+        // The issued-stock minimum below still prevents discarding stock costs.
+        if ((request.UseDetailedCosts ?? job.UseDetailedCosts) == false)
+            request = request with { PartsCost = 0, LabourCost = 0, TransportCost = 0, ExternalServiceCost = 0,
+                FuelCost = 0, TaxCost = 0, OtherCost = 0, LabourHours = null, LabourRate = null };
         if (request.LabourHours.HasValue != request.LabourRate.HasValue) return BadRequest(new { message = "Enter both labour hours and hourly rate, or leave both blank." });
         if (request.LabourHours.HasValue) request = request with { LabourCost = decimal.Round(request.LabourHours.Value * request.LabourRate!.Value, 2) };
         var completing = request.Status == MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Completed;

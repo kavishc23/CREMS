@@ -6,6 +6,7 @@ import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined'
 import { api } from '../../api/client'
 import { MaintenanceTaxFields } from '../MaintenanceTaxFields'
 import { calculateMaintenanceTax, parseTaxCategories, type TaxSettings } from '../maintenanceTax'
+import { MaintenanceStatusDisplay } from './MaintenanceStatusDisplay'
 import { MaintenanceServicePlan } from './MaintenanceServicePlan'
 import { MaintenanceInspectionRecord } from './MaintenanceInspectionRecord'
 import { MaintenancePartsDialog } from '../MaintenancePartsDialog'
@@ -111,7 +112,10 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
     for (const key of ['supplierId', 'assignedPersonnelId', 'sourceInspectionId', 'parentFailureJobId'] as const) result[key] = form[key] || null
     result.labourCost = labour
     Object.assign(result, { taxMode: taxSettings.mode, taxRate: Number(taxSettings.rate || 0), taxableCosts: taxSettings.categories, taxOverrideReason: taxSettings.reason, taxCost: calculated.tax })
-    if (!form.useDetailedCosts) for (const key of ['partsCost', 'labourCost', 'transportCost', 'externalServiceCost', 'fuelCost', 'taxCost', 'otherCost']) result[key] = 0
+    if (!form.useDetailedCosts) {
+      for (const key of ['partsCost', 'labourCost', 'transportCost', 'externalServiceCost', 'fuelCost', 'taxCost', 'otherCost']) result[key] = 0
+      result.labourHours = null; result.labourRate = null
+    }
     return result
   }
   async function save(event?: FormEvent, nextStatus = job?.status ?? 'Open') {
@@ -148,9 +152,9 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
       <Box role="dialog" aria-label={job ? `Maintenance ${job.jobNumber}` : 'Log maintenance job'} sx={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Box p={{ xs: 2, sm: 3 }} bgcolor="background.paper">
           <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={2}><Box><Typography variant="overline" color="text.secondary">{job ? job.assetNumber : 'New maintenance job'}</Typography><Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>{job?.jobNumber ?? 'Log maintenance job'}</Typography><Typography color="text.secondary">{job ? `${job.assetName} · ${job.branchName}` : 'Choose an asset and describe the work required.'}</Typography></Box><IconButton aria-label="Close maintenance workspace" disabled={busy} onClick={() => guard(onClose)}><CloseOutlined /></IconButton></Stack>
-          {job && <Stack direction="row" gap={1} mt={2} useFlexGap flexWrap="wrap"><Chip label={job.releasedAt ? 'Returned to service' : job.status === 'Completed' ? 'Work completed · safety check pending' : label(job.status)} color={job.releasedAt ? 'success' : 'warning'} /><Chip label={job.priority} variant="outlined" />{repairOverdue(job) && <Chip label="Repair deadline missed" color="error" />}<Chip label={`Asset: ${label(job.assetStatus)}`} variant="outlined" /></Stack>}
+          {job && <Stack direction="row" gap={1} mt={2} useFlexGap flexWrap="wrap"><MaintenanceStatusDisplay job={job} /><Chip label={job.priority} variant="outlined" />{repairOverdue(job) && <Chip label="Repair deadline missed" color="error" />}<Chip label={`Asset: ${label(job.assetStatus)}`} variant="outlined" /></Stack>}
           {job && !closed(job) && <Stack direction="row" gap={1} mt={2} useFlexGap flexWrap="wrap">
-            {job.status !== 'InProgress' && <Button variant="outlined" disabled={busy} onClick={() => { setTransition('InProgress'); setReason('') }}>Start work</Button>}
+            {job.status !== 'InProgress' && <Button variant="outlined" disabled={busy} onClick={() => { setTransition('InProgress'); setReason('') }}>{job.status === 'WaitingForParts' ? 'Resume work' : 'Start work'}</Button>}
             {job.status !== 'WaitingForParts' && <Button disabled={busy} onClick={() => { setTransition('WaitingForParts'); setReason('') }}>Wait for parts</Button>}
             {access.canComplete && <Button variant="contained" disabled={busy} onClick={() => { setTransition('Completed'); setReason('') }}>Complete work</Button>}
             <Button color="error" disabled={busy} onClick={() => { setTransition('Cancelled'); setReason('') }}>Cancel job</Button>
