@@ -103,7 +103,7 @@ public sealed class MaintenanceIntegrationRulesTests
         Assert.Equal(0, await MaintenanceRules.GeneratePreventiveJobsAsync(db, now, TestContext.Current.CancellationToken));
         Assert.Equal(AssetStatus.Maintenance, asset.Status); Assert.Single(db.AssetLifecycleEvents);
         var job = await db.MaintenanceJobs.SingleAsync(TestContext.Current.CancellationToken);
-        job.Status = MaintenanceStatus.Completed; job.CompletedAt = now; job.NextServiceMeter = 100;
+        job.Status = MaintenanceStatus.Completed; job.CompletedAt = now; job.ReleasedAt = now; job.NextServiceMeter = 100;
         asset.NextServiceDate = null; asset.CurrentMeterReading = 100; asset.Status = AssetStatus.Available;
         using (db.SuppressNotifications()) await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         Assert.Single(await MaintenanceRules.DueAssets(db, db.Assets, MaintenanceRules.LocalDate(now)).ToListAsync(TestContext.Current.CancellationToken));

@@ -22,6 +22,9 @@ public class MaintenanceHandoffTests
         Assert.Equal("Brake failure",j.FaultDescription); Assert.Equal(AssetStatus.Maintenance,a.Status);
         Assert.IsType<NoContentResult>(await jobs.Update(j.Id,MaintenanceJobsTests.Request(MaintenanceStatus.InProgress),Token));
         Assert.IsType<NoContentResult>(await jobs.Update(j.Id,MaintenanceJobsTests.Request(MaintenanceStatus.Completed),Token));
+        Assert.Equal(AssetStatus.Inspection,a.Status);
+        var workspace = new MaintenanceWorkspaceController(db, new CurrentStaffScope(db), new MaintenanceJobsTests.MaintenanceAuthorization(db)) { ControllerContext = jobs.ControllerContext };
+        Assert.IsType<OkObjectResult>(await workspace.Release(j.Id, new(j.UpdatedAt ?? j.CreatedAt, "Repair and brake safety check passed", 100, MaintenanceWorkspace.Checks(a, null)), Token));
         Assert.Equal(AssetStatus.Available,a.Status);
     }
     [Theory]

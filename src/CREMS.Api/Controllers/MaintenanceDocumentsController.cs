@@ -23,11 +23,20 @@ public sealed class MaintenanceDocumentsController(ApplicationDbContext db, Curr
         return scope is not null && job is not null && scope.HasAssetAccess(job.BranchId, job.Asset?.DivisionId);
     }
 
+    private async Task<bool> Financial()
+    {
+        var requirement = new PermissionRequirement(SystemPermissions.AssetsViewFinancials);
+        var context = new Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext([requirement], User, null);
+        await new PermissionAuthorizationHandler(db).HandleAsync(context);
+        return context.HasSucceeded;
+    }
+
     [HttpGet]
     public async Task<ActionResult> List(Guid jobId, CancellationToken token)
     {
         if (!await CanAccess(jobId, token)) return Forbid();
-        return Ok(await db.DocumentRecords.AsNoTracking().Where(x => x.EntityType == nameof(MaintenanceJob) && x.EntityId == jobId)
+        var financial = await Financial();
+        return Ok(await db.DocumentRecords.AsNoTracking().Where(x => x.EntityType == nameof(MaintenanceJob) && x.EntityId == jobId && (financial || x.Type != "Invoice"))
             .Select(x => new { x.Id, x.FileName, x.Type }).ToListAsync(token));
     }
 
@@ -37,6 +46,7 @@ public sealed class MaintenanceDocumentsController(ApplicationDbContext db, Curr
     {
         if (!await CanAccess(jobId, token)) return Forbid();
         if (type is not ("FaultPhoto" or "Invoice" or "CompletionEvidence")) return BadRequest(new { message = "Select a document category." });
+        if (type == "Invoice" && !await Financial()) return Forbid();
         if (file.Length is <= 0 or > 5_242_880) return BadRequest(new { message = "Choose a PDF, JPEG or PNG up to 5 MB." });
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         await using var stream = new MemoryStream();
@@ -91,6 +101,7 @@ public sealed class MaintenanceDocumentsController(ApplicationDbContext db, Curr
         if (!await CanAccess(jobId, token)) return Forbid();
         var record = await db.DocumentRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.EntityType == nameof(MaintenanceJob) && x.EntityId == jobId, token);
         if (record is null) return NotFound();
+        if (record.Type == "Invoice" && !await Financial()) return Forbid();
         var root = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "App_Data", "maintenance-documents"));
         var path = Path.GetFullPath(Path.Combine(root, record.StoragePath));
         if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !System.IO.File.Exists(path)) return NotFound();

@@ -52,6 +52,7 @@ public sealed class MaintenanceSqlIntegrationTests
             var stock = new InventoryPart { PartNumber = "SQL-PART", Name = "SQL test part", BranchId = branch.Id, QuantityOnHand = 1, UnitCost = 10 };
             db.AddRange(branch, division, user, asset, stock,
                 new RolePermission { RoleName = SystemRoles.Administrator, Permission = SystemPermissions.AssetsView },
+                new RolePermission { RoleName = SystemRoles.Administrator, Permission = SystemPermissions.AssetsViewFinancials },
                 new RolePermission { RoleName = SystemRoles.Administrator, Permission = SystemPermissions.AssetsInspect },
                 new RolePermission { RoleName = SystemRoles.Administrator, Permission = SystemPermissions.MaintenanceComplete });
             using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
@@ -89,6 +90,13 @@ public sealed class MaintenanceSqlIntegrationTests
             var jobId = (await created.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("id").GetGuid();
             var jobs = await client.GetFromJsonAsync<JsonElement>("/api/maintenance-jobs", token);
             var version = jobs[0].GetProperty("version").GetDateTimeOffset();
+            var workspace = await client.GetFromJsonAsync<JsonElement>("/api/maintenance-jobs/workspace?search=SQL%20repair&sort=asset&pageSize=25", token);
+            Assert.Equal(1, workspace.GetProperty("total").GetInt32());
+            Assert.Single(workspace.GetProperty("items").EnumerateArray());
+            var detail = await client.GetFromJsonAsync<JsonElement>($"/api/maintenance-jobs/{jobId}/workspace", token);
+            Assert.NotEmpty(detail.GetProperty("safetyChecks").EnumerateArray());
+            Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/maintenance-jobs/workspace?pageSize=24", token)).StatusCode);
+            (await client.GetAsync("/api/maintenance-jobs/schedule?pageSize=25", token)).EnsureSuccessStatusCode();
             Assert.False(BookingPolicy.IsOperational(await db.Assets.AsNoTracking().SingleAsync(x => x.Id == asset.Id, token)));
             Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync($"/api/business-operations/assets/{asset.Id}/lifecycle",
                 new LifecycleRequest(CREMS.Api.Domain.Operations.AssetLifecycleEventType.ReturnedToService, AssetStatus.Available, null, null, null, null), token)).StatusCode);
@@ -107,6 +115,9 @@ public sealed class MaintenanceSqlIntegrationTests
             db.UserPermissionOverrides.RemoveRange(db.UserPermissionOverrides);
             using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
             (await client.PutAsJsonAsync($"/api/maintenance-jobs/{jobId}", MaintenanceJobsTests.Request(MaintenanceStatus.Completed), token)).EnsureSuccessStatusCode();
+            Assert.False(BookingPolicy.IsOperational(await db.Assets.AsNoTracking().SingleAsync(x => x.Id == asset.Id, token)));
+            var completed = await db.MaintenanceJobs.AsNoTracking().SingleAsync(x => x.Id == jobId, token);
+            (await client.PostAsJsonAsync($"/api/maintenance-jobs/{jobId}/release", new ReleaseMaintenanceRequest(completed.UpdatedAt ?? completed.CreatedAt, "All safety checks passed", 100, MaintenanceWorkspace.Checks(asset, null)), token)).EnsureSuccessStatusCode();
             Assert.True(BookingPolicy.IsOperational(await db.Assets.AsNoTracking().SingleAsync(x => x.Id == asset.Id, token)));
             var report = await client.GetFromJsonAsync<JsonElement>("/api/business-operations/asset-profitability", token);
             Assert.Equal(30m, report.GetProperty("assets")[0].GetProperty("maintenanceCost").GetDecimal());
@@ -145,6 +156,9 @@ public sealed class MaintenanceSqlIntegrationTests
             }
             (await client.PutAsJsonAsync($"/api/maintenance-jobs/{repair.Id}", MaintenanceJobsTests.Request(MaintenanceStatus.InProgress), token)).EnsureSuccessStatusCode();
             (await client.PutAsJsonAsync($"/api/maintenance-jobs/{repair.Id}", MaintenanceJobsTests.Request(MaintenanceStatus.Completed), token)).EnsureSuccessStatusCode();
+            Assert.False(BookingPolicy.IsOperational(await db.Assets.AsNoTracking().SingleAsync(x => x.Id == asset.Id, token)));
+            var completedRepair = await db.MaintenanceJobs.AsNoTracking().SingleAsync(x => x.Id == repair.Id, token);
+            (await client.PostAsJsonAsync($"/api/maintenance-jobs/{repair.Id}/release", new ReleaseMaintenanceRequest(completedRepair.UpdatedAt ?? completedRepair.CreatedAt, "All safety checks passed", 100, MaintenanceWorkspace.Checks(asset, null)), token)).EnsureSuccessStatusCode();
             Assert.True(BookingPolicy.IsOperational(await db.Assets.AsNoTracking().SingleAsync(x => x.Id == asset.Id, token)));
 
             var due = await db.Assets.SingleAsync(x => x.Id == asset.Id, token);

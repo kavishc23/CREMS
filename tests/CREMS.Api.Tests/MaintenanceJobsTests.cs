@@ -16,8 +16,8 @@ namespace CREMS.Api.Tests;
 public sealed class MaintenanceJobsTests
 {
     [Theory]
-    [InlineData(MaintenanceStatus.Completed, false, AssetStatus.Available)]
-    [InlineData(MaintenanceStatus.Cancelled, false, AssetStatus.Available)]
+    [InlineData(MaintenanceStatus.Completed, false, AssetStatus.Inspection)]
+    [InlineData(MaintenanceStatus.Cancelled, false, AssetStatus.Inspection)]
     [InlineData(MaintenanceStatus.Completed, true, AssetStatus.Maintenance)]
     [InlineData(MaintenanceStatus.Cancelled, true, AssetStatus.Maintenance)]
     public async Task Closing_job_respects_other_repairs(MaintenanceStatus status, bool otherOpen, AssetStatus expected)
@@ -203,7 +203,7 @@ public sealed class MaintenanceJobsTests
     }
 
     internal static UpdateMaintenanceJobRequest Request(MaintenanceStatus status) =>
-        new(status, "Repair", "Fault", "Technician", null, 50, null, null, null, PartsCost: 10, LabourCost: 20, MeterReading: 100);
+        new(status, "Repair", "Fault", "Technician", null, 50, null, null, null, PartsCost: 10, LabourCost: 20, MeterReading: 100, CompletionNotes: "Repair completed and tested", TransitionReason: "Recorded status change");
 
     internal static ApplicationDbContext Database() => new(new DbContextOptionsBuilder<ApplicationDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
@@ -214,7 +214,8 @@ public sealed class MaintenanceJobsTests
         var branch = new Branch { Code = "TEST", Name = "Test branch" };
         var asset = new Asset { AssetNumber = "TEST-1", Name = "Test asset", BranchId = branch.Id, Branch = branch };
         db.AddRange(user, branch, asset);
-        db.RolePermissions.Add(new RolePermission { RoleName = administrator ? SystemRoles.Administrator : SystemRoles.MaintenanceOfficer, Permission = SystemPermissions.MaintenanceComplete });
+        foreach (var permission in new[] { SystemPermissions.MaintenanceComplete, SystemPermissions.AssetsInspect, SystemPermissions.AssetsViewFinancials })
+            db.RolePermissions.Add(new RolePermission { RoleName = administrator ? SystemRoles.Administrator : SystemRoles.MaintenanceOfficer, Permission = permission });
         using (db.SuppressNotifications()) await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var principal = new ClaimsPrincipal(new ClaimsIdentity(new[] {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
@@ -225,7 +226,7 @@ public sealed class MaintenanceJobsTests
         }, asset);
     }
 
-    private sealed class MaintenanceAuthorization(ApplicationDbContext db) : IAuthorizationService
+    internal sealed class MaintenanceAuthorization(ApplicationDbContext db) : IAuthorizationService
     {
         public async Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object? resource, IEnumerable<IAuthorizationRequirement> requirements)
         {
@@ -235,7 +236,7 @@ public sealed class MaintenanceJobsTests
         }
         public Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object? resource, string policyName)
         {
-            Assert.Equal(SystemPermissions.MaintenanceComplete, policyName);
+            Assert.Contains(policyName, SystemPermissions.All);
             return AuthorizeAsync(user, resource, [new PermissionRequirement(policyName)]);
         }
     }

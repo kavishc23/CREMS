@@ -58,7 +58,7 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
             var rentals = items.Where(x => x.AssetId == asset.Id).ToList(); var bookingIds = rentals.Select(x => x.BookingId).Distinct().ToHashSet();
             var baseRevenue = rentals.Sum(x => Math.Max(1, (decimal)Math.Ceiling((x.EndAt - x.StartAt).TotalDays)) * x.DailyRate);
             var component = charges.Where(x => x.AssetId == asset.Id).ToList(); var serviceRevenue = component.Sum(x => x.Quantity * x.UnitRate); var componentCost = component.Sum(x => x.Quantity * x.UnitCost);
-            var maintenanceCost = maintenance.Where(x => x.AssetId == asset.Id).Sum(x => x.ActualCost ?? x.PartsCost + x.LabourCost + x.TransportCost + x.ExternalServiceCost + x.TaxCost + x.OtherCost);
+            var maintenanceCost = maintenance.Where(x => x.AssetId == asset.Id).Sum(x => x.ActualCost ?? x.PartsCost + x.LabourCost + x.TransportCost + x.ExternalServiceCost + x.TaxCost + x.OtherCost + x.FuelCost);
             var directCost = costs.Where(x => x.AssetId == asset.Id).Sum(x => x.Amount);
             var personnelCost = timesheets.Where(x => bookingIds.Contains(x.Assignment!.BookingId)).Sum(x => x.RegularHours * x.Assignment!.InternalHourlyCost + x.OvertimeHours * x.Assignment.InternalHourlyCost * 1.5m);
             var revenue = baseRevenue + serviceRevenue; var expense = maintenanceCost + directCost + componentCost + personnelCost; var profit = revenue - expense;
@@ -174,17 +174,22 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
         var item = new MaintenancePartUsage { MaintenanceJobId = jobId, InventoryPartId = part.Id, Quantity = request.Quantity, UnitCost = part.UnitCost };
         part.QuantityOnHand -= (int)request.Quantity;
         // Preserve an existing invoice-only total when adding a newly issued part.
-        var previousBreakdown = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost;
+        var previousBreakdown = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost + job.FuelCost;
         job.OtherCost += Math.Max(0, (job.ActualCost ?? previousBreakdown) - previousBreakdown);
         job.PartsCost += request.Quantity * part.UnitCost;
-        job.ActualCost = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost;
+        job.ActualCost = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost + job.FuelCost;
         job.UpdatedAt = DateTimeOffset.UtcNow;
         db.MaintenancePartUsages.Add(item);
         AuditWriter.Record(db, scope, "Maintenance parts issued", nameof(MaintenanceJob), job.Id,
             $"{request.Quantity} units of {part.PartNumber} issued to {job.JobNumber}.", job.BranchId);
         await db.SaveChangesAsync(token);
         if (transaction is not null) await transaction.CommitAsync(token);
-        return Ok(item);
+        var requirement = new PermissionRequirement(SystemPermissions.AssetsViewFinancials);
+        var permissionContext = new AuthorizationHandlerContext([requirement], User, null);
+        await new PermissionAuthorizationHandler(db).HandleAsync(permissionContext);
+        var response = new Dictionary<string, object?> { ["id"] = item.Id, ["maintenanceJobId"] = item.MaintenanceJobId, ["inventoryPartId"] = item.InventoryPartId, ["quantity"] = item.Quantity, ["createdAt"] = item.CreatedAt };
+        if (permissionContext.HasSucceeded) response["unitCost"] = item.UnitCost;
+        return Ok(response);
     }
 
     [HttpPost("delivery-zones")]

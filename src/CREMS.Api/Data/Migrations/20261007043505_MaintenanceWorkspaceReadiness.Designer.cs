@@ -4,6 +4,7 @@ using CREMS.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CREMS.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261007043505_MaintenanceWorkspaceReadiness")]
+    partial class MaintenanceWorkspaceReadiness
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -433,9 +436,6 @@ namespace CREMS.Api.Data.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<bool>("HasEstimate")
-                        .HasColumnType("bit");
-
                     b.Property<string>("InvoiceNumber")
                         .HasColumnType("nvarchar(max)");
 
@@ -545,9 +545,6 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
-
-                    b.Property<bool?>("UseDetailedCosts")
-                        .HasColumnType("bit");
 
                     b.Property<string>("WarrantyClaimNumber")
                         .HasColumnType("nvarchar(max)");

@@ -77,6 +77,22 @@ public sealed class MaintenanceDocumentsTests : IDisposable
         Assert.Single(await db.DocumentRecords.ToListAsync(TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task Invoice_evidence_requires_financial_permission_for_reads_and_writes()
+    {
+        await using var db = MaintenanceJobsTests.Database(); var (controller, job) = await Setup(db);
+        await controller.Upload(job.Id, File("invoice.pdf", Document("pdf")), "Invoice", TestContext.Current.CancellationToken);
+        var invoice = await db.DocumentRecords.SingleAsync(TestContext.Current.CancellationToken);
+        var user = await db.Users.SingleAsync(TestContext.Current.CancellationToken);
+        db.UserPermissionOverrides.Add(new UserPermissionOverride { UserId = user.Id, Permission = SystemPermissions.AssetsViewFinancials, IsGranted = false });
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var result = Assert.IsType<OkObjectResult>(await controller.List(job.Id, TestContext.Current.CancellationToken));
+        Assert.Equal("[]", System.Text.Json.JsonSerializer.Serialize(result.Value));
+        Assert.IsType<ForbidResult>(await controller.Download(job.Id, invoice.Id, TestContext.Current.CancellationToken));
+        Assert.IsType<ForbidResult>(await controller.Upload(job.Id, File("invoice.pdf", Document("pdf")), "Invoice", TestContext.Current.CancellationToken));
+        Assert.IsType<OkObjectResult>(await controller.Upload(job.Id, File("repair.png", Document("png")), "CompletionEvidence", TestContext.Current.CancellationToken));
+    }
+
     private async Task<(MaintenanceDocumentsController, MaintenanceJob)> Setup(ApplicationDbContext db)
     {
         var (jobs, asset) = await MaintenanceJobsTests.Setup(db);

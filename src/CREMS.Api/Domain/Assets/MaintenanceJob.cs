@@ -17,11 +17,27 @@ public sealed class MaintenanceJob : Entity
     public string? AssignedTo { get; set; }
     public string? Supplier { get; set; }
     public Guid? SupplierId { get; set; }
+    public Guid? AssignedPersonnelId { get; set; }
+    public string SourceType { get; set; } = "Manual";
+    public Guid? SourceInspectionId { get; set; }
+    public string? SourceReference { get; set; }
+    public string? ReportedByName { get; set; }
+    public DateTimeOffset? ExpectedReleaseAt { get; set; }
+    public DateTimeOffset? StartedAt { get; set; }
+    public DateTimeOffset? ReleasedAt { get; set; }
+    public string? ReleasedByName { get; set; }
+    public Guid? ReleaseInspectionId { get; set; }
+    public decimal? LabourHours { get; set; }
+    public decimal? LabourRate { get; set; }
+    public decimal FuelCost { get; set; }
+    public int? ServiceIntervalMonths { get; set; }
     public bool IsPreventive { get; set; }
     public decimal? NextServiceMeter { get; set; }
     public string? WarrantyClaimNumber { get; set; }
     public bool WarrantyCovered { get; set; }
     public Guid? ParentFailureJobId { get; set; }
+    public bool? UseDetailedCosts { get; set; }
+    public bool HasEstimate { get; set; }
     public decimal EstimatedCost { get; set; }
     public decimal? ActualCost { get; set; }
     public decimal PartsCost { get; set; }

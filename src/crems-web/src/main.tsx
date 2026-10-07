@@ -7,6 +7,7 @@ import { CssBaseline, GlobalStyles, ThemeProvider, createTheme } from '@mui/mate
 import App from './App'
 import { ToastHost } from './components/ToastHost'
 import { AuthProvider } from './auth/AuthContext'
+import { StableViewport } from './components/StableViewport'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,6 +58,7 @@ const theme = createTheme({
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <ThemeProvider theme={theme}>
     <CssBaseline />
+    <StableViewport />
     <GlobalStyles styles={{
       'html, body': { maxWidth: '100%', overflowX: 'hidden' },
       '.customer-site-density': { zoom: '90%', width: '100%', minHeight: '100dvh' },
