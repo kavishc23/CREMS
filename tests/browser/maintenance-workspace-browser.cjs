@@ -172,7 +172,7 @@ const path = require('node:path');
   const historyJob = {...jobs[0]};
   jobs = Array.from({length:12}, (_,i) => ({...historyJob,id:'row'+i,jobNumber:'MNT-LAYOUT-'+i,status:'Open',releasedAt:null}));
   await page.getByRole('button', {name:/Missed repair deadlines/}).click();
-  await page.getByText('12 matching jobs', {exact:false}).waitFor();
+  await page.getByRole('button', {name:'Plan work MNT-LAYOUT-11',exact:true}).waitFor();
   assert.equal(queries.at(-1).overdueRepairs,'true');
   const geometry = await page.locator('.MuiTableContainer-root:visible').evaluate(el => ({rows:el.querySelectorAll('tbody tr').length,height:el.clientHeight,scrollHeight:el.scrollHeight}));
   assert.equal(geometry.rows,12); assert.equal(geometry.height,geometry.scrollHeight); assert.ok(geometry.height > 900);

@@ -19,3 +19,5 @@ This remains an operational asset contribution report, not a general ledger, cas
 Regression cases cover positive/negative penny allocation, duplicate booking items, scoped cross-branch assets, active/completed versus other booking statuses, shared and unallocated charges/personnel, legacy maintenance costs, excluded estimates, monthly work dates and CSV amounts. A browser test verifies the new columns, unallocated balance, monthly figures, download and phone layout with intercepted API data. The full API suite also exercises real SQL migration and report queries in an isolated database.
 
 Results: 289 API tests passed with SQL enabled, profitability browser test passed, production frontend build passed, and ReportsPage ESLint passed.
+
+Merge reconciliation preserves main's maintenance filter popover, header save buttons, footer workflow actions and Mac OCR support. Job status, Resume work and unsaved-change feedback remain available. Combined-tree API validation: 289 passed; frontend unit tests: 23 passed; production build and maintenance/report lint passed.

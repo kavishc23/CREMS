@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Buffers.Binary;
+using System.Diagnostics;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Customers;
 using Microsoft.EntityFrameworkCore;
@@ -59,6 +60,7 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
                     throw new LicenceException("unreadable_pdf", "The first PDF page could not be converted to an image.");
                 content = firstPage.ToArray();
             }
+            if (OperatingSystem.IsMacOS()) return ReadWithMacOsTesseract(content);
             var dataPath = Path.Combine(AppContext.BaseDirectory, "tessdata");
             using var engine = new TesseractOCR.Engine(dataPath, TesseractOCR.Enums.Language.English, TesseractOCR.Enums.EngineMode.Default);
             var readings = new List<string>();
@@ -113,6 +115,40 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
         catch
         {
             throw new LicenceException("ocr_service_failed", "The licence could not be scanned. Try another image or enter the details manually.");
+        }
+    }
+
+    private static string ReadWithMacOsTesseract(byte[] content)
+    {
+        var imagePath = Path.Combine(Path.GetTempPath(), $"crems-licence-{Guid.NewGuid():N}.png");
+        try
+        {
+            File.WriteAllBytes(imagePath, content);
+            var executable = File.Exists("/opt/homebrew/bin/tesseract") ? "/opt/homebrew/bin/tesseract" : "tesseract";
+            var start = new ProcessStartInfo(executable)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            start.ArgumentList.Add(imagePath);
+            start.ArgumentList.Add("stdout");
+            start.ArgumentList.Add("-l");
+            start.ArgumentList.Add("eng");
+            start.ArgumentList.Add("--psm");
+            start.ArgumentList.Add("6");
+            using var process = Process.Start(start) ?? throw new InvalidOperationException("Tesseract could not be started.");
+            var text = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            if (process.ExitCode != 0) throw new InvalidOperationException($"Tesseract exited with code {process.ExitCode}: {error}");
+            if (string.IsNullOrWhiteSpace(text)) throw new LicenceException("ocr_no_text", "No readable licence details were found. Try a clearer image.");
+            return text;
+        }
+        finally
+        {
+            if (File.Exists(imagePath)) File.Delete(imagePath);
         }
     }
 
