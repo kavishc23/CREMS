@@ -173,7 +173,7 @@ public sealed class BusinessAlert : Entity
     public Guid? AcknowledgedByUserId { get; set; }
 }
 
-public enum AssetLifecycleEventType { Purchased, Commissioned, Available, Allocated, PreHireInspection, CheckedOut, OnHire, PostHireInspection, DamageReported, MaintenanceStarted, ReturnedToService, Transferred, Retired, Disposed, Sold }
+public enum AssetLifecycleEventType { Purchased, Commissioned, Available, Allocated, PreHireInspection, CheckedOut, OnHire, PostHireInspection, DamageReported, MaintenanceStarted, ReturnedToService, Transferred, Retired, Disposed, Sold, MaintenanceWorkClosed }
 public enum MeterType { Odometer, EngineHours, OperatingHours, RentalDays, Units, FuelLevel }
 public enum MeterReadingSource { Manual, PreHireInspection, PostHireInspection, Telematics, Maintenance, Transfer }
 public enum PersonnelType { Operator, Driver, Technician, Labourer, Supervisor }

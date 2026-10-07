@@ -360,6 +360,14 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
 
         builder.Entity<MaintenanceJob>(entity =>
         {
+            entity.HasIndex(x => new { x.AssetId, x.Status, x.ReleasedAt });
+            entity.HasIndex(x => new { x.BranchId, x.ReportedAt });
+            entity.HasIndex(x => new { x.Status, x.Priority });
+            entity.Property(x => x.SourceType).HasMaxLength(30);
+            entity.Property(x => x.SourceReference).HasMaxLength(200);
+            entity.Property(x => x.ReportedByName).HasMaxLength(200);
+            entity.Property(x => x.ReleasedByName).HasMaxLength(200);
+            Money(entity, nameof(MaintenanceJob.LabourHours), nameof(MaintenanceJob.LabourRate), nameof(MaintenanceJob.FuelCost));
             entity.HasIndex(x => x.JobNumber).IsUnique();
             entity.Property(x => x.JobNumber).HasMaxLength(50);
             entity.Property(x => x.EstimatedCost).HasPrecision(18, 2);

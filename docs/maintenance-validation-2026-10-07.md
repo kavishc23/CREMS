@@ -1,5 +1,23 @@
 # Maintenance validation — 7 October 2026 (Pacific/Fiji)
 
+## Merge with the redesigned maintenance workspace
+
+The maintenance tax branch was reconciled with main's paginated workspace,
+technician assignment, source references, financial permissions, and separate safety
+release. Automatic tax controls now appear in the workspace's Expenses tab. Fuel
+is included in the total and can be selected as a taxable supplier charge. Detail
+responses supply the division rate and net issued-stock cost; financial access is
+required to read or change tax settings. New rental-return damage still creates a
+separate traceable repair even when another repair is open.
+
+Merge validation: 279 API tests passed with the isolated SQL test enabled, 23
+frontend unit tests passed, and the production frontend build and maintenance lint
+checks passed. The browser checks cover the redesigned workspace and persisted
+exclusive, inclusive, no-tax and manual settings, fuel tax, inventory, completion,
+safety release, related rental/inspection workflows, and responsive layouts.
+Browser API responses are intercepted; SQL persistence is verified separately.
+The earlier audit results below describe the feature branch before this merge.
+
 ## Result
 
 All checks listed below passed after correcting the findings. This is validation of the local working tree, including uncommitted maintenance changes, not certification of a production deployment.

@@ -3,8 +3,8 @@ import axios from 'axios'
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { api } from '../api/client'
 
-type Entry = { id: string; inventoryPartId: string; partNumber: string; quantity: number; unitCost: number; createdAt: string }
-type Parts = { stock: { id: string; partNumber: string; name: string; available: number; unitCost: number }[]; ledger: Entry[]; canManage: boolean; canIssue: boolean }
+type Entry = { id: string; inventoryPartId: string; partNumber: string; quantity: number; unitCost?: number; batchKey: string; createdAt: string }
+type Parts = { stock: { id: string; partNumber: string; name: string; available: number; unitCost?: number }[]; ledger: Entry[]; canManage: boolean; canIssue: boolean; canFinancial: boolean }
 
 export function MaintenancePartsDialog({ job, onClose, onChanged }: { job: { id: string; jobNumber: string }; onClose: () => void; onChanged: () => Promise<void> }) {
   const [data, setData] = useState<Parts | null>(null)
@@ -21,8 +21,8 @@ export function MaintenancePartsDialog({ job, onClose, onChanged }: { job: { id:
     return () => { active = false }
   }, [job.id])
   const balances = (data?.ledger ?? []).filter(entry => entry.quantity > 0).filter((entry, index, entries) =>
-    entries.findIndex(other => other.inventoryPartId === entry.inventoryPartId && other.unitCost === entry.unitCost) === index)
-    .map(entry => ({ ...entry, outstanding: data!.ledger.filter(other => other.inventoryPartId === entry.inventoryPartId && other.unitCost === entry.unitCost).reduce((sum, other) => sum + other.quantity, 0) }))
+    entries.findIndex(other => other.batchKey === entry.batchKey) === index)
+    .map(entry => ({ ...entry, outstanding: data!.ledger.filter(other => other.batchKey === entry.batchKey).reduce((sum, other) => sum + other.quantity, 0) }))
     .filter(entry => entry.outstanding > 0)
   async function submit(returning: boolean) {
     setBusy(true); setError('')
@@ -46,17 +46,17 @@ export function MaintenancePartsDialog({ job, onClose, onChanged }: { job: { id:
       {data?.canManage && <>
         <TextField label="Quantity" type="number" value={quantity} disabled={busy} inputProps={{ min: 1, max: 100000, step: 1 }} onChange={event => setQuantity(event.target.value)} />
         {data.canIssue && <><TextField select label="Issue stock" value={part} disabled={busy} onChange={event => setPart(event.target.value)}>
-          <MenuItem value="">Select stock</MenuItem>{data.stock.map(stock => <MenuItem key={stock.id} value={stock.id}>{stock.partNumber} · {stock.name} · {stock.available} available · ${stock.unitCost.toFixed(2)}</MenuItem>)}
+          <MenuItem value="">Select stock</MenuItem>{data.stock.map(stock => <MenuItem key={stock.id} value={stock.id}>{stock.partNumber} · {stock.name} · {stock.available} available{data.canFinancial ? ` · FJD ${(stock.unitCost ?? 0).toFixed(2)}` : ''}</MenuItem>)}
         </TextField><Button disabled={busy || !part || !validQuantity} onClick={() => void submit(false)}>Issue parts</Button></>}
         <TextField select label="Return unused stock" value={issue} disabled={busy} onChange={event => setIssue(event.target.value)}>
-          <MenuItem value="">Select issued stock</MenuItem>{balances.map(entry => <MenuItem key={entry.id} value={entry.id}>{entry.partNumber} · {entry.outstanding} outstanding · ${entry.unitCost.toFixed(2)}</MenuItem>)}
+          <MenuItem value="">Select issued stock</MenuItem>{balances.map(entry => <MenuItem key={entry.id} value={entry.id}>{entry.partNumber} · {entry.outstanding} outstanding{data.canFinancial ? ` · FJD ${(entry.unitCost ?? 0).toFixed(2)}` : ''}</MenuItem>)}
         </TextField>
         <TextField label="Return reason" value={reason} disabled={busy} inputProps={{ maxLength: 1000 }} onChange={event => setReason(event.target.value)} />
         <Button disabled={busy || !issue || !reason.trim() || !validQuantity} onClick={() => void submit(true)}>Return parts to stock</Button>
       </>}
       <Typography variant="subtitle2">Stock movement history</Typography>
       {data?.ledger.length === 0 && <Typography>No stock movements recorded.</Typography>}
-      {data?.ledger.map(entry => <Typography key={entry.id} variant="body2">{entry.partNumber}: {entry.quantity > 0 ? 'Issued' : 'Returned'} {Math.abs(entry.quantity)} at ${entry.unitCost.toFixed(2)} · {new Date(entry.createdAt).toLocaleString()}</Typography>)}
+      {data?.ledger.map(entry => <Typography key={entry.id} variant="body2">{entry.partNumber}: {entry.quantity > 0 ? 'Issued' : 'Returned'} {Math.abs(entry.quantity)}{data.canFinancial ? ` at FJD ${(entry.unitCost ?? 0).toFixed(2)}` : ''} · {new Date(entry.createdAt).toLocaleString()}</Typography>)}
     </Stack></DialogContent><DialogActions><Button disabled={busy} onClick={onClose}>Close</Button></DialogActions>
   </Dialog>
 }

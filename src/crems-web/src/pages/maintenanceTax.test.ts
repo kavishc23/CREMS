@@ -9,6 +9,12 @@ describe('maintenance tax preview', () => {
   it('excludes issued stock and unselected internal labour', () => {
     expect(calculateMaintenanceTax(costs, { mode: 'Exclusive', rate: '12.5', categories: 1, reason: '' }, 0, 100)).toMatchObject({ taxable: 400, tax: 50, total: 600 })
   })
+  it('includes fuel in totals and taxes it only when selected', () => {
+    const expenses = { ...costs, fuelCost: 50 }
+    expect(calculateMaintenanceTax(expenses, { mode: 'Exclusive', rate: '12.5', categories: 32, reason: '' }, 0, 0)).toMatchObject({ subtotal: 600, taxable: 50, tax: 6.25, total: 606.25 })
+    expect(calculateMaintenanceTax(expenses, { mode: 'Exclusive', rate: '12.5', categories: 0, reason: '' }, 0, 0)).toMatchObject({ tax: 0, total: 600 })
+    expect(parseTaxCategories('Parts, Fuel')).toBe(33)
+  })
   it('reads flags serialized by the API', () => {
     expect(parseTaxCategories('Parts, ExternalService')).toBe(9)
     expect(parseTaxCategories('None')).toBe(0)

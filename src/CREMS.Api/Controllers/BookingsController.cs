@@ -88,7 +88,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                     - x.DiscountAmount + x.AdditionalCharges,
                 x.DepositRequired, x.TaxRate, x.ApprovedAt, x.RentalAgreement != null,
                 x.Customer.IsBlocked ? "Customer account is blocked" : x.Items.Count == 0 ? "Asset information is missing" :
-                    x.Items.Any(i => !i.Asset!.IsActive || i.Asset.Status == AssetStatus.Maintenance || i.Asset.Status == AssetStatus.OutOfService) ? "Asset is not available" : null))
+                    x.Items.Any(i => !i.Asset!.IsActive || i.Asset.Status == AssetStatus.Maintenance || i.Asset.Status == AssetStatus.Inspection || i.Asset.Status == AssetStatus.OutOfService) ? "Asset is not available" : null))
             .ToListAsync(cancellationToken);
         return Ok(new BookingWorkQueueResponse(rows, counts, page, pageSize, total));
     }
@@ -349,7 +349,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         if (!scope.HasAssetAccess(request.BranchId, asset.DivisionId)) return Forbid();
         if (request.StartAt < DateTimeOffset.UtcNow.AddDays(-1) || request.DailyRate < 0 || request.DepositRequired < 0 || request.DiscountAmount < 0 || request.AdditionalCharges < 0 || request.TaxRate is < 0 or > 100)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["pricing"] = ["Dates and financial values must be valid and non-negative."] }));
-        if (asset.Status is AssetStatus.Maintenance or AssetStatus.OutOfService or AssetStatus.Retired || !asset.IsActive)
+        if (asset.Status is AssetStatus.Maintenance or AssetStatus.Inspection or AssetStatus.OutOfService or AssetStatus.Retired || !asset.IsActive)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["asset"] = ["This asset is not operationally available."] }));
         var editConflict = await db.BookingItems.AsNoTracking().AnyAsync(other => other.BookingId != booking.Id &&
             other.AssetId == asset.Id && other.StartAt < request.EndAt && other.EndAt > request.StartAt &&
@@ -419,7 +419,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                 return ValidationProblem(ModelState);
             }
             if (booking.Items.Count == 0 || booking.Items.Any(x => x.Asset is null || !x.Asset.IsActive ||
-                x.Asset.Status is AssetStatus.Maintenance or AssetStatus.OutOfService or AssetStatus.Retired))
+                x.Asset.Status is AssetStatus.Maintenance or AssetStatus.Inspection or AssetStatus.OutOfService or AssetStatus.Retired))
             { ModelState.AddModelError(nameof(booking.Items), "Every asset must be active and operationally available before confirmation."); return ValidationProblem(ModelState); }
 
             var duration = booking.Items.Sum(x => Math.Max(1, (decimal)Math.Ceiling((x.EndAt - x.StartAt).TotalDays)) * x.DailyRate);

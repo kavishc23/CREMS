@@ -184,7 +184,12 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
             $"{request.Quantity} units of {part.PartNumber} issued to {job.JobNumber}.", job.BranchId);
         await db.SaveChangesAsync(token);
         if (transaction is not null) await transaction.CommitAsync(token);
-        return Ok(item);
+        var requirement = new PermissionRequirement(SystemPermissions.AssetsViewFinancials);
+        var permissionContext = new AuthorizationHandlerContext([requirement], User, null);
+        await new PermissionAuthorizationHandler(db).HandleAsync(permissionContext);
+        var response = new Dictionary<string, object?> { ["id"] = item.Id, ["maintenanceJobId"] = item.MaintenanceJobId, ["inventoryPartId"] = item.InventoryPartId, ["quantity"] = item.Quantity, ["createdAt"] = item.CreatedAt };
+        if (permissionContext.HasSucceeded) response["unitCost"] = item.UnitCost;
+        return Ok(response);
     }
 
     [HttpPost("delivery-zones")]

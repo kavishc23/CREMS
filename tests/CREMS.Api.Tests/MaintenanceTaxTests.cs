@@ -79,7 +79,7 @@ public sealed class MaintenanceTaxTests
         var job = await db.MaintenanceJobs.SingleAsync(token);
         var request = MaintenanceJobsTests.Request(MaintenanceStatus.InProgress);
         Assert.IsType<BadRequestObjectResult>(await controller.Update(job.Id, request with { TaxRate = -1 }, token));
-        Assert.IsType<BadRequestObjectResult>(await controller.Update(job.Id, request with { TaxableCosts = (MaintenanceTaxableCosts)32 }, token));
+        Assert.IsType<BadRequestObjectResult>(await controller.Update(job.Id, request with { TaxableCosts = (MaintenanceTaxableCosts)64 }, token));
         Assert.IsType<BadRequestObjectResult>(await controller.Update(job.Id, request with { PartsCost = 10.001m }, token));
         Assert.Equal(MaintenanceStatus.Open, job.Status);
     }
@@ -92,4 +92,38 @@ public sealed class MaintenanceTaxTests
         MaintenanceCosts.Calculate(job, 0);
         Assert.Equal(0.01m, job.TaxCost); Assert.Equal(0.05m, job.ActualCost);
     }
+    [Theory]
+    [InlineData(MaintenanceTaxMode.Exclusive, 12.5, 167.5)]
+    [InlineData(MaintenanceTaxMode.Inclusive, 11.11, 155)]
+    public async Task Workspace_exposes_tax_defaults_and_net_stock_and_includes_selected_fuel(MaintenanceTaxMode mode, double tax, double total)
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var db = MaintenanceJobsTests.Database(); var (controller, asset) = await MaintenanceJobsTests.Setup(db);
+        var division = new CREMS.Api.Domain.Common.Division { Code = "TAX", Name = "Tax division", DefaultTaxRate = 12.5m };
+        db.Add(division); asset.DivisionId = division.Id; asset.Division = division;
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
+        await controller.Create(new(asset.Id, "Repair", "Fault", null, null, 0, null), token);
+        var job = await db.MaintenanceJobs.SingleAsync(token);
+        Assert.Equal(12.5m, job.TaxRate);
+        var part = new InventoryPart { PartNumber = "FUEL-STOCK", Name = "Stock", BranchId = asset.BranchId, QuantityOnHand = 3, UnitCost = 50 };
+        db.Add(part); using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
+        var inventory = new BusinessOperationsController(db, new CurrentStaffScope(db)) { ControllerContext = controller.ControllerContext };
+        await inventory.UsePart(job.Id, new(part.Id, 1), token);
+        Assert.IsType<NoContentResult>(await controller.Update(job.Id, MaintenanceJobsTests.Request(MaintenanceStatus.InProgress) with {
+            PartsCost = 100, LabourCost = 5, FuelCost = 50, TaxMode = mode, TaxableCosts = MaintenanceTaxableCosts.Parts | MaintenanceTaxableCosts.Fuel }, token));
+        Assert.Equal((decimal)tax, job.TaxCost); Assert.Equal((decimal)total, job.ActualCost);
+        var workspace = new MaintenanceWorkspaceController(db, new CurrentStaffScope(db), new MaintenanceJobsTests.MaintenanceAuthorization(db)) { ControllerContext = controller.ControllerContext };
+        var record = System.Text.Json.JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(await workspace.Detail(job.Id, token)).Value).GetProperty("job");
+        Assert.Equal(50m, record.GetProperty("issuedStockCost").GetDecimal());
+        Assert.Equal(12.5m, record.GetProperty("defaultTaxRate").GetDecimal());
+        var user = await db.Users.SingleAsync(token);
+        db.UserPermissionOverrides.Add(new UserPermissionOverride { UserId = user.Id, Permission = SystemPermissions.AssetsViewFinancials, IsGranted = false });
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
+        Assert.IsType<NoContentResult>(await controller.Update(job.Id, MaintenanceJobsTests.Request(MaintenanceStatus.InProgress) with {
+            TaxMode = MaintenanceTaxMode.Manual, TaxCost = 999, TaxRate = 99, TaxableCosts = MaintenanceTaxableCosts.None, TaxOverrideReason = "Unauthorized change" }, token));
+        Assert.Equal(mode, job.TaxMode); Assert.Equal((decimal)tax, job.TaxCost); Assert.Equal((decimal)total, job.ActualCost);
+        record = System.Text.Json.JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(await workspace.Detail(job.Id, token)).Value).GetProperty("job");
+        foreach (var field in MaintenanceWorkspace.FinancialFields) Assert.False(record.TryGetProperty(field, out _));
+    }
+
 }

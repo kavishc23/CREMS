@@ -23,12 +23,15 @@ public sealed class MaintenanceInventoryController(ApplicationDbContext db, Curr
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(job.BranchId, job.Asset?.DivisionId)) return Forbid();
         var canManage = (await authorization.AuthorizeAsync(User, SystemPolicies.ManageBranch)).Succeeded;
+        var financial = (await authorization.AuthorizeAsync(User, SystemPermissions.AssetsViewFinancials)).Succeeded;
         var stock = await db.InventoryParts.AsNoTracking().Where(x => x.BranchId == job.BranchId)
             .Select(x => new { x.Id, x.PartNumber, x.Name, Available = x.QuantityOnHand - x.QuantityAllocated, x.UnitCost }).ToListAsync(token);
         var ledger = await db.MaintenancePartUsages.AsNoTracking().Where(x => x.MaintenanceJobId == jobId)
             .OrderBy(x => x.CreatedAt).Select(x => new { x.Id, x.InventoryPartId, x.InventoryPart!.PartNumber,
                 x.Quantity, x.UnitCost, x.CreatedAt }).ToListAsync(token);
-        return Ok(new { stock, ledger, canManage, canIssue = canManage && job.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled) });
+        return Ok(new { stock = stock.Select(x => { var row = new Dictionary<string, object?> { ["id"] = x.Id, ["partNumber"] = x.PartNumber, ["name"] = x.Name, ["available"] = x.Available }; if (financial) row["unitCost"] = x.UnitCost; return row; }),
+            ledger = ledger.Select(x => { var row = new Dictionary<string, object?> { ["id"] = x.Id, ["inventoryPartId"] = x.InventoryPartId, ["partNumber"] = x.PartNumber, ["quantity"] = x.Quantity, ["createdAt"] = x.CreatedAt, ["batchKey"] = ledger.First(y => y.InventoryPartId == x.InventoryPartId && y.UnitCost == x.UnitCost).Id.ToString() }; if (financial) row["unitCost"] = x.UnitCost; return row; }),
+            canManage, canFinancial = financial, canIssue = canManage && job.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled) });
     }
 
     [HttpPost("{usageId:guid}/return"), Authorize(Policy = SystemPolicies.ManageBranch)]

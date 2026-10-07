@@ -24,15 +24,11 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
         if (scope is null || (!scope.IsAdministrator && scope.BranchIds.Count == 0)) return Forbid();
         var query = db.MaintenanceJobs.AsNoTracking();
         if (!scope.IsAdministrator) query = query.Where(job => scope.BranchIds.Contains(job.BranchId) && job.Asset!.DivisionId.HasValue && scope.DivisionIds.Contains(job.Asset.DivisionId.Value));
-        return Ok(await query.OrderByDescending(job => job.ReportedAt).Select(job => new {
-            job.Id, job.JobNumber, job.SupplierId, job.AssetId, AssetNumber = job.Asset!.AssetNumber, AssetName = job.Asset.Name,
-            job.BranchId, BranchName = job.Branch!.Name, job.Status, job.Priority, CompletionNotes = job.Description, job.ServiceType, job.FaultDescription,
-            job.AssignedTo, job.Supplier, job.EstimatedCost, job.ActualCost, job.PartsCost, job.LabourCost, job.TransportCost, job.ExternalServiceCost, job.TaxCost, job.OtherCost,
-            job.PartsUsed, job.InvoiceNumber, job.MeterReading, job.DowntimeHours, job.IsPreventive, job.NextServiceMeter, job.WarrantyCovered, job.WarrantyClaimNumber, job.ParentFailureJobId, job.ReportedAt,
-            job.CompletedAt, job.NextServiceDate, job.TaxMode, job.TaxRate, job.TaxableCosts, job.TaxOverrideReason,
-            DefaultTaxRate = job.Asset!.Division != null ? job.Asset.Division.DefaultTaxRate : 0,
-            IssuedStockCost = db.MaintenancePartUsages.Where(usage => usage.MaintenanceJobId == job.Id).Sum(usage => (decimal?)(usage.Quantity * usage.UnitCost)) ?? 0,
-            Version = job.UpdatedAt ?? job.CreatedAt }).ToListAsync(cancellationToken));
+        var financial = (await authorization.AuthorizeAsync(User, SystemPermissions.AssetsViewFinancials)).Succeeded;
+        var jobs = await query.Include(x => x.Asset).ThenInclude(x => x!.Division).Include(x => x.Branch).OrderByDescending(x => x.ReportedAt).ToListAsync(cancellationToken);
+        var ids = jobs.Select(x => x.Id).ToList();
+        var issued = financial ? await db.MaintenancePartUsages.Where(x => ids.Contains(x.MaintenanceJobId)).GroupBy(x => x.MaintenanceJobId).Select(g => new { Id = g.Key, Cost = g.Sum(x => x.Quantity * x.UnitCost) }).ToDictionaryAsync(x => x.Id, x => x.Cost, cancellationToken) : new Dictionary<Guid, decimal>();
+        return Ok(jobs.Select(x => MaintenanceWorkspace.Record(x, financial, issued.GetValueOrDefault(x.Id))).ToList());
     }
 
     [HttpPost]
@@ -45,12 +41,23 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
         if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
         var referenceError = await ValidateReferences(asset.Id, null, request.SupplierId, request.ParentFailureJobId, cancellationToken);
         if (referenceError is not null) return referenceError;
-        if (!asset.IsActive || asset.Status is not (AssetStatus.Available or AssetStatus.Maintenance))
+        if (!asset.IsActive || asset.Status is not (AssetStatus.Available or AssetStatus.Maintenance or AssetStatus.OutOfService))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["assetId"] = ["Only available assets or assets already in maintenance can enter maintenance. Resolve any hire, reservation or inspection first."] }));
+        if (request.SourceType is not ("Manual" or "Inspection" or "Damage" or "Preventive")) return BadRequest(new { message = "Select a valid job source." });
+        if (!string.IsNullOrWhiteSpace(request.SourceType) && request.SourceType is "Inspection" or "Damage" && !request.SourceInspectionId.HasValue && string.IsNullOrWhiteSpace(request.SourceReference)) return BadRequest(new { message = "Provide the originating inspection or damage reference." });
+        if (request.SourceInspectionId.HasValue && !await db.AssetInspections.AnyAsync(x => x.Id == request.SourceInspectionId && x.AssetId == asset.Id, cancellationToken)) return BadRequest(new { message = "Select an inspection for this asset." });
+        if (request.EstimatedCost > 0 && !(await authorization.AuthorizeAsync(User, SystemPermissions.AssetsViewFinancials)).Succeeded) return Forbid();
+        if (request.AssignedPersonnelId.HasValue) {
+            var technician = await db.Personnel.SingleOrDefaultAsync(x => x.Id == request.AssignedPersonnelId && x.IsActive && x.Type == PersonnelType.Technician && x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId, cancellationToken);
+            if (technician is null || technician.Availability is PersonnelAvailability.Leave or PersonnelAvailability.Unavailable or PersonnelAvailability.Training) return BadRequest(new { message = "Select an active technician in this asset's branch and division." });
+            request = request with { AssignedTo = technician.FullName };
+        }
         var job = new MaintenanceJob { JobNumber = $"MNT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
             AssetId = asset.Id, BranchId = asset.BranchId, ServiceType = request.ServiceType.Trim(),
             FaultDescription = request.FaultDescription.Trim(), AssignedTo = Normalize(request.AssignedTo),
-            Supplier = Normalize(request.Supplier), SupplierId = request.SupplierId, EstimatedCost = request.EstimatedCost, IsPreventive = request.IsPreventive, NextServiceMeter = request.NextServiceMeter, WarrantyCovered = request.WarrantyCovered, WarrantyClaimNumber = Normalize(request.WarrantyClaimNumber), ParentFailureJobId = request.ParentFailureJobId,
+            Supplier = Normalize(request.Supplier), SupplierId = request.SupplierId, UseDetailedCosts = true, HasEstimate = request.HasEstimate ?? true, EstimatedCost = request.EstimatedCost, IsPreventive = request.IsPreventive, NextServiceMeter = request.NextServiceMeter, WarrantyCovered = request.WarrantyCovered, WarrantyClaimNumber = Normalize(request.WarrantyClaimNumber), ParentFailureJobId = request.ParentFailureJobId,
+            AssignedPersonnelId = request.AssignedPersonnelId, SourceType = request.SourceType, SourceInspectionId = request.SourceInspectionId,
+            SourceReference = Normalize(request.SourceReference), ReportedByName = scope.UserName, ExpectedReleaseAt = request.ExpectedReleaseAt, ServiceIntervalMonths = request.ServiceIntervalMonths,
             TaxMode = MaintenanceTaxMode.Exclusive, TaxRate = asset.Division?.DefaultTaxRate ?? 0,
             NextServiceDate = request.NextServiceDate, Priority = request.Priority, Status = MaintenanceStatus.Open };
         var previousAssetStatus = asset.Status;
@@ -78,7 +85,24 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
             && !(await authorization.AuthorizeAsync(User, SystemPermissions.MaintenanceComplete)).Succeeded) return Forbid();
         var referenceError = await ValidateReferences(job.AssetId, job.Id, request.SupplierId, request.ParentFailureJobId, cancellationToken);
         if (referenceError is not null) return referenceError;
+        var reopening = job.Status is MaintenanceStatus.Completed or MaintenanceStatus.Cancelled && request.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled);
+        if (reopening && !(await authorization.AuthorizeAsync(User, SystemPermissions.MaintenanceComplete)).Succeeded) return Forbid();
+        if ((reopening || request.Status == MaintenanceStatus.Cancelled && job.Status != MaintenanceStatus.Cancelled || request.Status == MaintenanceStatus.WaitingForParts && job.Status != MaintenanceStatus.WaitingForParts) && string.IsNullOrWhiteSpace(request.TransitionReason)) return BadRequest(new { message = "Enter a reason for this status change." });
+        if (job.Status == MaintenanceStatus.Cancelled && request.Status == MaintenanceStatus.Completed) return BadRequest(new { message = "Reopen cancelled work before completing it." });
+        if (request.AssignedPersonnelId.HasValue) {
+            var technician = await db.Personnel.SingleOrDefaultAsync(x => x.Id == request.AssignedPersonnelId && x.IsActive && x.Type == PersonnelType.Technician && x.BranchId == job.BranchId && x.DivisionId == job.Asset!.DivisionId, cancellationToken);
+            if (technician is null || technician.Availability is PersonnelAvailability.Leave or PersonnelAvailability.Unavailable or PersonnelAvailability.Training) return BadRequest(new { message = "Select an available technician for this branch and division." });
+            request = request with { AssignedTo = technician.FullName };
+        }
+        var financial = (await authorization.AuthorizeAsync(User, SystemPermissions.AssetsViewFinancials)).Succeeded;
+        if (!financial) request = request with { HasEstimate = job.HasEstimate, EstimatedCost = job.EstimatedCost, ActualCost = job.ActualCost, PartsCost = job.PartsCost, LabourCost = job.LabourCost, TransportCost = job.TransportCost, ExternalServiceCost = job.ExternalServiceCost, TaxCost = job.TaxCost, OtherCost = job.OtherCost, FuelCost = job.FuelCost, LabourHours = job.LabourHours, LabourRate = job.LabourRate, InvoiceNumber = job.InvoiceNumber, UseDetailedCosts = job.UseDetailedCosts, TaxMode = job.TaxMode, TaxRate = job.TaxRate, TaxableCosts = job.TaxableCosts, TaxOverrideReason = job.TaxOverrideReason };
+        if (request.LabourHours.HasValue != request.LabourRate.HasValue) return BadRequest(new { message = "Enter both labour hours and hourly rate, or leave both blank." });
+        if (request.LabourHours.HasValue) request = request with { LabourCost = decimal.Round(request.LabourHours.Value * request.LabourRate!.Value, 2) };
         var completing = request.Status == MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Completed;
+        if (completing && request.CalculateDowntime) request = request with { DowntimeHours = (int)Math.Min(100000, Math.Max(0, Math.Ceiling((DateTimeOffset.UtcNow - job.ReportedAt).TotalHours))) };
+        if (completing && string.IsNullOrWhiteSpace(request.CompletionNotes)) return BadRequest(new { message = "Record the work performed before completing this job." });
+        if (completing && !string.IsNullOrWhiteSpace(job.Asset?.MeterUnit) && !request.MeterReading.HasValue) return BadRequest(new { message = "Record the final meter reading before completion." });
+        if (completing && request.ServiceIntervalMonths.HasValue && !request.NextServiceDate.HasValue) request = request with { NextServiceDate = MaintenanceRules.LocalDate(DateTimeOffset.UtcNow).AddMonths(request.ServiceIntervalMonths.Value) };
         var meterChanged = request.MeterReading != job.MeterReading;
         var scheduleChanged = request.NextServiceDate != job.NextServiceDate;
         var previousServiceDate = job.NextServiceDate;
@@ -88,25 +112,25 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
             return BadRequest(new { message = "Parts cost cannot be less than the net cost of inventory issued to this job. Return unused stock before reducing its cost." });
         if (request.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled) && job.Asset?.BranchId != job.BranchId)
             return BadRequest(new { message = "Create a new maintenance job at the asset's current branch instead of reopening a transferred asset's historical job." });
-        if (completing && (request.IsPreventive || job.IsPreventive) &&
-            ((job.NextServiceMeter.HasValue && !request.NextServiceMeter.HasValue)
+        if (completing && (request.IsPreventive || job.IsPreventive || job.Asset?.NextServiceDate <= MaintenanceRules.LocalDate(DateTimeOffset.UtcNow)) &&
+            ((job.Asset?.NextServiceDate.HasValue == true && !request.NextServiceDate.HasValue) || (job.NextServiceMeter.HasValue && !request.NextServiceMeter.HasValue)
             || (request.NextServiceDate.HasValue && request.NextServiceDate <= MaintenanceRules.LocalDate(DateTimeOffset.UtcNow))
             || (request.NextServiceMeter.HasValue && request.NextServiceMeter <= (request.MeterReading ?? job.Asset?.CurrentMeterReading))))
             return BadRequest(new { message = "Set the next preventive service date and meter threshold beyond today and the current reading." });
         if (request.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled)
-            && (job.Asset is null || !job.Asset.IsActive || job.Asset.Status is not (AssetStatus.Available or AssetStatus.Maintenance or AssetStatus.Inspection)))
+            && (job.Asset is null || !job.Asset.IsActive || job.Asset.Status is not (AssetStatus.Available or AssetStatus.Maintenance or AssetStatus.Inspection or AssetStatus.OutOfService)))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["This asset cannot enter maintenance in its current state."] }));
         if (request.Status == MaintenanceStatus.Completed && (completing || meterChanged) && request.MeterReading.HasValue
             && job.Asset?.CurrentMeterReading > request.MeterReading)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["meterReading"] = ["The meter reading cannot be lower than the asset's current reading."] }));
-        var invoiceOnly = request.UseDetailedCosts == false && request.PartsCost + request.LabourCost
-            + request.TransportCost + request.ExternalServiceCost + request.OtherCost == 0;
+        var invoiceOnly = (request.UseDetailedCosts ?? job.UseDetailedCosts) == false && request.PartsCost + request.LabourCost
+            + request.TransportCost + request.ExternalServiceCost + request.OtherCost + request.FuelCost == 0;
         var taxMode = invoiceOnly ? MaintenanceTaxMode.None : request.TaxMode ?? job.TaxMode;
         var taxRate = request.TaxRate ?? job.TaxRate;
         var taxableCosts = request.TaxableCosts ?? job.TaxableCosts;
-        if (!Enum.IsDefined(taxMode) || taxRate < 0 || taxRate > 100 || ((int)taxableCosts & ~31) != 0)
+        if (!Enum.IsDefined(taxMode) || taxRate < 0 || taxRate > 100 || ((int)taxableCosts & ~63) != 0)
             return BadRequest(new { message = "Choose a valid tax mode, rate between 0 and 100%, and taxable expense categories." });
-        if (new[] { request.PartsCost, request.LabourCost, request.TransportCost, request.ExternalServiceCost, request.OtherCost }
+        if (new[] { request.PartsCost, request.LabourCost, request.TransportCost, request.ExternalServiceCost, request.OtherCost, request.FuelCost }
                 .Any(amount => amount != decimal.Round(amount, 2))
             || (taxMode == MaintenanceTaxMode.Manual && request.TaxCost != decimal.Round(request.TaxCost, 2))
             || taxRate != decimal.Round(taxRate, 6))
@@ -117,22 +141,27 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
             return BadRequest(new { message = "Enter a reason for the manual tax override." });
         var previousTax = $"Tax mode: {job.TaxMode}; rate: {job.TaxRate}; categories: {job.TaxableCosts}; tax: {job.TaxCost}; reason: {job.TaxOverrideReason}";
         var previous = $"Status: {job.Status}; Actual cost: {job.ActualCost:0.00}";
+        if (request.Status == MaintenanceStatus.InProgress && job.StartedAt == null) job.StartedAt = DateTimeOffset.UtcNow;
+        if (reopening) { job.ReleasedAt = null; job.ReleasedByName = null; job.ReleaseInspectionId = null; job.StartedAt = request.Status == MaintenanceStatus.InProgress ? DateTimeOffset.UtcNow : null; }
+        job.AssignedPersonnelId = request.AssignedPersonnelId; job.ExpectedReleaseAt = request.ExpectedReleaseAt;
+        job.LabourHours = request.LabourHours; job.LabourRate = request.LabourRate; job.FuelCost = request.FuelCost; job.ServiceIntervalMonths = request.ServiceIntervalMonths;
         job.Priority = request.Priority; job.Description = Normalize(request.CompletionNotes);
         job.Status = request.Status; job.ServiceType = request.ServiceType.Trim();
         job.FaultDescription = request.FaultDescription.Trim(); job.AssignedTo = Normalize(request.AssignedTo);
-        job.Supplier = Normalize(request.Supplier); job.EstimatedCost = request.EstimatedCost;
+        job.Supplier = Normalize(request.Supplier); job.HasEstimate = request.HasEstimate ?? job.HasEstimate; job.EstimatedCost = request.EstimatedCost;
         job.SupplierId = request.SupplierId; job.IsPreventive = request.IsPreventive; job.NextServiceMeter = request.NextServiceMeter; job.WarrantyCovered = request.WarrantyCovered; job.WarrantyClaimNumber = Normalize(request.WarrantyClaimNumber); job.ParentFailureJobId = request.ParentFailureJobId;
-        var hadDetailedCosts = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost > 0;
+        var hadDetailedCosts = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost + job.FuelCost > 0;
         job.PartsCost = request.PartsCost; job.LabourCost = request.LabourCost; job.TransportCost = request.TransportCost;
         job.ExternalServiceCost = request.ExternalServiceCost; job.TaxCost = request.TaxCost; job.OtherCost = request.OtherCost;
         job.TaxMode = taxMode; job.TaxRate = taxRate; job.TaxableCosts = taxableCosts;
         job.TaxOverrideReason = taxMode == MaintenanceTaxMode.Manual ? taxReason ?? job.TaxOverrideReason : null;
         MaintenanceCosts.Calculate(job, issuedCost);
-        if (!(request.UseDetailedCosts ?? hadDetailedCosts) && MaintenanceCosts.Total(job) == 0) job.ActualCost = request.ActualCost;
+        if (!(request.UseDetailedCosts ?? job.UseDetailedCosts ?? hadDetailedCosts) && MaintenanceCosts.Total(job) == 0) job.ActualCost = request.ActualCost;
         var currentTax = $"Tax mode: {job.TaxMode}; rate: {job.TaxRate}; categories: {job.TaxableCosts}; tax: {job.TaxCost}; reason: {job.TaxOverrideReason}";
         if (currentTax != previousTax)
             AuditWriter.Record(db, scope, "Maintenance tax updated", nameof(MaintenanceJob), job.Id,
                 $"Tax settings updated for {job.JobNumber}.", job.BranchId, previousTax, currentTax);
+        job.UseDetailedCosts = request.UseDetailedCosts ?? job.UseDetailedCosts;
         job.PartsUsed = Normalize(request.PartsUsed); job.InvoiceNumber = Normalize(request.InvoiceNumber); job.MeterReading = request.MeterReading; job.DowntimeHours = request.DowntimeHours;
         job.NextServiceDate = request.NextServiceDate; job.UpdatedAt = DateTimeOffset.UtcNow;
         var closed = request.Status is MaintenanceStatus.Completed or MaintenanceStatus.Cancelled;
@@ -145,7 +174,8 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
                 && item.Status != MaintenanceStatus.Completed && item.Status != MaintenanceStatus.Cancelled, cancellationToken);
             var fromStatus = asset.Status;
             if (!closed) asset.Status = AssetStatus.Maintenance;
-            else if (!otherOpenJobs && (asset.Status == AssetStatus.Maintenance || (asset.Status == AssetStatus.Inspection && request.Status == MaintenanceStatus.Completed))) asset.Status = AssetStatus.Available;
+            // Closing work does not certify safety. Release is a separate authorized inspection.
+            else if (!otherOpenJobs && job.ReleasedAt == null && asset.Status == AssetStatus.Maintenance) asset.Status = AssetStatus.Inspection;
 
             if (request.Status == MaintenanceStatus.Completed)
             {
@@ -165,12 +195,12 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
             }
             if (fromStatus != asset.Status)
                 db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = job.AssetId,
-                    Type = closed ? AssetLifecycleEventType.ReturnedToService : AssetLifecycleEventType.MaintenanceStarted,
+                    Type = closed ? AssetLifecycleEventType.MaintenanceWorkClosed : AssetLifecycleEventType.MaintenanceStarted,
                     FromStatus = fromStatus, ToStatus = asset.Status, MeterReading = request.MeterReading,
                     Notes = $"Maintenance {job.JobNumber}: {request.Status}", RecordedByUserId = scope.UserId, RecordedByName = scope.UserName });
         }
         AuditWriter.Record(db, scope, "Maintenance updated", "MaintenanceJob", job.Id,
-            $"{job.JobNumber} was updated.", job.BranchId, previous,
+            $"{job.JobNumber} was updated. {request.TransitionReason}", job.BranchId, previous,
             $"Status: {job.Status}; Actual cost: {job.ActualCost:0.00}");
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
@@ -205,7 +235,8 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
 
 public sealed record SaveMaintenanceJobRequest(Guid AssetId, [Required] string ServiceType,
     [Required] string FaultDescription, string? AssignedTo, string? Supplier,
-    [Range(0, 1000000)] decimal EstimatedCost, DateOnly? NextServiceDate, Guid? SupplierId = null, bool IsPreventive = false, [Range(0, 100000000)] decimal? NextServiceMeter = null, bool WarrantyCovered = false, string? WarrantyClaimNumber = null, Guid? ParentFailureJobId = null, [EnumDataType(typeof(MaintenancePriority))] MaintenancePriority Priority = MaintenancePriority.Normal);
+    [Range(0, 1000000)] decimal EstimatedCost, DateOnly? NextServiceDate, Guid? SupplierId = null, bool IsPreventive = false, [Range(0, 100000000)] decimal? NextServiceMeter = null, bool WarrantyCovered = false, string? WarrantyClaimNumber = null, Guid? ParentFailureJobId = null, [EnumDataType(typeof(MaintenancePriority))] MaintenancePriority Priority = MaintenancePriority.Normal,
+    Guid? AssignedPersonnelId = null, [StringLength(30)] string SourceType = "Manual", Guid? SourceInspectionId = null, [StringLength(200)] string? SourceReference = null, DateTimeOffset? ExpectedReleaseAt = null, [Range(1,120)] int? ServiceIntervalMonths = null, bool? HasEstimate = null);
 public sealed record UpdateMaintenanceJobRequest([EnumDataType(typeof(MaintenanceStatus))] MaintenanceStatus Status, [Required] string ServiceType,
     [Required] string FaultDescription, string? AssignedTo, string? Supplier,
     [Range(0, 1000000)] decimal EstimatedCost, [Range(0, 100000000)] decimal? ActualCost, string? PartsUsed, DateOnly? NextServiceDate,
@@ -214,6 +245,8 @@ public sealed record UpdateMaintenanceJobRequest([EnumDataType(typeof(Maintenanc
     [Range(0, 100000000)] decimal TaxCost = 0, [Range(0, 100000000)] decimal OtherCost = 0,
     string? InvoiceNumber = null, [Range(0, 100000000)] decimal? MeterReading = null, [Range(0, 100000)] int DowntimeHours = 0,
     Guid? SupplierId = null, bool IsPreventive = false, [Range(0, 100000000)] decimal? NextServiceMeter = null, bool WarrantyCovered = false, string? WarrantyClaimNumber = null, Guid? ParentFailureJobId = null, [EnumDataType(typeof(MaintenancePriority))] MaintenancePriority Priority = MaintenancePriority.Normal, [StringLength(4000)] string? CompletionNotes = null, bool? UseDetailedCosts = null, DateTimeOffset? ExpectedVersion = null,
+    [StringLength(1000)] string? TransitionReason = null, Guid? AssignedPersonnelId = null, DateTimeOffset? ExpectedReleaseAt = null,
+    [Range(0,100000)] decimal? LabourHours = null, [Range(0,1000000)] decimal? LabourRate = null, [Range(0,100000000)] decimal FuelCost = 0, [Range(1,120)] int? ServiceIntervalMonths = null, bool? HasEstimate = null, bool CalculateDowntime = false,
     [EnumDataType(typeof(MaintenanceTaxMode))] MaintenanceTaxMode? TaxMode = null,
     [Range(0, 100)] decimal? TaxRate = null, MaintenanceTaxableCosts? TaxableCosts = null,
     [StringLength(1000)] string? TaxOverrideReason = null);

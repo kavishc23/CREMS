@@ -42,6 +42,7 @@ public sealed class BookingPolicyTests
     [Theory]
     [InlineData(AssetStatus.Available, true)]
     [InlineData(AssetStatus.Maintenance, false)]
+    [InlineData(AssetStatus.Inspection, false)]
     [InlineData(AssetStatus.OutOfService, false)]
     [InlineData(AssetStatus.Retired, false)]
     public void Asset_operational_state_is_enforced(AssetStatus status, bool expected)

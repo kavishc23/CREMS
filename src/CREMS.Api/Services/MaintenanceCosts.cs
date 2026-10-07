@@ -5,7 +5,7 @@ namespace CREMS.Api.Services;
 public static class MaintenanceCosts
 {
     public static decimal Subtotal(MaintenanceJob job) => job.PartsCost + job.LabourCost + job.TransportCost
-        + job.ExternalServiceCost + job.OtherCost;
+        + job.ExternalServiceCost + job.OtherCost + job.FuelCost;
 
     public static decimal TaxableSubtotal(MaintenanceJob job, decimal issuedStockCost)
     {
@@ -14,7 +14,8 @@ public static class MaintenanceCosts
             + (flags.HasFlag(MaintenanceTaxableCosts.Labour) ? job.LabourCost : 0)
             + (flags.HasFlag(MaintenanceTaxableCosts.Transport) ? job.TransportCost : 0)
             + (flags.HasFlag(MaintenanceTaxableCosts.ExternalService) ? job.ExternalServiceCost : 0)
-            + (flags.HasFlag(MaintenanceTaxableCosts.Other) ? job.OtherCost : 0);
+            + (flags.HasFlag(MaintenanceTaxableCosts.Other) ? job.OtherCost : 0)
+            + (flags.HasFlag(MaintenanceTaxableCosts.Fuel) ? job.FuelCost : 0);
     }
 
     public static decimal Total(MaintenanceJob job) => Subtotal(job)

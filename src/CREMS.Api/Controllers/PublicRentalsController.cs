@@ -86,7 +86,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.Division != null && asset.Division.IsActive && asset.Division.IsPublic &&
                 (asset.ServiceOffering == null || asset.ServiceOffering.IsActive && (asset.ServiceOffering.IsBookableOnline || asset.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == asset.BranchId && s.DivisionId == asset.DivisionId && s.ServiceOfferingId == asset.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
                 db.BranchDivisions.Any(b => b.BranchId == asset.BranchId && b.DivisionId == asset.DivisionId && b.IsActive) &&
-                asset.Status != AssetStatus.Maintenance &&
+                asset.Status != AssetStatus.Maintenance && asset.Status != AssetStatus.Inspection &&
                 asset.Status != AssetStatus.OutOfService &&
                 asset.Status != AssetStatus.Retired);
         if (branchId.HasValue) query = query.Where(asset => asset.BranchId == branchId);
@@ -171,7 +171,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 x.Division != null && x.Division.IsActive && x.Division.IsPublic &&
                 (x.ServiceOffering == null || x.ServiceOffering.IsActive && (x.ServiceOffering.IsBookableOnline || x.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == x.BranchId && s.DivisionId == x.DivisionId && s.ServiceOfferingId == x.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
                 db.BranchDivisions.Any(b => b.BranchId == x.BranchId && b.DivisionId == x.DivisionId && b.IsActive) &&
-                x.Status != AssetStatus.Maintenance && x.Status != AssetStatus.OutOfService &&
+                x.Status != AssetStatus.Maintenance && x.Status != AssetStatus.Inspection && x.Status != AssetStatus.OutOfService &&
                 x.Status != AssetStatus.Retired, cancellationToken);
         if (asset is null) return NotFound();
 
@@ -253,7 +253,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.Division is not { IsActive: true, IsPublic: true } ||
             asset.ServiceOffering is { IsActive: false } ||
             asset.ServiceOffering is { IsBookableOnline: false, RequiresQuote: false } ||
-            asset.Status is AssetStatus.Maintenance or AssetStatus.OutOfService or AssetStatus.Retired)
+            asset.Status is AssetStatus.Maintenance or AssetStatus.Inspection or AssetStatus.OutOfService or AssetStatus.Retired)
             return NotFound("The selected rental item is no longer available.");
         if (asset.RequiresDelivery &&
             !string.Equals(request.Fulfilment, "Delivery", StringComparison.OrdinalIgnoreCase))
