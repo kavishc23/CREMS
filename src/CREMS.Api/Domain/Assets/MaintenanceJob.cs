@@ -29,6 +29,10 @@ public sealed class MaintenanceJob : Entity
     public decimal TransportCost { get; set; }
     public decimal ExternalServiceCost { get; set; }
     public decimal TaxCost { get; set; }
+    public MaintenanceTaxMode TaxMode { get; set; } = MaintenanceTaxMode.Manual;
+    public decimal TaxRate { get; set; }
+    public MaintenanceTaxableCosts TaxableCosts { get; set; } = MaintenanceTaxableCosts.Parts | MaintenanceTaxableCosts.ExternalService;
+    public string? TaxOverrideReason { get; set; }
     public decimal OtherCost { get; set; }
     public string? PartsUsed { get; set; }
     public string? InvoiceNumber { get; set; }
@@ -41,3 +45,6 @@ public sealed class MaintenanceJob : Entity
 
 public enum MaintenanceStatus { Open, InProgress, WaitingForParts, Completed, Cancelled }
 public enum MaintenancePriority { Low, Normal, High, Critical }
+public enum MaintenanceTaxMode { Manual, Exclusive, Inclusive, None }
+[Flags]
+public enum MaintenanceTaxableCosts { None = 0, Parts = 1, Labour = 2, Transport = 4, ExternalService = 8, Other = 16 }

@@ -44,7 +44,7 @@ public sealed class MaintenanceSqlIntegrationTests
         WebApplication? app = null;
         try
         {
-            await db.Database.EnsureCreatedAsync(token);
+            await db.Database.MigrateAsync(token);
             var branch = new Branch { Code = "SQLTEST", Name = "SQL test branch" };
             var division = new Division { Code = "SQLTEST", Name = "SQL test division" };
             var user = new ApplicationUser { FullName = "SQL tester", UserName = "sql-tester", BranchId = branch.Id, DivisionId = division.Id };
@@ -114,6 +114,13 @@ public sealed class MaintenanceSqlIntegrationTests
             var parts = await client.GetFromJsonAsync<JsonElement>($"/api/maintenance-jobs/{jobId}/parts", token);
             Assert.False(parts.GetProperty("canIssue").GetBoolean());
             var usageId = parts.GetProperty("ledger")[0].GetProperty("id").GetGuid();
+            var returnDeny = new UserPermissionOverride { UserId = user.Id, Permission = SystemPermissions.MaintenanceComplete, IsGranted = false };
+            db.UserPermissionOverrides.Add(returnDeny);
+            using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/api/maintenance-jobs/{jobId}/parts/{usageId}/return",
+                new ReturnMaintenancePartRequest(1, "Unused part"), token)).StatusCode);
+            db.UserPermissionOverrides.Remove(returnDeny);
+            using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
             var repricedStock = await db.InventoryParts.SingleAsync(x => x.Id == stock.Id, token);
             repricedStock.UnitCost = 25;
             using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
@@ -130,6 +137,31 @@ public sealed class MaintenanceSqlIntegrationTests
             Assert.Equal(20m, (await db.MaintenanceJobs.AsNoTracking().SingleAsync(x => x.Id == jobId, token)).ActualCost);
             Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync($"/api/maintenance-jobs/{jobId}/parts/{usageId}/return",
                 new ReturnMaintenancePartRequest(1, "Duplicate return"), token)).StatusCode);
+
+            (await client.PutAsJsonAsync($"/api/maintenance-jobs/{jobId}", MaintenanceJobsTests.Request(MaintenanceStatus.Completed) with {
+                PartsCost = 100, LabourCost = 20, TaxMode = MaintenanceTaxMode.Inclusive, TaxRate = 12.5m,
+                TaxableCosts = MaintenanceTaxableCosts.Parts | MaintenanceTaxableCosts.Labour, TaxCost = 999 }, token)).EnsureSuccessStatusCode();
+            var taxSaved = await db.MaintenanceJobs.AsNoTracking().SingleAsync(x => x.Id == jobId, token);
+            Assert.Equal(13.33m, taxSaved.TaxCost); Assert.Equal(120m, taxSaved.ActualCost);
+            Assert.Equal(MaintenanceTaxMode.Inclusive, taxSaved.TaxMode);
+            var taxResponse = await client.GetFromJsonAsync<JsonElement>("/api/maintenance-jobs", token);
+            Assert.Equal("Inclusive", taxResponse[0].GetProperty("taxMode").GetString());
+            Assert.Equal(12.5m, taxResponse[0].GetProperty("taxRate").GetDecimal());
+
+            var inclusiveRequest = MaintenanceJobsTests.Request(MaintenanceStatus.InProgress) with {
+                PartsCost = 100, LabourCost = 20, TaxMode = MaintenanceTaxMode.Inclusive, TaxRate = 12.5m,
+                TaxableCosts = MaintenanceTaxableCosts.Parts | MaintenanceTaxableCosts.Labour };
+            (await client.PutAsJsonAsync($"/api/maintenance-jobs/{jobId}", inclusiveRequest, token)).EnsureSuccessStatusCode();
+            var taxedIssue = await client.PostAsJsonAsync($"/api/business-operations/maintenance/{jobId}/parts", new PartUsageRequest(stock.Id, 1), token);
+            taxedIssue.EnsureSuccessStatusCode();
+            var taxedUsageId = (await taxedIssue.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("id").GetGuid();
+            var afterIssue = await db.MaintenanceJobs.AsNoTracking().SingleAsync(x => x.Id == jobId, token);
+            Assert.Equal(145m, afterIssue.ActualCost); Assert.Equal(13.33m, afterIssue.TaxCost);
+            (await client.PostAsJsonAsync($"/api/maintenance-jobs/{jobId}/parts/{taxedUsageId}/return",
+                new ReturnMaintenancePartRequest(1, "Unused part from inclusive-cost job"), token)).EnsureSuccessStatusCode();
+            var afterReturn = await db.MaintenanceJobs.AsNoTracking().SingleAsync(x => x.Id == jobId, token);
+            Assert.Equal(120m, afterReturn.ActualCost); Assert.Equal(13.33m, afterReturn.TaxCost);
+            (await client.PutAsJsonAsync($"/api/maintenance-jobs/{jobId}", inclusiveRequest with { Status = MaintenanceStatus.Completed }, token)).EnsureSuccessStatusCode();
 
             (await client.PostAsJsonAsync($"/api/assets/{asset.Id}/inspections",
                 new AssetInspectionInput(null, null, InspectionStage.Maintenance,

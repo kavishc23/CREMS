@@ -153,6 +153,29 @@ public sealed class MaintenanceIntegrationRulesTests
         Assert.Single(await MaintenanceRules.DueAssets(db, db.Assets, MaintenanceRules.LocalDate(DateTimeOffset.UtcNow)).ToListAsync(TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task Transfer_can_proceed_after_repairs_close_and_historical_job_cannot_reopen_at_old_branch()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var db = MaintenanceJobsTests.Database(); var (jobs, asset) = await MaintenanceJobsTests.Setup(db);
+        await jobs.Create(new(asset.Id, "Repair", "Fault", null, null, 0, null), token);
+        var job = await db.MaintenanceJobs.SingleAsync(token);
+        var destination = new CREMS.Api.Domain.Common.Branch { Code = "DEST", Name = "Destination" };
+        var transfer = new AssetTransfer { TransferNumber = "TEST-TRANSFER", AssetId = asset.Id, FromBranchId = asset.BranchId,
+            ToBranchId = destination.Id, Reason = "Redeployment" };
+        db.AddRange(destination, transfer);
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
+        var operations = new CorporateOperationsController(db, new CurrentStaffScope(db), new EmailQueue(), null!) { ControllerContext = jobs.ControllerContext };
+        Assert.IsType<BadRequestObjectResult>(await operations.SetTransferStatus(transfer.Id, new(TransferStatus.Approved, null, null, null, null), token));
+        Assert.Equal(TransferStatus.Requested, transfer.Status);
+        Assert.IsType<NoContentResult>(await jobs.Update(job.Id, MaintenanceJobsTests.Request(MaintenanceStatus.Completed), token));
+        foreach (var status in new[] { TransferStatus.Approved, TransferStatus.InTransit, TransferStatus.Received, TransferStatus.Inspected })
+            Assert.IsType<OkObjectResult>(await operations.SetTransferStatus(transfer.Id, new(status, 100, "Good", null, null), token));
+        Assert.Equal(destination.Id, asset.BranchId);
+        Assert.IsType<BadRequestObjectResult>(await jobs.Update(job.Id, MaintenanceJobsTests.Request(MaintenanceStatus.InProgress), token));
+        Assert.Equal(MaintenanceStatus.Completed, job.Status);
+    }
+
     private static async Task<(BusinessOperationsController, MaintenanceJob, InventoryPart)> Setup(ApplicationDbContext db)
     {
         var (jobs, asset) = await MaintenanceJobsTests.Setup(db);

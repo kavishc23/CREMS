@@ -49,3 +49,8 @@ routes, cookie authentication and authorization policies; production login, star
 seeding and email workers are excluded. It checks stock contention, stale updates,
 completion permissions, asset release, expense reporting, concurrent returns at the
 original issue cost, and duplicate preventive jobs.
+
+Maintenance tax coverage includes tax-exclusive and tax-inclusive totals, no-tax
+mode, manual override reasons, division-rate snapshots, stock exclusions, saved
+treatment settings, and explanatory tab labels. The SQL test runs the EF migration
+chain before exercising the controllers.

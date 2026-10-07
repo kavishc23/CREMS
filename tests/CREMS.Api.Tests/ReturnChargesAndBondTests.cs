@@ -145,6 +145,35 @@ public sealed class ReturnChargesAndBondTests
         Assert.Equal(expected > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired, booking.BondStatus);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Return_preserves_open_repairs_and_records_each_new_damage_fault(bool damage, bool existingRepair)
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var db = CreateDb();
+        var (booking, context) = await Seed(db, BookingStatus.ConvertedToRental);
+        var asset = await db.Assets.SingleAsync(token);
+        asset.Status = AssetStatus.Rented;
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
+        if (existingRepair) db.MaintenanceJobs.Add(new MaintenanceJob { JobNumber = "OLD-FAULT", AssetId = asset.Id,
+            BranchId = asset.BranchId, ServiceType = "Repair", FaultDescription = "Existing fault", Status = MaintenanceStatus.Open });
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
+        var controller = new RentalOperationsController(db, new CurrentStaffScope(db)) { ControllerContext = context };
+        var request = new ReturnInspectionRequest("A-1", true, true, null, null, "Inspected", damage ? "New windscreen damage" : null,
+            "Customer", 0, null, 0, 0, 0, 0, 0, 0, null, PaymentMethod.Cash) {
+            ReturnedAt = DateTimeOffset.UtcNow, SignatureDataUrl = "data:image/png;base64,AA==",
+            ChecklistItems = ["Checked"], EvidenceDataUrls = ["data:image/png;base64,AA=="] };
+        Assert.IsType<OkObjectResult>(await controller.Return(booking.Id, request, token));
+        Assert.Equal(damage || existingRepair ? AssetStatus.Maintenance : AssetStatus.Available, asset.Status);
+        Assert.Equal((damage ? 1 : 0) + (existingRepair ? 1 : 0), await db.MaintenanceJobs.CountAsync(token));
+        if (damage) Assert.Contains(await db.MaintenanceJobs.ToListAsync(token), job => job.FaultDescription == "New windscreen damage");
+        Assert.IsType<BadRequestObjectResult>(await controller.Return(booking.Id, request, token));
+        Assert.Single(await db.RentalInvoices.ToListAsync(token));
+    }
+
     private static ApplicationDbContext CreateDb() => new(new DbContextOptionsBuilder<ApplicationDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 

@@ -369,6 +369,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(x => x.TransportCost).HasPrecision(18, 2);
             entity.Property(x => x.ExternalServiceCost).HasPrecision(18, 2);
             entity.Property(x => x.TaxCost).HasPrecision(18, 2);
+            entity.Property(x => x.TaxRate).HasPrecision(9, 6);
+            entity.Property(x => x.TaxOverrideReason).HasMaxLength(1000);
             entity.Property(x => x.OtherCost).HasPrecision(18, 2);
             entity.Property(x => x.MeterReading).HasPrecision(18, 2);
             entity.Property(x => x.NextServiceMeter).HasPrecision(18, 2);

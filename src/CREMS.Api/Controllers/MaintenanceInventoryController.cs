@@ -52,10 +52,10 @@ public sealed class MaintenanceInventoryController(ApplicationDbContext db, Curr
         var cost = request.Quantity * usage.UnitCost;
         if (job.PartsCost < cost) return Conflict(new { message = "Job parts costs need reconciliation before this return can be recorded." });
         part.QuantityOnHand = checked(part.QuantityOnHand + (int)request.Quantity);
-        var breakdown = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost;
+        var breakdown = MaintenanceCosts.Total(job);
         job.OtherCost += Math.Max(0, (job.ActualCost ?? breakdown) - breakdown);
         job.PartsCost -= cost;
-        job.ActualCost = job.PartsCost + job.LabourCost + job.TransportCost + job.ExternalServiceCost + job.TaxCost + job.OtherCost;
+        job.ActualCost = MaintenanceCosts.Total(job);
         job.UpdatedAt = DateTimeOffset.UtcNow;
         db.MaintenancePartUsages.Add(new MaintenancePartUsage { MaintenanceJobId = jobId, InventoryPartId = part.Id,
             Quantity = -request.Quantity, UnitCost = usage.UnitCost });

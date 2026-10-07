@@ -307,7 +307,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             rentalRevenue, maintenanceExpense, operatingExpense, transferExpense = transferCost, totalExpense, operatingProfit = rentalRevenue - totalExpense,
             asset.AcquisitionCost, asset.CurrentBookValue, lifetimeNetAfterAcquisition = rentalRevenue - totalExpense - asset.AcquisitionCost,
             rentalCount = items.Select(x => x.BookingId).Distinct().Count(), rentalDays = items.Sum(x => Math.Max(1, Math.Ceiling((x.EndAt - x.StartAt).TotalDays))), inspectionCount,
-            maintenance = maintenance.Select(x => new { x.Id, x.JobNumber, x.ServiceType, x.Status, x.ReportedAt, x.CompletedAt, x.ActualCost, x.PartsCost, x.LabourCost, x.TransportCost, x.ExternalServiceCost, x.TaxCost, x.OtherCost, x.DowntimeHours, x.InvoiceNumber }),
+            maintenance = maintenance.Select(x => new { x.Id, x.JobNumber, x.ServiceType, x.Status, x.ReportedAt, x.CompletedAt, x.ActualCost, x.PartsCost, x.LabourCost, x.TransportCost, x.ExternalServiceCost, x.TaxCost, x.TaxMode, x.TaxRate, x.OtherCost, x.DowntimeHours, x.InvoiceNumber }),
             chargeComponents = componentCharges.Select(x => new { x.Id, x.Description, x.Category, x.Unit, x.Quantity, x.UnitRate, x.UnitCost, revenue = x.Quantity * x.UnitRate, expense = x.Quantity * x.UnitCost }),
             costs = costs.Select(x => new { x.Id, x.Category, x.Description, x.Amount, x.OccurredOn, x.Supplier, x.ReferenceNumber }) });
     }
