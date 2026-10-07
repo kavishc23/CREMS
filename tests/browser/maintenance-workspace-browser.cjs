@@ -6,7 +6,7 @@ const path = require('node:path');
 (async () => {
  const browser = await chromium.launch({ channel: 'chrome', headless: true });
  try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); page.setDefaultTimeout(15000);
+  const page = await browser.newPage({ timezoneId: 'Pacific/Fiji', viewport: { width: 1440, height: 1000 } }); page.setDefaultTimeout(15000);
   const errors = []; page.on('pageerror', e => { errors.push(e.message); console.error('PAGE ERROR:', e.message); });
   page.on('response', r => { if (r.status() >= 400) console.error('HTTP', r.status(), r.url()); });
   let jobs = [], documents = [], ledger = [], available = 5, sequence = 0, denied = false;
@@ -96,6 +96,17 @@ const path = require('node:path');
   await page.getByRole('button', {name:'Close audit record'}).click();
   await page.getByRole('tab', {name:'Job details',exact:true}).click();
   console.log('PASS originating inspection, named checklist responses, upcoming targets and audit record links');
+  const releaseInput = page.getByLabel('Expected release (your local time)',{exact:true});
+  await releaseInput.fill('2026-10-09T14:00');
+  await page.getByRole('button',{name:'Save details',exact:true}).click(); await page.getByText('Record loaded',{exact:true}).waitFor();
+  assert.equal(writes.at(-1).expectedReleaseAt,'2026-10-09T02:00:00.000Z');
+  assert.equal(await releaseInput.inputValue(),'2026-10-09T14:00'); assert.equal(asset.status,'Maintenance');
+  await releaseInput.fill('');
+  await page.getByRole('button',{name:'Save details',exact:true}).click(); await page.getByText('Record loaded',{exact:true}).waitFor();
+  assert.equal(writes.at(-1).expectedReleaseAt,null); assert.equal(await releaseInput.inputValue(),'');
+  await releaseInput.fill('2026-10-01T12:00');
+  await page.getByRole('button',{name:'Save details',exact:true}).click(); await page.getByText('Record loaded',{exact:true}).waitFor();
+  console.log('PASS expected-release save, reload, clear, Fiji-to-UTC conversion and unchanged availability');
   assert.equal(writes[0].assignedPersonnelId, 't1'); assert.equal(writes[0].hasEstimate, true); console.log('PASS searchable explicit asset selection, master technician and intake');
   await page.getByRole('button', { name: 'Start work', exact: true }).click(); await page.getByRole('button', { name: 'Confirm', exact: true }).click(); await page.getByRole('button', { name: 'Start work', exact: true }).waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Wait for parts', exact: true }).click(); await page.getByLabel('Reason for status change').fill('Filter delivery expected this afternoon.'); await page.getByRole('button', { name: 'Confirm', exact: true }).click(); await page.getByRole('button', { name: 'Wait for parts', exact: true }).waitFor({ state: 'hidden' });

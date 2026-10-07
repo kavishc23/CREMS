@@ -75,3 +75,13 @@ Reporting limitations found by code inspection (not changed as part of the maint
 These limitations mean the current asset report should not be described as a fully reconciled company-wide profit statement. A separate reporting correction needs an explicit allocation rule for shared booking costs and unassigned charges.
 
 Fix validation: 284 API tests passed (SQL enabled), 23 frontend tests passed, production build and maintenance lint passed, and five relevant browser suites passed (maintenance, pickup/return, general asset inspection, booking pre-hire, return charges).
+
+## Expected-release investigation
+
+Read-only inspection of the three jobs in the screenshot confirmed ExpectedReleaseAt is NULL for MNT-2026-0103, MNT-AUTO-20260907-2f43e87b229 and MNT-2026-0001. The dash is the display fallback for an unset value, not a failed save or a missing actual release. The estimate is optional. Automatic preventive creation does not assign a duration or invent a deadline.
+
+To set one, open the job, choose Job details, enter Expected release (your local time), then Save details. The input uses the browser's local timezone and the register formats dates in Fiji time. Completion and safety release remain independent of this estimate. A blank estimate is not counted as a missed repair deadline; zero missed deadlines is not proof that every job is on schedule.
+
+Verification on the current feature branch: the full existing API suite passed 284 tests with isolated SQL enabled, and one new expected-release regression passed separately. The new test covers creation, retrieval, persisted updates, clearing, and continued asset unavailability after an elapsed estimate or completed work. All 23 frontend unit tests and the production build passed. Eight maintenance/inspection/rental/viewport browser suites passed; an extended maintenance browser scenario additionally verifies entering 14:00 Fiji saves 02:00 UTC, reloads as 14:00 Fiji, and can be cleared. Existing reporting limitations above remain outstanding; this result is not an all-features accounting certification. No operational job dates were changed.
+
+The four reporting limitations identified above are addressed in the current working tree; see asset-profitability-corrections-2026-10-08.md for allocation rules, coverage and the operational report boundary.

@@ -63,3 +63,5 @@ Maintenance tax coverage includes tax-exclusive and tax-inclusive totals, no-tax
 mode, manual override reasons, division-rate snapshots, stock exclusions, saved
 treatment settings, fuel charges, and financial permission masking. The SQL test runs the EF migration
 chain before exercising the controllers.
+
+Run node tests/browser/asset-profitability-browser.cjs for report expense categories, monthly activity, unallocated balances, CSV download and mobile layout. The browser API is mocked; allocation and CSV values are tested in AssetProfitabilityTests.

@@ -73,4 +73,30 @@ public class MaintenanceStatusRegressionTests
         Assert.Equal(10m, job.PartsCost); Assert.Equal(10m, job.ActualCost); Assert.Equal(MaintenanceStatus.Open, job.Status);
     }
 
+    [Fact]
+    public async Task Expected_release_is_optional_persists_changes_and_does_not_release_the_asset()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var db = MaintenanceJobsTests.Database(); var (jobs, asset) = await MaintenanceJobsTests.Setup(db);
+        var estimate = new DateTimeOffset(2026, 10, 9, 14, 0, 0, TimeSpan.FromHours(12));
+        await jobs.Create(new(asset.Id, "Repair", "Fault", null, null, 0, null, ExpectedReleaseAt: estimate), token);
+        var job = await db.MaintenanceJobs.SingleAsync(token);
+        Assert.Equal(estimate, job.ExpectedReleaseAt);
+        var workspace = new MaintenanceWorkspaceController(db, new CurrentStaffScope(db), new MaintenanceJobsTests.MaintenanceAuthorization(db)) { ControllerContext = jobs.ControllerContext };
+        var record = System.Text.Json.JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(await workspace.Detail(job.Id,token)).Value).GetProperty("job");
+        Assert.Equal(estimate.UtcDateTime, record.GetProperty("expectedReleaseAt").GetDateTimeOffset().UtcDateTime);
+        var elapsed = DateTimeOffset.UtcNow.AddDays(-1);
+        Assert.IsType<NoContentResult>(await jobs.Update(job.Id, MaintenanceJobsTests.Request(MaintenanceStatus.InProgress) with { ExpectedReleaseAt = elapsed },token));
+        db.ChangeTracker.Clear();
+        Assert.Equal(elapsed, (await db.MaintenanceJobs.SingleAsync(token)).ExpectedReleaseAt);
+        Assert.Equal(AssetStatus.Maintenance, (await db.Assets.SingleAsync(token)).Status);
+        Assert.IsType<NoContentResult>(await jobs.Update(job.Id, MaintenanceJobsTests.Request(MaintenanceStatus.Completed) with { ExpectedReleaseAt = elapsed },token));
+        Assert.Null((await db.MaintenanceJobs.SingleAsync(token)).ReleasedAt);
+        Assert.Equal(AssetStatus.Inspection, (await db.Assets.SingleAsync(token)).Status);
+        Assert.IsType<NoContentResult>(await jobs.Update(job.Id, MaintenanceJobsTests.Request(MaintenanceStatus.Completed) with { ExpectedReleaseAt = null },token));
+        db.ChangeTracker.Clear();
+        Assert.Null((await db.MaintenanceJobs.SingleAsync(token)).ExpectedReleaseAt);
+        Assert.Equal(AssetStatus.Inspection, (await db.Assets.SingleAsync(token)).Status);
+    }
+
 }

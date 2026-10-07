@@ -46,28 +46,7 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     public async Task<ActionResult<object>> AssetProfitability(CancellationToken token)
     {
         var scope = await Scope(); if (scope is null) return Forbid();
-        var assets = await AssetScope(scope).AsNoTracking().Select(x => new { x.Id, x.AssetNumber, x.Name, x.BranchId, x.DivisionId, x.AcquisitionCost, x.CurrentBookValue, x.CurrentMeterReading, x.MeterUnit }).ToListAsync(token);
-        var ids = assets.Select(x => x.Id).ToList();
-        var items = await db.BookingItems.AsNoTracking().Where(x => ids.Contains(x.AssetId) && x.Booking != null && (x.Booking.Status == BookingStatus.Completed || x.Booking.Status == BookingStatus.ConvertedToRental)).Select(x => new { x.AssetId, x.BookingId, x.StartAt, x.EndAt, x.DailyRate, x.CreatedAt }).ToListAsync(token);
-        var charges = await db.BookingCharges.AsNoTracking().Where(x => x.AssetId.HasValue && ids.Contains(x.AssetId.Value)).ToListAsync(token);
-        var maintenance = await db.MaintenanceJobs.AsNoTracking().Where(x => ids.Contains(x.AssetId)).ToListAsync(token);
-        var costs = await db.AssetCostEntries.AsNoTracking().Where(x => ids.Contains(x.AssetId)).ToListAsync(token);
-        var timesheets = await db.PersonnelTimesheets.AsNoTracking().Include(x => x.Assignment).Where(x => x.Assignment != null && db.BookingItems.Any(i => i.BookingId == x.Assignment.BookingId && ids.Contains(i.AssetId))).ToListAsync(token);
-        var rows = assets.Select(asset =>
-        {
-            var rentals = items.Where(x => x.AssetId == asset.Id).ToList(); var bookingIds = rentals.Select(x => x.BookingId).Distinct().ToHashSet();
-            var baseRevenue = rentals.Sum(x => Math.Max(1, (decimal)Math.Ceiling((x.EndAt - x.StartAt).TotalDays)) * x.DailyRate);
-            var component = charges.Where(x => x.AssetId == asset.Id).ToList(); var serviceRevenue = component.Sum(x => x.Quantity * x.UnitRate); var componentCost = component.Sum(x => x.Quantity * x.UnitCost);
-            var maintenanceCost = maintenance.Where(x => x.AssetId == asset.Id).Sum(x => x.ActualCost ?? MaintenanceCosts.Total(x));
-            var directCost = costs.Where(x => x.AssetId == asset.Id).Sum(x => x.Amount);
-            var personnelCost = timesheets.Where(x => bookingIds.Contains(x.Assignment!.BookingId)).Sum(x => x.RegularHours * x.Assignment!.InternalHourlyCost + x.OvertimeHours * x.Assignment.InternalHourlyCost * 1.5m);
-            var revenue = baseRevenue + serviceRevenue; var expense = maintenanceCost + directCost + componentCost + personnelCost; var profit = revenue - expense;
-            var usage = rentals.Sum(x => Math.Max(0, (decimal)(x.EndAt - x.StartAt).TotalHours));
-            return new { asset.Id, asset.AssetNumber, asset.Name, asset.BranchId, asset.DivisionId, revenue, maintenanceCost, directCost, componentCost, personnelCost, totalExpense = expense, grossProfit = profit, profitMargin = revenue == 0 ? 0 : Math.Round(profit * 100 / revenue, 1), asset.AcquisitionCost, asset.CurrentBookValue, costPerOperatingHour = usage == 0 ? 0 : Math.Round(expense / usage, 2), asset.CurrentMeterReading, asset.MeterUnit, lossMaking = profit < 0 };
-        }).OrderBy(x => x.grossProfit).ToList();
-        var monthStarts = Enumerable.Range(0, 12).Select(offset => new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).AddMonths(offset - 11)).ToList();
-        var monthlyTrend = monthStarts.Select(month => { var end = month.AddMonths(1); var monthItems = items.Where(x => x.CreatedAt >= month && x.CreatedAt < end).ToList(); var monthBookingIds = monthItems.Select(x => x.BookingId).ToHashSet(); var revenue = monthItems.Sum(x => Math.Max(1, (decimal)Math.Ceiling((x.EndAt - x.StartAt).TotalDays)) * x.DailyRate) + charges.Where(x => x.CreatedAt >= month && x.CreatedAt < end).Sum(x => x.Quantity * x.UnitRate); var expense = charges.Where(x => x.CreatedAt >= month && x.CreatedAt < end).Sum(x => x.Quantity * x.UnitCost) + costs.Where(x => x.OccurredOn >= DateOnly.FromDateTime(month) && x.OccurredOn < DateOnly.FromDateTime(end)).Sum(x => x.Amount) + maintenance.Where(x => x.ReportedAt >= month && x.ReportedAt < end).Sum(x => x.ActualCost ?? 0) + timesheets.Where(x => monthBookingIds.Contains(x.Assignment!.BookingId)).Sum(x => x.RegularHours * x.Assignment!.InternalHourlyCost + x.OvertimeHours * x.Assignment.InternalHourlyCost * 1.5m); return new { month = month.ToString("yyyy-MM"), revenue, expense, profit = revenue - expense }; }).ToList();
-        return Ok(new { generatedAt = DateTimeOffset.UtcNow, totals = new { revenue = rows.Sum(x => x.revenue), expense = rows.Sum(x => x.totalExpense), profit = rows.Sum(x => x.grossProfit), lossMakingAssets = rows.Count(x => x.lossMaking) }, monthlyTrend, assets = rows });
+        return Ok(await AssetProfitabilityReport.Build(db, AssetScope(scope), scope.IsAdministrator, token));
     }
 
     [HttpGet("management-reports")]
@@ -230,8 +209,11 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     [Authorize(Policy = SystemPolicies.ViewReports)]
     public async Task<IActionResult> ExportProfitability(CancellationToken token)
     {
-        var result = await AssetProfitability(token); if (result.Result is not OkObjectResult ok) return result.Result!; var json = JsonSerializer.Serialize(ok.Value); using var document = JsonDocument.Parse(json); var rows = document.RootElement.GetProperty("assets").EnumerateArray(); var csv = new StringBuilder("Asset number,Asset,Revenue,Expense,Gross profit,Margin %,Loss making\n");
+        var result = await AssetProfitability(token); if (result.Result is not OkObjectResult ok) return result.Result!; var json = JsonSerializer.Serialize(ok.Value, new JsonSerializerOptions(JsonSerializerDefaults.Web)); using var document = JsonDocument.Parse(json); var rows = document.RootElement.GetProperty("assets").EnumerateArray(); var csv = new StringBuilder("Asset number,Asset,Revenue,Expense,Gross profit,Margin %,Loss making\n");
         foreach (var row in rows) csv.AppendLine(string.Join(',', Csv(row.GetProperty("assetNumber").GetString()), Csv(row.GetProperty("name").GetString()), row.GetProperty("revenue").GetDecimal().ToString(CultureInfo.InvariantCulture), row.GetProperty("totalExpense").GetDecimal().ToString(CultureInfo.InvariantCulture), row.GetProperty("grossProfit").GetDecimal().ToString(CultureInfo.InvariantCulture), row.GetProperty("profitMargin").GetDecimal().ToString(CultureInfo.InvariantCulture), row.GetProperty("lossMaking").GetBoolean()));
+        var unallocated = document.RootElement.GetProperty("unallocated");
+        if (unallocated.GetProperty("revenue").GetDecimal() != 0 || unallocated.GetProperty("expense").GetDecimal() != 0)
+            csv.AppendLine(string.Join(',', "Unallocated", "Booking amounts with no asset", unallocated.GetProperty("revenue").GetDecimal().ToString(CultureInfo.InvariantCulture), unallocated.GetProperty("expense").GetDecimal().ToString(CultureInfo.InvariantCulture), unallocated.GetProperty("profit").GetDecimal().ToString(CultureInfo.InvariantCulture), "", unallocated.GetProperty("profit").GetDecimal() < 0));
         return File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv", $"asset-profitability-{DateTime.UtcNow:yyyyMMdd}.csv");
     }
 
