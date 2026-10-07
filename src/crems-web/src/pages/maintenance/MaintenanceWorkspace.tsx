@@ -148,13 +148,8 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
       <Box role="dialog" aria-label={job ? `Maintenance ${job.jobNumber}` : 'Log maintenance job'} sx={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Box p={{ xs: 2, sm: 3 }} bgcolor="background.paper">
           <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={2}><Box><Typography variant="overline" color="text.secondary">{job ? job.assetNumber : 'New maintenance job'}</Typography><Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>{job?.jobNumber ?? 'Log maintenance job'}</Typography><Typography color="text.secondary">{job ? `${job.assetName} · ${job.branchName}` : 'Choose an asset and describe the work required.'}</Typography></Box><IconButton aria-label="Close maintenance workspace" disabled={busy} onClick={() => guard(onClose)}><CloseOutlined /></IconButton></Stack>
-          {job && <Stack direction="row" gap={1} mt={2} useFlexGap flexWrap="wrap"><Chip label={job.releasedAt ? 'Returned to service' : job.status === 'Completed' ? 'Work completed · safety check pending' : label(job.status)} color={job.releasedAt ? 'success' : 'warning'} /><Chip label={job.priority} variant="outlined" />{repairOverdue(job) && <Chip label="Repair deadline missed" color="error" />}<Chip label={`Asset: ${label(job.assetStatus)}`} variant="outlined" /></Stack>}
-          {job && !closed(job) && <Stack direction="row" gap={1} mt={2} useFlexGap flexWrap="wrap">
-            {job.status !== 'InProgress' && <Button variant="outlined" disabled={busy} onClick={() => { setTransition('InProgress'); setReason('') }}>Start work</Button>}
-            {job.status !== 'WaitingForParts' && <Button disabled={busy} onClick={() => { setTransition('WaitingForParts'); setReason('') }}>Wait for parts</Button>}
-            {access.canComplete && <Button variant="contained" disabled={busy} onClick={() => { setTransition('Completed'); setReason('') }}>Complete work</Button>}
-            <Button color="error" disabled={busy} onClick={() => { setTransition('Cancelled'); setReason('') }}>Cancel job</Button>
-          </Stack>}
+          {job && <Stack direction="row" gap={1} mt={2} alignItems="center" useFlexGap flexWrap="wrap"><Chip label={job.releasedAt ? 'Returned to service' : job.status === 'Completed' ? 'Work completed · safety check pending' : label(job.status)} color={job.releasedAt ? 'success' : 'warning'} /><Chip label={job.priority} variant="outlined" />{repairOverdue(job) && <Chip label="Repair deadline missed" color="error" />}<Chip label={`Asset: ${label(job.assetStatus)}`} variant="outlined" /><Box sx={{ flex: 1 }} />{!['Safety', 'History'].includes(tab) && <Button variant="contained" disabled={busy || readOnly || loading || !form.assetId} onClick={() => formElement.current?.requestSubmit()}>{busy ? 'Saving…' : 'Save details'}</Button>}</Stack>}
+          {!job && !['Safety', 'History'].includes(tab) && <Stack direction="row" justifyContent="flex-end" mt={2}><Button variant="contained" disabled={busy || readOnly || loading || !form.assetId} onClick={() => formElement.current?.requestSubmit()}>{busy ? 'Saving…' : 'Save maintenance job'}</Button></Stack>}
           {job && closed(job) && access.canComplete && <Button sx={{ mt: 1 }} disabled={busy} onClick={() => { setTransition('InProgress'); setReason('') }}>Reopen work</Button>}
         </Box>
         <Tabs value={tab} onChange={(_, value: string) => setTab(value)} variant="scrollable" scrollButtons="auto" sx={{ px: 1, borderBottom: 1, borderColor: 'divider' }}><Tab value="Details" label="Job details" /><Tab value="Work" label={job ? "Work and service targets" : "Service targets"} />{access.canFinancial && <Tab value="Costs" label="Expenses" />}<Tab value="Evidence" label="Evidence" />{job && <Tab value="Safety" label="Safety check" />}{job && <Tab value="History" label="Asset history" />}</Tabs>
@@ -232,7 +227,12 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
               </Stack>}
             </>}
           </Box>
-          {!['Safety', 'History'].includes(tab) && <Stack direction="row" justifyContent="space-between" alignItems="center" gap={2} sx={{ px: { xs: 2, sm: 3 }, py: 2, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}><Typography variant="caption" color="text.secondary">{dirty ? 'Unsaved changes' : jobId ? 'Record loaded' : 'New job'}</Typography><Button type="submit" variant="contained" disabled={busy || readOnly || loading || !form.assetId}>{busy ? 'Saving…' : jobId ? 'Save details' : 'Save maintenance job'}</Button></Stack>}
+          {((job && !closed(job)) || !['Safety', 'History'].includes(tab)) && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1.5} sx={{ px: { xs: 2, sm: 3 }, py: 2, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+            <Box>{job && !closed(job) && <Button color="error" disabled={busy} onClick={() => { setTransition('Cancelled'); setReason('') }}>Cancel job</Button>}</Box>
+            <Stack direction="row" gap={1} useFlexGap flexWrap="wrap" justifyContent={{ xs: 'flex-start', sm: 'flex-end' }}>
+              {job && !closed(job) && <>{job.status !== 'InProgress' && <Button variant="outlined" disabled={busy} onClick={() => { setTransition('InProgress'); setReason('') }}>Start work</Button>}{job.status !== 'WaitingForParts' && <Button variant="outlined" disabled={busy} onClick={() => { setTransition('WaitingForParts'); setReason('') }}>Wait for parts</Button>}{access.canComplete && <Button variant="contained" disabled={busy} onClick={() => { setTransition('Completed'); setReason('') }}>Complete work</Button>}</>}
+            </Stack>
+          </Stack>}
         </Box>
       </Box>
     </Drawer>
