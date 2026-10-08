@@ -9,6 +9,20 @@ namespace CREMS.Api.Tests;
 public class MaintenanceStatusRegressionTests
 {
     [Fact]
+    public async Task Typed_technician_can_be_created_edited_and_cleared_without_personnel_record()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var db = MaintenanceJobsTests.Database(); var (jobs, asset) = await MaintenanceJobsTests.Setup(db);
+        Assert.IsType<OkObjectResult>(await jobs.Create(new(asset.Id, "Repair", "Fault", "  Workshop technician  ", null, 0, null), token));
+        var job = await db.MaintenanceJobs.SingleAsync(token);
+        Assert.Equal("Workshop technician", job.AssignedTo); Assert.Null(job.AssignedPersonnelId);
+        Assert.IsType<NoContentResult>(await jobs.Update(job.Id, MaintenanceJobsTests.Request(MaintenanceStatus.InProgress) with { AssignedTo = "New technician", AssignedPersonnelId = null }, token));
+        Assert.Equal("New technician", job.AssignedTo); Assert.Null(job.AssignedPersonnelId);
+        Assert.IsType<NoContentResult>(await jobs.Update(job.Id, MaintenanceJobsTests.Request(MaintenanceStatus.InProgress) with { AssignedTo = "  ", AssignedPersonnelId = null }, token));
+        Assert.Null(job.AssignedTo);
+    }
+
+    [Fact]
     public async Task Blocking_jobs_include_old_open_work_beyond_history_limit_and_exclude_closed_jobs()
     {
         var token = TestContext.Current.CancellationToken;
