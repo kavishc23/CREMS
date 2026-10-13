@@ -1,5 +1,6 @@
 using CREMS.Api.Services;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
@@ -99,7 +100,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (booking.Status != BookingStatus.Confirmed) return BadRequest(new { message = "Only a confirmed booking can have a pre-hire inspection prepared." });
         if (asset is null || !string.Equals(asset.AssetNumber, request.ScannedAssetNumber?.Trim(), StringComparison.OrdinalIgnoreCase))
             return BadRequest(new { message = "Scan or enter the asset allocated to this booking." });
-        if (string.IsNullOrWhiteSpace(request.ConditionNotes) || request.ChecklistItems is null || request.ChecklistItems.Count == 0 || request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
+        if (string.IsNullOrWhiteSpace(request.ConditionNotes) || (request.ChecklistItems?.Count ?? 0) + (request.ChecklistFailedItems?.Count ?? 0) == 0 || request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
             return BadRequest(new { message = "Complete the checklist, condition notes and at least one inspection photo." });
         if (request.MeterReading < 0 || request.FuelLevelPercent is < 0 or > 100 || request.MeterReading.HasValue && asset.CurrentMeterReading.HasValue && request.MeterReading < asset.CurrentMeterReading)
             return BadRequest(new { message = "Check the meter and fuel readings. The meter cannot decrease and fuel must be between 0 and 100 percent." });
@@ -108,7 +109,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         inspection.FuelLevelPercent = request.FuelLevelPercent;
         inspection.ConditionNotes = Normalize(request.ConditionNotes);
         inspection.DamageNotes = Normalize(request.DamageNotes);
-        inspection.EvidenceJson = System.Text.Json.JsonSerializer.Serialize(new { checklist = request.ChecklistItems, photos = request.EvidenceDataUrls, damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes });
+        inspection.EvidenceJson = System.Text.Json.JsonSerializer.Serialize(new { checklist = request.ChecklistItems, checklistResults = request.ChecklistAllItems?.Select(label => new { label, passed = request.ChecklistItems?.Contains(label) == true ? (bool?)true : request.ChecklistFailedItems?.Contains(label) == true ? false : null }), photos = request.EvidenceDataUrls, damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes });
         inspection.CompletedAt = DateTimeOffset.UtcNow;
         inspection.CompletedByUserId = scope.UserId;
         inspection.CompletedByName = scope.UserName;
@@ -191,7 +192,8 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status != BookingStatus.ConvertedToRental && !(booking.Status == BookingStatus.Completed && !booking.Inspections.Any(x => x.Type == InspectionType.Return))) return BadRequest(new { message = "Only an active rental can be returned." });
         var returnedAt = DateTimeOffset.UtcNow;
-        return Ok(new { returnedAt, lateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt) });
+        var multiplier = await LateFeeMultiplier(cancellationToken);
+        return Ok(new { returnedAt, lateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt, multiplier), multiplier });
     }
 
     [HttpPost("{bookingId:guid}/return")]
@@ -214,8 +216,12 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["bond"] = ["The bond deduction must be between zero and the amount held."] }));
         if (request.BondDeductionAmount > 0 && string.IsNullOrWhiteSpace(request.BondDeductionReason))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["bondReason"] = ["Give a clear reason for every bond deduction."] }));
-        if (request.ChecklistItems is null || request.ChecklistItems.Count == 0 || string.IsNullOrWhiteSpace(request.ConditionNotes))
+        if ((request.ChecklistItems?.Count ?? 0) + (request.ChecklistFailedItems?.Count ?? 0) == 0 || string.IsNullOrWhiteSpace(request.ConditionNotes))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Complete the category checklist and record the post-hire condition."] }));
+        if (request.ChecklistAllItems is { Count: > 0 } && request.ChecklistAllItems.Any(label => request.ChecklistItems?.Contains(label) != true && request.ChecklistFailedItems?.Contains(label) != true))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["checklist"] = ["Mark every checklist item as passed or failed."] }));
+        if (request.ChecklistFailedItems?.Count > 0 && string.IsNullOrWhiteSpace(request.DamageNotes))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["damageNotes"] = ["Describe every failed checklist item before completing the return."] }));
         if (request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["photos"] = ["Attach at least one return inspection photograph."] }));
 
@@ -231,7 +237,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var returnedAt = request.ReturnedAt ?? DateTimeOffset.UtcNow;
         if (returnedAt > DateTimeOffset.UtcNow || booking.Items.Any(x => returnedAt < x.StartAt))
             return BadRequest(new { message = "The return time must be after hire starts and no later than now." });
-        var calculatedLateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt);
+        var calculatedLateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt, await LateFeeMultiplier(cancellationToken));
         var lateFee = request.LateFee ?? calculatedLateFee;
         var returnInspection = CreateInspection(booking.Id, InspectionType.Return, request, scope);
         returnInspection.CompletedAt = returnedAt;
@@ -312,6 +318,12 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         return Ok(ToResponse(booking));
     }
 
+    private async Task<decimal> LateFeeMultiplier(CancellationToken token)
+    {
+        var value = await db.SystemSettings.AsNoTracking().Where(x => x.Key == "rentals.lateFeeMultiplier").Select(x => x.Value).FirstOrDefaultAsync(token);
+        return decimal.TryParse(value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var multiplier) && multiplier is >= 0 and <= 10 ? multiplier : 1m;
+    }
+
     private static RentalInspection CreateInspection(Guid bookingId, InspectionType type,
         InspectionRequest request, StaffDataScope scope) => new()
     {
@@ -320,7 +332,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         FuelLevelPercent = request.FuelLevelPercent, ConditionNotes = Normalize(request.ConditionNotes),
         DamageNotes = Normalize(request.DamageNotes), SignatureName = Normalize(request.SignatureName),
         SignatureDataUrl = request.SignatureDataUrl, PaymentVerified = request.PaymentVerified,
-        EvidenceJson = System.Text.Json.JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes }),
+        EvidenceJson = System.Text.Json.JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], checklistResults = request.ChecklistAllItems?.Select(label => new { label, passed = request.ChecklistItems?.Contains(label) == true ? (bool?)true : request.ChecklistFailedItems?.Contains(label) == true ? false : null }), photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes }),
         CompletedByUserId = scope.UserId, CompletedByName = scope.UserName,
     };
 
@@ -356,6 +368,8 @@ public record InspectionRequest(
     public IReadOnlyList<string>? EvidenceDataUrls { get; init; }
     public IReadOnlyList<string>? DamageZones { get; init; }
     public IReadOnlyList<string>? ChecklistItems { get; init; }
+    public IReadOnlyList<string>? ChecklistAllItems { get; init; }
+    public IReadOnlyList<string>? ChecklistFailedItems { get; init; }
 }
 public sealed record ReturnInspectionRequest(
     string ScannedAssetNumber,
@@ -393,4 +407,4 @@ public sealed record RentalWorkQueueRow(Guid Id, string BookingNumber, string St
 
 public sealed record PreHireInspectionRequest(string? ScannedAssetNumber, decimal? MeterReading, int? FuelLevelPercent,
     string? ConditionNotes, string? DamageNotes, IReadOnlyList<string>? ChecklistItems,
-    IReadOnlyList<string>? EvidenceDataUrls, IReadOnlyList<string>? DamageZones, string? AccessoryNotes);
+    IReadOnlyList<string>? EvidenceDataUrls, IReadOnlyList<string>? DamageZones, string? AccessoryNotes, IReadOnlyList<string>? ChecklistAllItems = null, IReadOnlyList<string>? ChecklistFailedItems = null);

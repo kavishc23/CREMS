@@ -67,7 +67,7 @@ export function BranchesPage({ userRoles }: { userRoles: string[] }) {
   }
 
   async function save(event: FormEvent) {
-    event.preventDefault(); setSaving(true); setError('')
+    event.preventDefault(); if (!form.divisionIds.length) { setError('Assign at least one business/division to this branch.'); return } setSaving(true); setError('')
     try {
       const payload = { ...form, latitude: form.latitude ? Number(form.latitude) : null, longitude: form.longitude ? Number(form.longitude) : null, branchManagerUserId: form.branchManagerUserId || null }
       if (editing) await api.put(`/branches/${editing.id}`, payload)
@@ -76,7 +76,7 @@ export function BranchesPage({ userRoles }: { userRoles: string[] }) {
     } catch (requestError: unknown) {
       const data = axios.isAxiosError(requestError) ? requestError.response?.data : undefined
       const errors = data?.errors as Record<string, string[]> | undefined
-      setError(errors ? Object.values(errors).flat().join(' ') : 'Unable to save the branch.')
+      setError(errors ? Object.values(errors).flat().join(' ') : data?.message ?? 'Unable to save the branch.')
     } finally { setSaving(false) }
   }
 
@@ -89,7 +89,7 @@ export function BranchesPage({ userRoles }: { userRoles: string[] }) {
   }
 
   return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1400, mx: 'auto' }}>
-    <PageHeader icon={<StoreOutlined />} title="Branches" subtitle="Maintain the locations used to organize staff, assets and rental activity." actions={isAdministrator && <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add branch</Button>} />
+    <PageHeader icon={<StoreOutlined />} title="Branches" subtitle="Assign each location to the businesses operating there and manage local contact details." actions={isAdministrator && <Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add branch</Button>} />
     {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     <Card variant="outlined"><CardContent sx={{ p: 0 }}>
       {loading ? <Box sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> :

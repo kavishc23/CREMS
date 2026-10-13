@@ -148,6 +148,45 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
     [HttpPost("tasks")]
     public async Task<ActionResult> CreateTask(TaskRequest request, CancellationToken token) { var scope = request.BranchId.HasValue ? await ScopeFor(request.BranchId.Value) : await Scope(); if (scope is null) return Forbid(); var item = new ManagementTask { BranchId = request.BranchId, Category = request.Category, Priority = request.Priority, Title = request.Title.Trim(), Description = Clean(request.Description), DueAt = request.DueAt, AssignedUserId = request.AssignedUserId }; db.ManagementTasks.Add(item); await SaveAudit(scope, "Management task created", item.Id, item.Title, item.BranchId, token); return Ok(item); }
 
+    [HttpPatch("tasks/{id:guid}/complete")]
+    public async Task<ActionResult> CompleteTask(Guid id, CancellationToken token)
+    {
+        var item = await db.ManagementTasks.FirstOrDefaultAsync(x => x.Id == id, token);
+        if (item is null) return NotFound();
+        var scope = item.BranchId.HasValue ? await ScopeFor(item.BranchId.Value) : await Scope();
+        if (scope is null || (!scope.IsAdministrator && item.AssignedUserId != scope.UserId)) return Forbid();
+        if (item.IsCompleted) return Conflict(new { message = "This task is already complete." });
+        item.IsCompleted = true;
+        item.UpdatedAt = DateTimeOffset.UtcNow;
+        await SaveAudit(scope, "Management task completed", item.Id, item.Title, item.BranchId, token);
+        return Ok(item);
+    }
+
+    [HttpPatch("cases/{id:guid}/status")]
+    public async Task<ActionResult> SetCaseStatus(Guid id, CaseStatusRequest request, CancellationToken token)
+    {
+        var item = await db.CustomerCases.FirstOrDefaultAsync(x => x.Id == id, token);
+        if (item is null) return NotFound();
+        var scope = await ScopeFor(item.BranchId);
+        if (scope is null || (!scope.IsAdministrator && item.AssignedUserId != scope.UserId)) return Forbid();
+        var valid = (item.Status, request.Status) switch
+        {
+            (CaseStatus.Open, CaseStatus.InProgress or CaseStatus.WaitingForCustomer or CaseStatus.Resolved) => true,
+            (CaseStatus.InProgress, CaseStatus.WaitingForCustomer or CaseStatus.Resolved) => true,
+            (CaseStatus.WaitingForCustomer, CaseStatus.InProgress or CaseStatus.Resolved) => true,
+            (CaseStatus.Resolved, CaseStatus.Closed or CaseStatus.InProgress) => true,
+            _ => false,
+        };
+        if (!valid) return Conflict(new { message = $"A {item.Status} case cannot change to {request.Status}." });
+        if ((request.Status is CaseStatus.Resolved or CaseStatus.Closed) && string.IsNullOrWhiteSpace(request.Resolution) && string.IsNullOrWhiteSpace(item.Resolution))
+            return Validation("resolution", "Enter a resolution before resolving or closing the case.");
+        item.Status = request.Status;
+        if (!string.IsNullOrWhiteSpace(request.Resolution)) item.Resolution = request.Resolution.Trim();
+        item.UpdatedAt = DateTimeOffset.UtcNow;
+        await SaveAudit(scope, "Customer case status changed", item.Id, $"{item.CaseNumber}: {item.Status}", item.BranchId, token);
+        return Ok(item);
+    }
+
     [HttpPost("telematics")]
     [Authorize(Policy = SystemPolicies.ManageBranch)]
     public async Task<ActionResult> RecordTelematics(TelematicsRequest request, CancellationToken token) { var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == request.AssetId, token); if (asset is null) return NotFound(); var scope = await ScopeFor(asset.BranchId); if (scope is null) return Forbid(); var snapshot = new TelematicsSnapshot { AssetId = request.AssetId, Provider = request.Provider.Trim(), RecordedAt = request.RecordedAt, Latitude = request.Latitude, Longitude = request.Longitude, Odometer = request.Odometer, EngineHours = request.EngineHours, FuelPercent = request.FuelPercent, FaultCodesJson = JsonSerializer.Serialize(request.FaultCodes ?? []), UnauthorizedMovement = request.UnauthorizedMovement }; db.TelematicsSnapshots.Add(snapshot); if (snapshot.UnauthorizedMovement) db.ManagementTasks.Add(new ManagementTask { BranchId = asset.BranchId, Category = TaskCategory.OverdueRental, Priority = TaskPriority.Critical, Title = $"Unauthorized movement: {asset.AssetNumber}", DueAt = DateTimeOffset.UtcNow, SourceEntityType = nameof(Asset), SourceEntityId = asset.Id }); await db.SaveChangesAsync(token); return Ok(snapshot); }
@@ -239,7 +278,34 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
     }
 
     [HttpPatch("dispatches/{id:guid}/status")]
-    public async Task<ActionResult> SetDispatchStatus(Guid id, DispatchStatusRequest request, CancellationToken token) { var item = await db.DispatchJobs.FirstOrDefaultAsync(x => x.Id == id, token); if (item is null) return NotFound(); var scope = await ScopeFor(item.BranchId); if (scope is null) return Forbid(); item.Status = request.Status; item.ProofJson = request.Status == DispatchStatus.Completed ? JsonSerializer.Serialize(new { request.SignatureName, request.Notes, request.EvidenceDataUrls, completedAt = DateTimeOffset.UtcNow }) : item.ProofJson; item.UpdatedAt = DateTimeOffset.UtcNow; await SaveAudit(scope, "Dispatch status changed", item.Id, $"{item.DispatchNumber}: {item.Status}", item.BranchId, token); return Ok(item); }
+    public async Task<ActionResult> SetDispatchStatus(Guid id, DispatchStatusRequest request, CancellationToken token)
+    {
+        var item = await db.DispatchJobs.FirstOrDefaultAsync(x => x.Id == id, token);
+        if (item is null) return NotFound();
+        var scope = await ScopeFor(item.BranchId);
+        if (scope is null) return Forbid();
+        var valid = (item.Status, request.Status) switch
+        {
+            (DispatchStatus.Scheduled, DispatchStatus.Assigned or DispatchStatus.Cancelled) => true,
+            (DispatchStatus.Assigned, DispatchStatus.EnRoute or DispatchStatus.Cancelled) => true,
+            (DispatchStatus.EnRoute, DispatchStatus.Arrived or DispatchStatus.Failed) => true,
+            (DispatchStatus.Arrived, DispatchStatus.Completed or DispatchStatus.Failed) => true,
+            (DispatchStatus.Failed, DispatchStatus.Assigned or DispatchStatus.Cancelled) => true,
+            _ => false,
+        };
+        if (!valid) return Conflict(new { message = $"A {item.Status} dispatch cannot change to {request.Status}." });
+        if (request.Status == DispatchStatus.Completed && string.IsNullOrWhiteSpace(request.SignatureName))
+            return Validation("signatureName", "Record the receiving person's name before completing a dispatch.");
+        item.Status = request.Status;
+        if (request.Status == DispatchStatus.Completed)
+        {
+            item.CompletedAt = DateTimeOffset.UtcNow;
+            item.ProofJson = JsonSerializer.Serialize(new { request.SignatureName, request.Notes, request.EvidenceDataUrls, completedAt = item.CompletedAt });
+        }
+        item.UpdatedAt = DateTimeOffset.UtcNow;
+        await SaveAudit(scope, "Dispatch status changed", item.Id, $"{item.DispatchNumber}: {item.Status}", item.BranchId, token);
+        return Ok(item);
+    }
 
     [HttpPatch("transfers/{id:guid}/status")]
     [Authorize(Policy = SystemPolicies.ManageBranch)]
@@ -341,5 +407,6 @@ public sealed record TelematicsRequest(Guid AssetId, string Provider, DateTimeOf
 public sealed record QuoteStatusRequest(QuoteStatus Status, string? Note);
 public sealed record ConvertQuoteRequest(Guid AssetId, DateTimeOffset StartAt, DateTimeOffset EndAt, decimal DailyRate, decimal? DepositRequired, string? Note);
 public sealed record DispatchStatusRequest(DispatchStatus Status, string? SignatureName, string? Notes, IReadOnlyList<string>? EvidenceDataUrls);
+public sealed record CaseStatusRequest(CaseStatus Status, string? Resolution);
 public sealed record TransferStatusRequest(TransferStatus Status, decimal? MeterReading, string? ConditionNotes, string? DamageNotes, IReadOnlyList<string>? EvidenceDataUrls);
 public sealed record DocumentRequest(string EntityType, Guid EntityId, Guid? BranchId, string Type, string FileName, string StoragePath, DateOnly? ExpiresOn, string? ContentHash);

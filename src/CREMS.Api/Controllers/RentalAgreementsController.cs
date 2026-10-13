@@ -56,6 +56,8 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["signature"] = ["Customer acceptance, a drawn customer signature and agent approval are required."] }));
         if (request.ChecklistItems is null || request.ChecklistItems.Count == 0 || string.IsNullOrWhiteSpace(request.ConditionNotes))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Complete the category checklist and record the pre-hire condition."] }));
+        if (request.ChecklistFailedItems?.Count > 0 || request.ChecklistAllItems is { Count: > 0 } && request.ChecklistAllItems.Any(label => !request.ChecklistItems.Contains(label)))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["checklist"] = ["Resolve every failed or pending pre-hire check before pickup."] }));
         if (request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["photos"] = ["Attach at least one pre-hire inspection photograph."] }));
         if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || !request.LicenceExpiry.HasValue || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
@@ -97,7 +99,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         inspection.SignatureName = request.CustomerSignatureName.Trim();
         inspection.SignatureDataUrl = request.CustomerSignatureDataUrl;
         inspection.PaymentVerified = request.PaymentVerified;
-        inspection.EvidenceJson = JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes }, SnapshotJson);
+        inspection.EvidenceJson = JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], checklistResults = request.ChecklistAllItems?.Select(label => new { label, passed = request.ChecklistItems?.Contains(label) == true ? (bool?)true : request.ChecklistFailedItems?.Contains(label) == true ? false : null }), photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes }, SnapshotJson);
         inspection.CompletedByUserId = scope.UserId;
         inspection.CompletedByName = scope.UserName;
         inspection.CompletedAt = now;
@@ -253,4 +255,4 @@ public sealed record PickupRentalRequest(
     string? DamageNotes,
     IReadOnlyList<string>? EvidenceDataUrls,
     IReadOnlyList<string>? DamageZones,
-    IReadOnlyList<string>? ChecklistItems, string? AccessoryNotes);
+    IReadOnlyList<string>? ChecklistItems, string? AccessoryNotes, IReadOnlyList<string>? ChecklistAllItems = null, IReadOnlyList<string>? ChecklistFailedItems = null);

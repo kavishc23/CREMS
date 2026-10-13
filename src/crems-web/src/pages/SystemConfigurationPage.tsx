@@ -17,6 +17,7 @@ const settingNames: Record<string, string> = {
   'rentals.vatRate': 'VAT rate',
   'rentals.defaultDeposit': 'Default refundable bond',
   'rentals.defaultCurrency': 'Currency',
+  'rentals.lateFeeMultiplier': 'Late return fee multiplier',
   'bookings.holdMinutes': 'Reservation hold time (minutes)',
   'notifications.emailFrom': 'Sender email address',
 }
@@ -45,8 +46,8 @@ export function SystemConfigurationPage() {
   async function saveTemplate(item: Template) { setSaving(true); try { await api.put(`/administration/templates/${item.id}`, item); await load() } catch { setError('This message template could not be saved.') } finally { setSaving(false) } }
 
   const overviewSections = [
-    { title: 'Rental defaults', detail: 'Tax, currency, refundable bonds and booking hold rules.', tab: 1 },
-    { title: 'Rates & charges', detail: 'Reusable customer rates and internal cost definitions.', tab: 2 },
+    { title: 'Rental defaults', detail: 'Tax, currency, late return fees and booking hold rules.', tab: 1 },
+    { title: 'Rates & charges', detail: 'Customer rates, included usage, excess usage rates and cost definitions.', tab: 2 },
     ...(isNotificationModuleEnabled ? [{ title: 'Notifications', detail: 'Customer email wording and delivery configuration.', tab: 3 }] : []),
     { title: 'System health', detail: 'Database, version and administrator activity.', tab: 4 },
     { title: 'Approval rules', detail: 'Route higher-risk bookings through sequential approval stages.', tab: 5 },
