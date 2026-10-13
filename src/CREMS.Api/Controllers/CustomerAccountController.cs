@@ -238,6 +238,23 @@ public sealed class CustomerAccountController(
         });
     }
 
+    [HttpGet("bookings/{bookingId:guid}/agreement")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> DownloadAgreement(Guid bookingId, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null) return Unauthorized();
+        var booking = await db.Bookings.AsNoTracking()
+            .Include(x => x.Customer).Include(x => x.Branch)
+            .Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division)
+            .Include(x => x.Charges).Include(x => x.Inspections).Include(x => x.RentalAgreement)
+            .FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
+        if (booking?.RentalAgreement is null || booking.RentalAgreement.Status is AgreementStatus.Draft or AgreementStatus.ReadyForPickup)
+            return NotFound();
+
+        return Ok(RentalAgreementsController.BuildApproved(booking.RentalAgreement, booking));
+    }
+
     [HttpGet("quotes")]
     [Authorize(Policy = SystemPolicies.CustomerPortal)]
     public async Task<ActionResult> Quotes(CancellationToken token)

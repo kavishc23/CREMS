@@ -164,14 +164,14 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             customerSignatureDataUrl = (string?)null, approvedByName = (string?)null, approvedAt = (DateTimeOffset?)null };
     }
 
-    private static object BuildApproved(RentalAgreement agreement, Booking booking)
+    internal static object BuildApproved(RentalAgreement agreement, Booking booking)
     {
         var current = BuildAgreementData(booking);
         return new { approved = true, agreement.AgreementNumber, agreement.TermsVersion,
-            Customer = Deserialize<CustomerAgreementSnapshot>(agreement.CustomerSnapshotJson),
-            Asset = Deserialize<AssetAgreementSnapshot>(agreement.AssetSnapshotJson), current.Rental,
-            Pricing = Deserialize<PricingAgreementSnapshot>(agreement.PricingSnapshotJson),
-            Terms = Deserialize<IReadOnlyList<AgreementTerm>>(agreement.TermsJson),
+            Customer = DeserializeOrDefault(agreement.CustomerSnapshotJson, current.Customer),
+            Asset = DeserializeOrDefault(agreement.AssetSnapshotJson, current.Asset), current.Rental,
+            Pricing = DeserializeOrDefault(agreement.PricingSnapshotJson, current.Pricing),
+            Terms = DeserializeOrDefault(agreement.TermsJson, current.Terms),
             agreement.CustomerSignatureName, agreement.CustomerSignatureDataUrl, agreement.CustomerSignedAt, agreement.ApprovedByName, agreement.ApprovedAt,
             agreement.LastEmailedTo, agreement.LastEmailedAt };
     }
@@ -222,6 +222,12 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
 
     private static T Deserialize<T>(string json) => JsonSerializer.Deserialize<T>(json, SnapshotJson)
         ?? throw new JsonException($"Stored rental agreement snapshot could not be read as {typeof(T).Name}.");
+    private static T DeserializeOrDefault<T>(string json, T fallback)
+    {
+        try { return Deserialize<T>(json); }
+        catch (JsonException) { return fallback; }
+        catch (NotSupportedException) { return fallback; }
+    }
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private sealed record AgreementData(CustomerAgreementSnapshot Customer, AssetAgreementSnapshot Asset, RentalAgreementSnapshot Rental, PricingAgreementSnapshot Pricing, IReadOnlyList<AgreementTerm> Terms);
     private sealed record CustomerAgreementSnapshot(Guid CustomerId, string CustomerNumber, string Name, string Type, string? Email, string? Phone, string? Address, string? IdentificationNumber);

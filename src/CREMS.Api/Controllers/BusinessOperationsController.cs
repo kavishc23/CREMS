@@ -75,7 +75,21 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     public async Task<ActionResult> ManagementReports(CancellationToken token)
     {
         var scope = await Scope(); if (scope is null) return Forbid(); var bookings = db.Bookings.AsNoTracking().Where(x => scope.IsAdministrator || x.BranchId == scope.BranchId); var bookingIds = bookings.Select(x => x.Id);
-        var customerHistory = await bookings.GroupBy(x => x.CustomerId).Select(x => new { customerId = x.Key, rentals = x.Count(), completed = x.Count(b => b.Status == BookingStatus.Completed), revenue = x.SelectMany(b => b.Items).Sum(i => i.DailyRate * Math.Max(1, EF.Functions.DateDiffDay(i.StartAt, i.EndAt))) + x.SelectMany(b => b.Charges).Sum(c => c.Quantity * c.UnitRate) }).OrderByDescending(x => x.revenue).Take(100).ToListAsync(token);
+        // Materialize simple projections before grouping: SQL Server cannot reliably translate
+        // grouped navigation SelectMany aggregates into a single customer revenue expression.
+        var reportBookings = await bookings.Select(b => new { b.Id, b.CustomerId, b.Status }).ToListAsync(token);
+        var reportItems = await db.BookingItems.AsNoTracking().Where(i => bookingIds.Contains(i.BookingId))
+            .Select(i => new { i.BookingId, i.DailyRate, i.StartAt, i.EndAt }).ToListAsync(token);
+        var reportCharges = await db.BookingCharges.AsNoTracking().Where(c => bookingIds.Contains(c.BookingId))
+            .Select(c => new { c.BookingId, c.Quantity, c.UnitRate }).ToListAsync(token);
+        var itemRevenue = reportItems.GroupBy(i => i.BookingId).ToDictionary(g => g.Key,
+            g => g.Sum(i => i.DailyRate * Math.Max(1m, (decimal)Math.Ceiling((i.EndAt - i.StartAt).TotalDays))));
+        var chargeRevenue = reportCharges.GroupBy(c => c.BookingId).ToDictionary(g => g.Key, g => g.Sum(c => c.Quantity * c.UnitRate));
+        var customerHistory = reportBookings.GroupBy(b => b.CustomerId).Select(g => new {
+            customerId = g.Key, rentals = g.Count(), completed = g.Count(b => b.Status == BookingStatus.Completed),
+            revenue = g.Where(b => b.Status is BookingStatus.Completed or BookingStatus.ConvertedToRental)
+                .Sum(b => itemRevenue.GetValueOrDefault(b.Id) + chargeRevenue.GetValueOrDefault(b.Id))
+        }).OrderByDescending(x => x.revenue).Take(100).ToList();
         var customers = await db.Customers.AsNoTracking().Where(x => customerHistory.Select(h => h.customerId).Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => new { x.CustomerNumber, x.Name }, token);
         var assignments = await db.BookingPersonnelAssignments.AsNoTracking().Include(x => x.Personnel).Include(x => x.Timesheets).Where(x => bookingIds.Contains(x.BookingId)).ToListAsync(token);
         var quotes = db.SalesQuotes.AsNoTracking().Where(x => scope.IsAdministrator || x.BranchId == scope.BranchId && x.DivisionId == scope.DivisionId); var quoteCount = await quotes.CountAsync(token); var convertedQuotes = await quotes.CountAsync(x => x.Status == QuoteStatus.Converted, token);

@@ -14,6 +14,8 @@ import { Accordion, AccordionSummary, AccordionDetails, Pagination, Alert, Avata
 import { InspectionRecord, type Inspection } from './RentalInspectionHistory'
 import { InspectionPhotos } from './InspectionPhotos'
 import { api } from '../api/client'
+import { ReportButton } from './ReportButton'
+import { detailedAssetReports } from '../utils/moduleReports'
 
 type Row = Record<string, unknown>
 type Asset = Row & { id:string; assetNumber:string; name:string; status:string; registrationNumber?:string; serialNumber?:string; manufacturer?:string; model?:string; modelYear?:number; currentMeterReading?:number; meterUnit?:string; nextServiceDate?:string; currentLocation?:string; acquisitionCost?:number; currentBookValue?:number; dailyRate?:number; insuranceExpiry?:string; warrantyExpiry?:string; branch?:{name:string}; division?:{name:string}; serviceOffering?:{name:string}; assetCategory?:{name:string}; attributeValues:Row[] }
@@ -43,6 +45,7 @@ export function AssetProfileDialog({assetId,onClose,onEdit,onPreview}:{assetId:s
   return <Drawer anchor="right" open={Boolean(assetId)} onClose={onClose} PaperProps={{sx:{width:{xs:'100%',md:'calc(100% - 280px)',xl:1180},maxWidth:'100%',bgcolor:'#f4f4f1'}}}>
     <Box role="dialog" aria-label="Asset profile" sx={{height:'100%',display:'flex',flexDirection:'column',minWidth:0}}>
       <ProfileHeader data={data} onClose={onClose} onEdit={onEdit} onPreview={onPreview} onMeter={()=>setAction('meter')} onInspection={()=>{setInspection({stage:'Commissioning',outcome:'Passed',meterReading:'',fuelPercent:'',notes:'',staffSignatureName:'',photos:[]});setAction('inspection')}}/>
+      {assetId && data && <Box sx={{px:3,py:1.5,bgcolor:"white",display:"flex",justifyContent:"flex-end"}}><ReportButton label="Detailed asset report" loadReports={()=>detailedAssetReports(assetId)} /></Box>}
       <Box sx={{bgcolor:'white',borderBottom:1,borderColor:'divider',flex:'0 0 auto'}}><Tabs value={tab} onChange={(_,value)=>setTab(value)} variant="scrollable" scrollButtons="auto" sx={{px:{xs:1,md:2},'& .MuiTab-root':{minHeight:54,textTransform:'none',fontWeight:700}}}>{tabNames.map(name=><Tab key={name} label={name}/>)}</Tabs></Box>
       <Box sx={{p:{xs:2,md:3},overflowY:'auto',flex:1}}>{error&&!data?<Box minHeight={360} display="grid" sx={{placeItems:'center'}}><Stack alignItems="center" spacing={2}><Alert severity="error">{error}</Alert><Button variant="outlined" onClick={()=>void load()}>Try again</Button></Stack></Box>:!data?<Box minHeight={360} display="grid" sx={{placeItems:'center'}}><CircularProgress/></Box>:<Box>{error&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}{tab===6&&!financeLoaded?<Box minHeight={320} display="grid" sx={{placeItems:'center'}}><CircularProgress/></Box>:<ProfileContent tab={tab} data={data} finance={finance}/>}</Box>}</Box>
       <MeterDialog open={action==='meter'} value={meter} setValue={setMeter} saving={saving} close={()=>setAction(null)} save={saveMeter}/>

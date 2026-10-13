@@ -18,6 +18,7 @@ import { monitorInactivity } from '../auth/inactivity'
 import { CustomerSiteHeader, type CustomerSiteSection } from '../components/CustomerSiteHeader'
 import { LicenceWorkflowDialog, type LicenceDetails } from '../components/LicenceWorkflowDialog'
 import { openProtectedFile } from '../utils/openProtectedFile'
+import { downloadRentalAgreementPdf, openRentalAgreementPdf, type RentalAgreementData } from '../utils/rentalAgreementPdf'
 
 type HirePreference = 'Vehicles' | 'Equipment' | 'WasteAndSiteHire'
 type LegacyHirePreference = HirePreference | 'NoPreference'
@@ -402,18 +403,14 @@ function BookingDetailDialog({ booking, agreementOnly = false, onClose, onResend
     pdf.save(`${booking.invoice.invoiceNumber}.pdf`)
   }
   async function agreementPdf(openInNewTab: boolean) {
-    const details = booking
-    const agreement = details?.agreement
-    if (!details || !agreement) return
-    const { jsPDF } = await import('jspdf')
-    const pdf = new jsPDF(); const margin = 18; const width = 174; let y = 20
-    const write = (text: string, size = 10, bold = false) => { pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setFontSize(size); const lines = pdf.splitTextToSize(text, width); if (y + lines.length * (size / 2) > 278) { pdf.addPage(); y = 20 } pdf.text(lines, margin, y); y += lines.length * (size / 2) + 5 }
-    write('CARPENTERS RENTALS & HIRE', 16, true); write(`Rental agreement ${agreement.agreementNumber}`, 12, true)
-    write(`Booking: ${details.reference}\nAsset: ${item?.name ?? 'Rental service'}\nHire period: ${item ? `${date(item.startAt)} – ${date(item.endAt)}` : 'Not assigned'}\nTotal: ${money(details.pricing.total)}\nRefundable bond: ${money(details.bond.required)}`)
-    write('Terms and conditions', 12, true)
-    ;(agreement.terms ?? []).forEach(term => { write(term.title, 10, true); write(term.content) })
-    write(`Signed by ${agreement.customerSignatureName} on ${date(agreement.customerSignedAt)}. Approved by ${agreement.approvedByName} on ${date(agreement.approvedAt)}.`)
-    if (openInNewTab) { const url = String(pdf.output('bloburl')); window.open(url, '_blank', 'noopener,noreferrer'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) } else pdf.save(`${agreement.agreementNumber}.pdf`)
+    if (!booking?.agreement) return
+    try {
+      const agreement = (await api.get<RentalAgreementData>(`/customer-account/bookings/${booking.id}/agreement`)).data
+      if (openInNewTab) await openRentalAgreementPdf(agreement)
+      else await downloadRentalAgreementPdf(agreement)
+    } catch (reason) {
+      window.alert(apiMessage(reason, 'The agreement could not be downloaded.'))
+    }
   }
   if (agreementOnly) return <Dialog open fullWidth maxWidth="sm" onClose={onClose}><DialogTitle>Rental agreement</DialogTitle><DialogContent><Typography color="text.secondary">{booking.agreement ? `Choose how you would like to access ${booking.agreement.agreementNumber}.` : 'A signed agreement is not available for this booking yet.'}</Typography></DialogContent><DialogActions sx={{p:3}}><Button onClick={onClose}>Close</Button><Box sx={{flex:1}}/>{booking.agreement && <><Button onClick={() => void agreementPdf(true)}>View in new tab</Button><Button variant="contained" onClick={() => void agreementPdf(false)}>Download PDF</Button></>}</DialogActions></Dialog>
   return <Dialog open fullWidth maxWidth="lg" onClose={onClose}><DialogTitle><Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography variant="overline">Booking {booking.reference}</Typography><Typography variant="h5" fontWeight={800}>{item?.name ?? 'Rental booking'}</Typography></Box><Chip label={statusLabel(booking.status)} color={statusColor(booking.status)} /></Stack></DialogTitle><DialogContent dividers><Stack spacing={4}>
