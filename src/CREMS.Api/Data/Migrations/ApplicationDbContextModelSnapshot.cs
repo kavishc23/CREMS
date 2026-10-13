@@ -3521,6 +3521,24 @@ namespace CREMS.Api.Data.Migrations
                     b.ToTable("Personnel");
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.PersonnelLocation", b =>
+                {
+                    b.Property<Guid>("PersonnelId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("PersonnelId", "BranchId", "DivisionId");
+
+                    b.HasIndex("BranchId", "DivisionId");
+
+                    b.ToTable("PersonnelLocations");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Operations.PersonnelQualification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5047,6 +5065,17 @@ namespace CREMS.Api.Data.Migrations
                     b.Navigation("MaintenanceJob");
                 });
 
+            modelBuilder.Entity("CREMS.Api.Domain.Operations.PersonnelLocation", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Operations.Personnel", "Personnel")
+                        .WithMany("Locations")
+                        .HasForeignKey("PersonnelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Personnel");
+                });
+
             modelBuilder.Entity("CREMS.Api.Domain.Operations.PersonnelQualification", b =>
                 {
                     b.HasOne("CREMS.Api.Domain.Operations.Personnel", "Personnel")
@@ -5383,6 +5412,8 @@ namespace CREMS.Api.Data.Migrations
 
             modelBuilder.Entity("CREMS.Api.Domain.Operations.Personnel", b =>
                 {
+                    b.Navigation("Locations");
+
                     b.Navigation("Qualifications");
                 });
 

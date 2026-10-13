@@ -65,3 +65,5 @@ treatment settings, fuel charges, and financial permission masking. The SQL test
 chain before exercising the controllers.
 
 Run node tests/browser/asset-profitability-browser.cjs for report expense categories, monthly activity, unallocated balances, CSV download and mobile layout. The browser API is mocked; allocation and CSV values are tested in AssetProfitabilityTests.
+
+Run `node tests/browser/maintenance-directory-browser.cjs` for Super Admin technician/supplier creation, editing, deactivation, distinct hourly rates, conflict feedback and mobile layout. API responses are intercepted. Maintenance workspace coverage also verifies dropdown assignment and technician-specific rate selection.
