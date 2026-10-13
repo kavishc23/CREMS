@@ -104,6 +104,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<MaintenancePartUsage> MaintenancePartUsages => Set<MaintenancePartUsage>();
     public DbSet<Personnel> Personnel => Set<Personnel>();
+    public DbSet<PersonnelLocation> PersonnelLocations => Set<PersonnelLocation>();
     public DbSet<PersonnelQualification> PersonnelQualifications => Set<PersonnelQualification>();
     public DbSet<BookingPersonnelAssignment> BookingPersonnelAssignments => Set<BookingPersonnelAssignment>();
     public DbSet<PersonnelTimesheet> PersonnelTimesheets => Set<PersonnelTimesheet>();
@@ -485,6 +486,11 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         builder.Entity<Supplier>(entity => { entity.HasIndex(x => x.SupplierNumber).IsUnique(); entity.Property(x => x.SupplierNumber).HasMaxLength(50); entity.Property(x => x.Name).HasMaxLength(150); });
         builder.Entity<MaintenancePartUsage>(entity => { entity.HasIndex(x => new { x.MaintenanceJobId, x.InventoryPartId }); Money(entity, nameof(MaintenancePartUsage.Quantity), nameof(MaintenancePartUsage.UnitCost)); entity.HasOne(x => x.MaintenanceJob).WithMany().HasForeignKey(x => x.MaintenanceJobId).OnDelete(DeleteBehavior.Restrict); entity.HasOne(x => x.InventoryPart).WithMany().HasForeignKey(x => x.InventoryPartId).OnDelete(DeleteBehavior.Restrict); });
         builder.Entity<Personnel>(entity => { entity.HasIndex(x => x.EmployeeNumber).IsUnique(); Money(entity, nameof(Domain.Operations.Personnel.StandardCostRate), nameof(Domain.Operations.Personnel.OvertimeCostRate), nameof(Domain.Operations.Personnel.StandardChargeRate), nameof(Domain.Operations.Personnel.OvertimeChargeRate)); });
+        builder.Entity<PersonnelLocation>(entity => {
+            entity.HasKey(x => new { x.PersonnelId, x.BranchId, x.DivisionId });
+            entity.HasIndex(x => new { x.BranchId, x.DivisionId });
+            entity.HasOne(x => x.Personnel).WithMany(x => x.Locations).HasForeignKey(x => x.PersonnelId).OnDelete(DeleteBehavior.Cascade);
+        });
         builder.Entity<PersonnelQualification>(entity => { entity.HasIndex(x => new { x.PersonnelId, x.CertificateNumber }).IsUnique(); entity.HasOne(x => x.Personnel).WithMany(x => x.Qualifications).HasForeignKey(x => x.PersonnelId).OnDelete(DeleteBehavior.Cascade); });
         builder.Entity<BookingPersonnelAssignment>(entity => { entity.HasIndex(x => new { x.PersonnelId, x.StartAt, x.EndAt }); Money(entity, nameof(BookingPersonnelAssignment.CustomerHourlyRate), nameof(BookingPersonnelAssignment.InternalHourlyCost)); entity.HasOne(x => x.Personnel).WithMany().HasForeignKey(x => x.PersonnelId).OnDelete(DeleteBehavior.Restrict); entity.HasOne(x => x.Booking).WithMany().HasForeignKey(x => x.BookingId).OnDelete(DeleteBehavior.Restrict); });
         builder.Entity<PersonnelTimesheet>(entity => { entity.HasIndex(x => new { x.AssignmentId, x.WorkDate }).IsUnique(); Money(entity, nameof(PersonnelTimesheet.RegularHours), nameof(PersonnelTimesheet.OvertimeHours)); entity.HasOne(x => x.Assignment).WithMany(x => x.Timesheets).HasForeignKey(x => x.AssignmentId).OnDelete(DeleteBehavior.Cascade); });

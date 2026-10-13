@@ -82,9 +82,10 @@ public sealed class MaintenanceWorkspaceController(ApplicationDbContext db, Curr
     {
         var scope = await Scope(); if (scope is null) return Forbid();
         var branches = await Assets(scope).Select(x => new { x.BranchId, x.Branch!.Name }).Distinct().OrderBy(x => x.Name).ToListAsync(token);
+        var financial = await Allowed(SystemPermissions.AssetsViewFinancials);
         var technicians = await db.Personnel.AsNoTracking().Where(x => x.IsActive && x.Type == PersonnelType.Technician &&
-            (scope.IsAdministrator || scope.BranchIds.Contains(x.BranchId) && scope.DivisionIds.Contains(x.DivisionId)))
-            .OrderBy(x => x.FullName).Select(x => new { x.Id, x.FullName, x.EmployeeNumber, x.BranchId, x.DivisionId, x.Availability }).ToListAsync(token);
+            (scope.IsAdministrator || x.Locations.Any(location => scope.BranchIds.Contains(location.BranchId) && scope.DivisionIds.Contains(location.DivisionId)) || !x.Locations.Any() && scope.BranchIds.Contains(x.BranchId) && scope.DivisionIds.Contains(x.DivisionId)))
+            .OrderBy(x => x.FullName).Select(x => new { x.Id, x.FullName, x.EmployeeNumber, x.BranchId, x.DivisionId, x.Availability, locations = x.Locations.Where(location => scope.IsAdministrator || scope.BranchIds.Contains(location.BranchId) && scope.DivisionIds.Contains(location.DivisionId)).Select(location => new { location.BranchId, location.DivisionId }).ToList(), standardCostRate = financial ? (decimal?)x.StandardCostRate : null }).ToListAsync(token);
         var suppliers = await db.Suppliers.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Name).Select(x => new { x.Id, x.Name, x.SupplierNumber }).ToListAsync(token);
         var technicianNames = await Jobs(scope).Where(x => x.AssignedTo != null).Select(x => x.AssignedTo).Distinct().OrderBy(x => x).ToListAsync(token);
         return Ok(new { branches, technicians, suppliers, technicianNames });

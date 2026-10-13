@@ -70,7 +70,16 @@ public sealed class Personnel : Entity
     public decimal StandardChargeRate { get; set; }
     public decimal OvertimeChargeRate { get; set; }
     public bool IsActive { get; set; } = true;
+    public ICollection<PersonnelLocation> Locations { get; set; } = [];
     public ICollection<PersonnelQualification> Qualifications { get; set; } = [];
+}
+
+public sealed class PersonnelLocation
+{
+    public Guid PersonnelId { get; set; }
+    public Personnel? Personnel { get; set; }
+    public Guid BranchId { get; set; }
+    public Guid DivisionId { get; set; }
 }
 
 public sealed class PersonnelQualification : Entity

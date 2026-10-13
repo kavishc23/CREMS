@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControlLabel, Grid, IconButton, MenuItem, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, FormControlLabel, Grid, IconButton, MenuItem, Stack, Step, StepButton, Stepper, TextField, Typography } from '@mui/material'
 import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined'
 import { api } from '../../api/client'
 import { MaintenanceTaxFields } from '../MaintenanceTaxFields'
@@ -14,6 +14,8 @@ import { closed, date, label, money, repairOverdue, type Asset, type Detail, typ
 
 type Form = { assetId: string; serviceType: string; faultDescription: string; priority: string; isPreventive: boolean; assignedTo: string; assignedPersonnelId: string; supplier: string; supplierId: string; sourceType: string; sourceReference: string; sourceInspectionId: string; expectedReleaseAt: string; completionNotes: string; nextServiceDate: string; nextServiceMeter: string; serviceIntervalMonths: string; meterReading: string; downtimeHours: string; parentFailureJobId: string; warrantyCovered: boolean; warrantyClaimNumber: string; estimatedCost: string; actualCost: string; partsCost: string; labourCost: string; labourHours: string; labourRate: string; transportCost: string; externalServiceCost: string; fuelCost: string; taxCost: string; otherCost: string; invoiceNumber: string; partsUsed: string; useDetailedCosts: boolean }
 const empty: Form = { assetId: '', serviceType: 'Corrective repair', faultDescription: '', priority: 'Normal', isPreventive: false, assignedTo: '', assignedPersonnelId: '', supplier: '', supplierId: '', sourceType: 'Manual', sourceReference: '', sourceInspectionId: '', expectedReleaseAt: '', completionNotes: '', nextServiceDate: '', nextServiceMeter: '', serviceIntervalMonths: '', meterReading: '', downtimeHours: '', parentFailureJobId: '', warrantyCovered: false, warrantyClaimNumber: '', estimatedCost: '', actualCost: '', partsCost: '', labourCost: '', labourHours: '', labourRate: '', transportCost: '', externalServiceCost: '', fuelCost: '', taxCost: '', otherCost: '', invoiceNumber: '', partsUsed: '', useDetailedCosts: true }
+const workflowSteps = [{ key: 'Details', title: 'Plan' }, { key: 'Repair', title: 'Repair' }, { key: 'Safety', title: 'Safety check' }, { key: 'History', title: 'Finished' }]
+const workflowTab = (job: Job) => job.releasedAt ? 'History' : closed(job) ? 'Safety' : job.status === 'Open' ? 'Details' : 'Repair'
 const numericFields = ['estimatedCost', 'partsCost', 'labourCost', 'transportCost', 'externalServiceCost', 'fuelCost', 'taxCost', 'otherCost', 'downtimeHours'] as const
 function localDateTime(value: string | null) { if (!value) return ''; const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) }
 function jobForm(job: Job): Form {
@@ -67,14 +69,27 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
   const formElement = useRef<HTMLFormElement>(null)
   const job = detail?.job
   const access = detail?.permissions ?? permissions
+  const technicians = options.technicians.filter(item => (item.locations?.length ? item.locations : [item]).some(location => location.branchId === (job?.branchId ?? asset?.branchId) && location.divisionId === asset?.divisionId))
+  const selectedTechnician = options.technicians.find(item => item.id === form.assignedPersonnelId) ?? (form.assignedPersonnelId ? { id: form.assignedPersonnelId, fullName: form.assignedTo || 'Previously assigned technician', employeeNumber: '', branchId: job?.branchId ?? '', divisionId: asset?.divisionId ?? '', availability: 'Unavailable' } : null)
+  const selectedSupplier = options.suppliers.find(item => item.id === form.supplierId) ?? (form.supplierId ? { id: form.supplierId, name: form.supplier || 'Previously assigned supplier', supplierNumber: '' } : null)
   const readOnly = Boolean(job && closed(job) && !access.canComplete)
   const guard = (next: () => void) => { if (dirty) { pending.current = next; setDiscardOpen(true) } else next() }
+  const navigate = (nextTab: string) => {
+    if (nextTab === tab) return
+    if (dirty && (tab === 'Safety' || nextTab === 'Safety')) {
+      guard(() => {
+        if (job) { setForm(jobForm(job)); setTaxSettings({ mode: job.taxMode ?? 'Manual', rate: String(job.taxRate ?? 0), categories: parseTaxCategories(job.taxableCosts), reason: job.taxOverrideReason ?? '' }) }
+        setChecks([]); setSafetyNotes(''); setSafetyMeter(String(job?.currentMeterReading ?? job?.meterReading ?? ''))
+        setTab(nextTab)
+      })
+    } else setTab(nextTab)
+  }
   const change = <K extends keyof Form>(key: K, value: Form[K]) => { setForm(current => ({ ...current, [key]: value })); setDirty(true) }
   const loadDetail = useCallback(async (id: string) => {
     setLoading(true); setError('')
     try {
       const [record, attachments] = await Promise.all([api.get<Detail>(`/maintenance-jobs/${id}/workspace`), api.get<Document[]>(`/maintenance-jobs/${id}/documents`)])
-      setDetail(record.data); setForm(jobForm(record.data.job)); if (openedJob.current !== id) { setTab(record.data.job.releasedAt ? 'History' : closed(record.data.job) ? 'Safety' : 'Details'); openedJob.current = id }
+      setDetail(record.data); setForm(jobForm(record.data.job)); if (openedJob.current !== id) { setTab(workflowTab(record.data.job)); openedJob.current = id }
       setTaxSettings({ mode: record.data.job.taxMode ?? 'Manual', rate: String(record.data.job.taxRate ?? 0), categories: parseTaxCategories(record.data.job.taxableCosts), reason: record.data.job.taxOverrideReason ?? '' }); setDocuments(attachments.data); setDirty(false); setChecks([]); setSafetyNotes(''); setSafetyMeter(String(record.data.job.currentMeterReading ?? record.data.job.meterReading ?? ''))
       const result = await api.get<Asset[]>('/maintenance-jobs/assets', { params: { id: record.data.job.assetId } }); setAsset(result.data[0] ?? null)
     } catch (requestError) { setError(failure(requestError)) } finally { setLoading(false) }
@@ -122,11 +137,11 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
   async function save(event?: FormEvent, nextStatus = job?.status ?? 'Open') {
     event?.preventDefault()
     if (!form.assetId || !form.faultDescription.trim()) { setError('Select an asset and enter the repair type and work required.'); setTab('Details'); return }
-    if (nextStatus === 'Completed' && (!form.completionNotes.trim() || (asset?.meterUnit && form.meterReading === ''))) { setError('Record the work performed and final meter reading before completing the work.'); setTab('Details'); setTransition(null); return }
+    if (nextStatus === 'Completed' && (!form.completionNotes.trim() || (asset?.meterUnit && form.meterReading === ''))) { setError('Record the work performed and final meter reading before completing the work.'); setTab('Repair'); setTransition(null); return }
     if (['Cancelled', 'WaitingForParts'].includes(nextStatus) && nextStatus !== job?.status && !reason.trim()) return
     setBusy(true); setError('')
     try {
-      if (jobId) { await api.put(`/maintenance-jobs/${jobId}`, payload(nextStatus, reason)); setTransition(null); await loadDetail(jobId); if (nextStatus !== job?.status) setTab(['Completed', 'Cancelled'].includes(nextStatus) ? 'Safety' : 'Details'); onSaved(`${job?.jobNumber} saved. ${nextStatus === 'Completed' ? 'Work completed; verify safety before returning the asset to service.' : 'Open the workspace for the next action.'}`) }
+      if (jobId) { await api.put(`/maintenance-jobs/${jobId}`, payload(nextStatus, reason)); setTransition(null); await loadDetail(jobId); if (nextStatus !== job?.status) setTab(['Completed', 'Cancelled'].includes(nextStatus) ? 'Safety' : nextStatus === 'Open' ? 'Details' : 'Repair'); onSaved(`${job?.jobNumber} saved. ${nextStatus === 'Completed' ? 'Work completed; verify safety before returning the asset to service.' : 'Open the workspace for the next action.'}`) }
       else { const result = await api.post<{ id: string; jobNumber: string }>('/maintenance-jobs', payload('Open')); setDirty(false); onSaved(`${result.data.jobNumber} logged. The asset is unavailable while maintenance is open.`, result.data.id) }
     } catch (requestError) { setError(failure(requestError)); setTransition(null) } finally { setBusy(false) }
   }
@@ -137,7 +152,7 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
   async function release() {
     if (!jobId || !job) return
     setBusy(true); setError('')
-    try { const result = await api.post<{ message: string }>(`/maintenance-jobs/${jobId}/release`, { expectedVersion: job.version, notes: safetyNotes.trim() || 'All applicable safety checks passed.', meterReading: safetyMeter === '' ? null : Number(safetyMeter), passedChecks: checks }); setDirty(false); await loadDetail(jobId); onSaved(result.data.message) }
+    try { const result = await api.post<{ message: string }>(`/maintenance-jobs/${jobId}/release`, { expectedVersion: job.version, notes: safetyNotes.trim() || 'All applicable safety checks passed.', meterReading: safetyMeter === '' ? null : Number(safetyMeter), passedChecks: checks }); setDirty(false); await loadDetail(jobId); setTab('History'); onSaved(result.data.message) }
     catch (requestError) {
       setError(failure(requestError))
       try { await refreshOpenWork(jobId) } catch { /* Keep the release error and entered safety details. */ }
@@ -159,29 +174,48 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
     <Drawer anchor="right" open onClose={() => !busy && guard(onClose)} slotProps={{ paper: { sx: { width: { xs: '100%', lg: 820 }, maxWidth: '100%', bgcolor: 'background.default' } } }}>
       <Box role="dialog" aria-label={job ? `Maintenance ${job.jobNumber}` : 'Log maintenance job'} sx={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Box p={{ xs: 2, sm: 3 }} bgcolor="background.paper">
-          <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={2}><Box><Typography variant="overline" color="text.secondary">{job ? job.assetNumber : 'New maintenance job'}</Typography><Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>{job?.jobNumber ?? 'Log maintenance job'}</Typography><Typography color="text.secondary">{job ? `${job.assetName} · ${job.branchName}` : 'Choose an asset and describe the work required.'}</Typography></Box><IconButton aria-label="Close maintenance workspace" disabled={busy} onClick={() => guard(onClose)}><CloseOutlined /></IconButton></Stack>
-          {job && <Stack direction="row" gap={1} mt={2} alignItems="center" useFlexGap flexWrap="wrap"><MaintenanceStatusDisplay job={job} /><Chip label={job.priority} variant="outlined" />{repairOverdue(job) && <Chip label="Repair deadline missed" color="error" />}<Chip label={`Asset: ${label(job.assetStatus)}`} variant="outlined" /><Box sx={{ flex: 1 }} />{!['Safety', 'History'].includes(tab) && <Button variant="contained" disabled={busy || readOnly || loading || !form.assetId} onClick={() => formElement.current?.requestSubmit()}>{busy ? 'Saving…' : 'Save details'}</Button>}</Stack>}
-
-          <Typography variant="caption" color="text.secondary">{dirty ? 'Unsaved changes' : jobId ? 'Record loaded' : 'New job'}</Typography>
-          {job && tab === 'Details' && closed(job) && access.canComplete && <Button sx={{ mt: 1 }} disabled={busy} onClick={() => { setTransition('InProgress'); setReason('') }}>Reopen work</Button>}
+          <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={2}><Box><Typography variant="overline" color="text.secondary">{job ? 'Maintenance work' : 'New maintenance job'}</Typography><Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>{job?.assetNumber ?? 'Log maintenance job'}</Typography><Typography color="text.secondary">{job ? `${job.assetName} · ${job.branchName}` : 'Choose an asset and describe the work required.'}</Typography></Box><IconButton aria-label="Close maintenance workspace" disabled={busy} onClick={() => guard(onClose)}><CloseOutlined /></IconButton></Stack>
+          {job && <Stack direction="row" gap={1} mt={2} alignItems="center" useFlexGap flexWrap="wrap">
+            <MaintenanceStatusDisplay job={job} />
+            <Chip label={job.assetStatus === 'Available' ? 'Available for hire' : 'Unavailable for hire'} variant="outlined" />
+            {repairOverdue(job) && <Chip label="Repair deadline missed" color="error" />}
+          </Stack>}
+          <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mt={1}>
+            <Typography variant="caption" color="text.secondary" role="status">{dirty ? 'Unsaved changes' : jobId ? 'Record loaded' : 'New job'}</Typography>
+            {job && <Button size="small" disabled={busy || loading} onClick={() => navigate(tab === 'History' ? workflowTab(job) === 'History' ? 'Details' : workflowTab(job) : 'History')}>{tab === 'History' ? 'Back to work' : 'View service record'}</Button>}
+          </Stack>
+          {job && <Typography variant="caption" color="text.secondary">Current meter: {job.currentMeterReading ?? '—'} {job.meterUnit}</Typography>}
         </Box>
-        {job && <Box sx={{ px: 3, py: 1.5, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider' }}><Typography variant="body2" fontWeight={600}>{job.releasedAt ? 'Finished · Safety check passed' : closed(job) ? 'Next: verify safety before returning to hire' : job.status === 'Open' ? 'Next: plan and start the work' : job.status === 'WaitingForParts' ? 'Waiting for parts · Resume when ready' : 'Next: record repairs, then complete the work'}</Typography><Typography variant="caption" color="text.secondary">Plan → Repair → Safety check → Service history</Typography></Box>}
-        {job && <Tabs value={tab} onChange={(_, value: string) => setTab(value)} variant="scrollable" scrollButtons="auto" sx={{ px: 1, borderBottom: 1, borderColor: 'divider' }}><Tab value="Details" label="Work" /><Tab value="Costs" label={access.canFinancial ? "Costs & files" : "Files"} />{job && <Tab value="Safety" label="Safety check" />}{job && <Tab value="History" label="History" />}</Tabs>}
-        <Box component="form" ref={formElement} onInvalidCapture={event => { const panel = (event.target as HTMLElement).closest('.MuiAccordion-root'); const toggle = panel?.querySelector<HTMLButtonElement>('button[aria-expanded="false"]'); toggle?.click() }} onSubmit={save} sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {job && <Box component="nav" aria-label="Maintenance progress" sx={{ px: { xs: 1, sm: 3 }, py: 2, bgcolor: 'background.paper', borderTop: 1, borderBottom: 1, borderColor: 'divider' }}>
+          <Stepper nonLinear alternativeLabel activeStep={workflowSteps.findIndex(step => step.key === tab)} sx={{ '& .MuiStepLabel-label': { fontSize: { xs: '0.75rem', sm: '0.875rem' } }, '& .MuiStepButton-root': { minHeight: 44 } }}>
+            {workflowSteps.map((step, index) => <Step key={step.key} completed={index < workflowSteps.findIndex(step => step.key === workflowTab(job))}>
+              <StepButton aria-current={tab === step.key ? 'step' : undefined} disabled={busy || loading || index === 1 && job.status === 'Open' || index === 2 && !closed(job) || index === 3 && !job.releasedAt} onClick={() => navigate(step.key)}>{step.title}</StepButton>
+            </Step>)}
+          </Stepper>
+        </Box>}
+        <Box component="form" ref={formElement} onInvalidCapture={event => { const panel = (event.target as HTMLElement).closest('.MuiAccordion-root'); const toggle = panel?.querySelector<HTMLButtonElement>('button[aria-expanded="false"]'); toggle?.click() }} onSubmit={event => { if (['Safety', 'History'].includes(tab)) event.preventDefault(); else void save(event) }} sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <Box sx={{ flex: 1, overflowY: 'auto', px: { xs: 2, sm: 3 }, py: 3 }}>
             {error && <Alert severity="error" sx={{ mb: 2 }} role="alert">{error}{jobId && !dirty && <Button onClick={() => void loadDetail(jobId)}>Refresh record</Button>}</Alert>}
-            {loading ? <Box py={5} textAlign="center"><CircularProgress /></Box> : <>
+            {loading && <Box py={5} textAlign="center"><CircularProgress /></Box>}
+            <Box sx={{ display: loading ? 'none' : undefined }}>
               {tab === 'Details' && <Stack spacing={2.5}>
+                {job && <Box><Typography variant="h6">Plan the work</Typography><Typography color="text.secondary">Confirm the job and who will handle it.</Typography></Box>}
                 {!job && <Alert severity="info">Logging work makes the selected asset unavailable for hire immediately.</Alert>}
-                {!job ? <Autocomplete options={assets} value={asset} isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={value => `${value.assetNumber} · ${value.name} (${value.branchName})`} filterOptions={values => values} onInputChange={(_, value, why) => { if (why === 'input') setAssetSearch(value) }} onChange={(_, value) => { setAsset(value); change('assetId', value?.id ?? ''); change('assignedPersonnelId', ''); change('assignedTo', ''); change('sourceInspectionId', ''); change('sourceReference', ''); change('parentFailureJobId', '') }} renderOption={(props, value) => <li {...props} key={value.id}><Box><Typography>{value.assetNumber} · {value.name}</Typography><Typography variant="caption">{value.branchName} · {label(value.status)} · {value.currentMeterReading ?? '—'} {value.meterUnit}</Typography></Box></li>} renderInput={params => <TextField {...params} label="Search or scan asset number" required helperText="Search by asset number, name, registration, or paste the number from its QR label." />} /> : <Alert severity="info">{job.assetNumber} · {job.assetName} · Current meter: {job.currentMeterReading ?? '—'} {job.meterUnit}</Alert>}
-                {field('serviceType', 'Service / repair type', { required: false })}
-                {field('faultDescription', job ? 'Fault description / work required' : 'Work required', { required: true, multiline: true, minRows: 3 })}
-                <Accordion defaultExpanded={Boolean(job && job.status === 'Open')}><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Assignment & timing</Typography></AccordionSummary><AccordionDetails><Stack spacing={2}>
-                <Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}>{field('priority', 'Priority', { select: true, children: ['Low', 'Normal', 'High', 'Critical'].map(x => <MenuItem key={x} value={x}>{x}</MenuItem>) })}</Grid><Grid size={{ xs: 12, sm: 6 }}>{field('expectedReleaseAt', 'Expected release (your local time)', { type: 'datetime-local', slotProps: { inputLabel: { shrink: true } }, helperText: 'An estimate for rental planning; safety checks still control availability.' })}</Grid></Grid>
-                <Divider />
-                <Typography variant="subtitle1" fontWeight={700}>Assignment</Typography>
-                {field('assignedTo', 'Technician name', { placeholder: 'Type a name, or leave unassigned', onChange: (e: ChangeEvent<HTMLInputElement>) => { change('assignedTo', e.target.value); change('assignedPersonnelId', '') } })}
-                <Autocomplete options={options.suppliers} value={options.suppliers.find(x => x.id === form.supplierId) ?? null} getOptionLabel={x => `${x.name} · ${x.supplierNumber}`} disabled={busy || readOnly} onChange={(_, value) => { change('supplierId', value?.id ?? ''); change('supplier', value?.name ?? '') }} renderInput={params => <TextField {...params} label="External supplier" helperText={form.supplier && !form.supplierId ? `Existing supplier: ${form.supplier}` : 'Optional when work is handled internally.'} />} />
+                {!job && <Autocomplete options={assets} value={asset} isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={value => `${value.assetNumber} · ${value.name} (${value.branchName})`} filterOptions={values => values} onInputChange={(_, value, why) => { if (why === 'input') setAssetSearch(value) }} onChange={(_, value) => { setAsset(value); change('assetId', value?.id ?? ''); change('assignedPersonnelId', ''); change('assignedTo', ''); change('labourRate', ''); change('sourceInspectionId', ''); change('sourceReference', ''); change('parentFailureJobId', '') }} renderOption={(props, value) => <li {...props} key={value.id}><Box><Typography>{value.assetNumber} · {value.name}</Typography><Typography variant="caption">{value.branchName} · {label(value.status)} · {value.currentMeterReading ?? '—'} {value.meterUnit}</Typography></Box></li>} renderInput={params => <TextField {...params} label="Search asset number" required helperText="Search by asset number, name, registration, or paste the number from its QR label." />} />}
+                {field('faultDescription', 'Work required', { required: true, multiline: true, minRows: 3 })}
+                <Autocomplete options={technicians} value={selectedTechnician} isOptionEqualToValue={(a, b) => a.id === b.id} disabled={busy || readOnly || !asset}
+                  getOptionLabel={item => item.employeeNumber ? `${item.fullName} (${item.employeeNumber})` : item.fullName}
+                  getOptionDisabled={item => ['Leave', 'Training', 'Unavailable'].includes(item.availability)}
+                  onChange={(_, value) => { change('assignedPersonnelId', value?.id ?? ''); change('assignedTo', value?.fullName ?? ''); change('labourRate', value && value.id === job?.assignedPersonnelId && job.labourRate != null ? String(job.labourRate) : value?.standardCostRate == null ? '' : String(value.standardCostRate)) }}
+                  noOptionsText="No technicians for this branch and division. Ask Super Admin to add one."
+                  renderInput={params => <TextField {...params} label="Technician" helperText={form.assignedTo && !form.assignedPersonnelId ? `Previously entered: ${form.assignedTo}. Choose a technician to link their hourly rate.` : 'Choose a technician for this asset, or leave unassigned.'} />} />
+                <Autocomplete options={options.suppliers} value={selectedSupplier} isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={item => item.supplierNumber ? `${item.name} (${item.supplierNumber})` : item.name} disabled={busy || readOnly}
+                  onChange={(_, value) => { change('supplierId', value?.id ?? ''); change('supplier', value?.name ?? '') }} noOptionsText="No active suppliers. Ask Super Admin to add one."
+                  renderInput={params => <TextField {...params} label="Supplier (optional)" helperText={form.supplier && !form.supplierId ? `Previously entered: ${form.supplier}` : 'Select when an external supplier handles the work.'} />} />
+                {field('priority', 'Priority', { select: true, children: ['Low', 'Normal', 'High', 'Critical'].map(x => <MenuItem key={x} value={x}>{x}</MenuItem>) })}
+                <Accordion><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Expected timing (optional)</Typography></AccordionSummary><AccordionDetails><Stack spacing={2}>
+                {field('expectedReleaseAt', 'Expected release (your local time)', { type: 'datetime-local', slotProps: { inputLabel: { shrink: true } }, helperText: 'An estimate for rental planning; safety checks still control availability.' })}
+
 
                 </Stack></AccordionDetails></Accordion>
                 <Accordion><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Where was the fault reported?</Typography></AccordionSummary><AccordionDetails><Stack spacing={2}>
@@ -192,38 +226,55 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
                 {job?.sourceInspectionId && <Button onClick={() => setInspectionId(job.sourceInspectionId)}>View originating inspection</Button>}
                 {job?.parentFailureJobId && <Button onClick={() => guard(() => onOpenJob(job.parentFailureJobId!))}>Open related failure</Button>}
                 <Autocomplete options={previousJobs} value={previousJobs.find(x => x.id === form.parentFailureJobId) ?? null} disabled={busy || readOnly} getOptionLabel={x => `${x.jobNumber} · ${x.serviceType}`} onChange={(_, value) => change('parentFailureJobId', value?.id ?? '')} renderInput={params => <TextField {...params} label="Previous job for the same fault" helperText="Link repeat faults on this asset to support replacement decisions." />} />                </Stack></AccordionDetails></Accordion>
+                {job && <Accordion><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Job reference & actions</Typography></AccordionSummary><AccordionDetails>
+                  <Typography sx={{ overflowWrap: 'anywhere' }}>{job.jobNumber}</Typography>
+                  {!closed(job) && <Button color="error" disabled={busy} onClick={() => { setTransition('Cancelled'); setReason('') }}>Cancel job</Button>}
+                  {closed(job) && access.canComplete && <Button disabled={busy} onClick={() => { setTransition('InProgress'); setReason('') }}>Reopen work</Button>}
+                </AccordionDetails></Accordion>}
               </Stack>}
-              {tab === 'Details' && <Stack spacing={2.5} mt={3}>
-                {job && <><Typography variant="subtitle1" fontWeight={700}>Work performed</Typography>
+              {(tab === 'Repair' || tab === 'Details') && <Stack spacing={2.5} mt={3}>
+                {job && tab === 'Repair' && <><Box><Typography variant="h6">Record the repair</Typography><Typography color="text.secondary">Record the work performed before the safety check.</Typography></Box>
+                <Alert severity="info">{job.status === 'WaitingForParts' ? 'Waiting for parts. Resume work when the parts arrive.' : 'Finishing the repair does not release the asset for hire. A safety check is required.'}</Alert>
                 {field('completionNotes', 'Completion notes / work performed', { multiline: true, minRows: 4, helperText: 'Required to complete work. Describe repairs, tests and remaining concerns.', slotProps: { htmlInput: { maxLength: 4000 } } })}
                 <Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}>{number('meterReading', `Final meter reading${asset?.meterUnit ? ` (${asset.meterUnit})` : ''}`, { helperText: `Current reading: ${asset?.currentMeterReading ?? job?.currentMeterReading ?? 'Not recorded'}` })}</Grid><Grid size={{ xs: 12, sm: 6 }}>{number('downtimeHours', 'Downtime hours', { slotProps: { htmlInput: { min: 0, max: 100000, step: 1 } }, helperText: 'Leave blank to calculate elapsed unavailability when work completes.' })}</Grid></Grid>
+                <Accordion><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Parts & stock (optional)</Typography></AccordionSummary><AccordionDetails><Stack spacing={2}>
                 {field('partsUsed', 'Parts and repair notes', { multiline: true, minRows: 2, helperText: 'Stock quantities and issued costs remain in Manage parts.' })}
                 <Button variant="outlined" disabled={!jobId || busy || dirty} onClick={() => setParts(true)}>Manage parts and stock movements</Button>
                 {dirty && jobId && <Typography variant="caption" color="text.secondary">Save details before opening inventory so your expense changes stay in sync.</Typography>}
-                <Divider /></>}<Accordion defaultExpanded={Boolean(initialAsset)}><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Service schedule</Typography></AccordionSummary><AccordionDetails><Stack spacing={2}>
+                </Stack></AccordionDetails></Accordion></>}<Accordion defaultExpanded={Boolean(initialAsset)}><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Service schedule</Typography></AccordionSummary><AccordionDetails><Stack spacing={2}>
+                {field('serviceType', 'Service / repair type', { required: false })}
                 <FormControlLabel control={<Checkbox checked={form.isPreventive} disabled={busy || readOnly} onChange={e => change('isPreventive', e.target.checked)} />} label="Preventive service" />
                 <Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}>{field('nextServiceDate', 'Next service date', { type: 'date', slotProps: { inputLabel: { shrink: true } } })}</Grid><Grid size={{ xs: 12, sm: 6 }}>{number('nextServiceMeter', `Next service threshold${asset?.meterUnit ? ` (${asset.meterUnit})` : ''}`)}</Grid></Grid>
                 {form.isPreventive && number('serviceIntervalMonths', 'Repeat service every (months)', { slotProps: { htmlInput: { min: 1, max: 120, step: 1 } }, helperText: 'On completion, calculates the next date when no explicit date is entered. Date and meter targets use whichever is reached first.' })}
                 <Typography variant="caption" color="text.secondary">Targets apply when work is completed. Safety checks control return to hire.</Typography></Stack></AccordionDetails></Accordion>
               </Stack>}
-              {(tab === 'Costs' || !job) && access.canFinancial && <Accordion defaultExpanded={Boolean(job)} sx={{ mt: 2 }}><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>{job ? 'Expenses' : 'Estimate & warranty'}</Typography></AccordionSummary><AccordionDetails><Stack spacing={2.5}>
+              {job && ['Details', 'Repair'].includes(tab) && <Accordion sx={{ mt: 2 }}><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>{access.canFinancial ? 'Costs & files (optional)' : 'Files (optional)'}</Typography></AccordionSummary><AccordionDetails>
+              {access.canFinancial && <Accordion defaultExpanded={Boolean(job)} sx={{ mt: 2 }}><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>{job ? 'Expenses' : 'Estimate & warranty'}</Typography></AccordionSummary><AccordionDetails><Stack spacing={2.5}>
                 <Typography variant="subtitle1" fontWeight={700}>Expenses in FJD</Typography>{number('estimatedCost', 'Estimated cost (FJD)')}
                 {job && <><FormControlLabel control={<Checkbox checked={form.useDetailedCosts} disabled={busy || readOnly} onChange={e => change('useDetailedCosts', e.target.checked)} />} label="Calculate total from expense breakdown" />
-                {form.useDetailedCosts ? <><Grid container spacing={2}>{([['partsCost', 'Parts'], ['labourCost', 'Labour total'], ['transportCost', 'Transport'], ['externalServiceCost', 'Contractor / external service'], ['fuelCost', 'Fuel'], ['otherCost', 'Other']] as const).map(([key, title]) => <Grid size={{ xs: 12, sm: 6 }} key={key}>{number(key, `${title} (FJD)`, { disabled: busy || readOnly || key === 'labourCost' && form.labourHours !== '' && form.labourRate !== '', value: key === 'labourCost' && form.labourHours !== '' && form.labourRate !== '' ? labour : form[key] })}</Grid>)}</Grid><Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}>{number('labourHours', 'Labour hours')}</Grid><Grid size={{ xs: 12, sm: 6 }}>{number('labourRate', 'Labour hourly rate (FJD)')}</Grid></Grid><Typography variant="caption">Issued stock is included in Parts. Return unused stock before reducing its net cost. Enter both labour hours and rate to calculate labour.</Typography><Box component="fieldset" disabled={busy || readOnly} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}><MaintenanceTaxFields value={taxSettings} onChange={value => { setTaxSettings(value); setDirty(true) }} manualTax={form.taxCost} onManualTax={value => change('taxCost', value)} defaultRate={job.defaultTaxRate ?? 0} issuedStockCost={job.issuedStockCost ?? 0} tax={calculated.tax} taxable={calculated.taxable} /></Box></> : number('actualCost', 'Total cost without breakdown (FJD)', { helperText: 'Use when only the supplier invoice total is known. Issued inventory still needs reconciliation.' })}
+                {form.useDetailedCosts ? <><Grid container spacing={2}>{([['partsCost', 'Parts'], ['labourCost', 'Labour total'], ['transportCost', 'Transport'], ['externalServiceCost', 'Contractor / external service'], ['fuelCost', 'Fuel'], ['otherCost', 'Other']] as const).map(([key, title]) => <Grid size={{ xs: 12, sm: 6 }} key={key}>{number(key, `${title} (FJD)`, { disabled: busy || readOnly || key === 'labourCost' && form.labourHours !== '' && form.labourRate !== '', value: key === 'labourCost' && form.labourHours !== '' && form.labourRate !== '' ? labour : form[key] })}</Grid>)}</Grid><Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}>{number('labourHours', 'Labour hours')}</Grid><Grid size={{ xs: 12, sm: 6 }}>{number('labourRate', 'Labour hourly rate (FJD)', { disabled: busy || readOnly || Boolean(form.assignedPersonnelId), helperText: form.assignedPersonnelId ? 'Saved from this technician. Super Admin manages rates for new assignments.' : 'Select a technician to use their hourly rate.' })}</Grid></Grid><Typography variant="caption">Issued stock is included in Parts. Return unused stock before reducing its net cost. Enter both labour hours and rate to calculate labour.</Typography><Box component="fieldset" disabled={busy || readOnly} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}><MaintenanceTaxFields value={taxSettings} onChange={value => { setTaxSettings(value); setDirty(true) }} manualTax={form.taxCost} onManualTax={value => change('taxCost', value)} defaultRate={job.defaultTaxRate ?? 0} issuedStockCost={job.issuedStockCost ?? 0} tax={calculated.tax} taxable={calculated.taxable} /></Box></> : number('actualCost', 'Total cost without breakdown (FJD)', { helperText: 'Use when only the supplier invoice total is known. Issued inventory still needs reconciliation.' })}
                 <Alert severity="info" role="status">Actual total: {money(form.useDetailedCosts ? total : Number(form.actualCost || 0))}</Alert>
                 {field('invoiceNumber', 'Supplier invoice / reference')}</>}
                 {!form.warrantyCovered && !warrantyDetails && <Button onClick={() => setWarrantyDetails(true)}>Add warranty details</Button>}
                 {(form.warrantyCovered || warrantyDetails) && <FormControlLabel control={<Checkbox checked={form.warrantyCovered} disabled={busy || readOnly} onChange={e => change('warrantyCovered', e.target.checked)} />} label="Covered by warranty" />}
                 {form.warrantyCovered && field('warrantyClaimNumber', 'Warranty claim reference')}
               </Stack></AccordionDetails></Accordion>}
-              {job && tab === 'Costs' && <Stack spacing={2} mt={3}>
+              {job && <Stack spacing={2} mt={3}>
                 <Typography variant="subtitle1" fontWeight={700}>Fault photos, repair evidence and invoices</Typography>
                 {!jobId ? <Alert severity="info">Save the job first to attach evidence to its permanent reference.</Alert> : <><TextField select label="Attachment category" value={documentType} onChange={e => setDocumentType(e.target.value)}><MenuItem value="FaultPhoto">Fault photo</MenuItem>{access.canFinancial && <MenuItem value="Invoice">Supplier invoice</MenuItem>}<MenuItem value="CompletionEvidence">Completion evidence</MenuItem></TextField>
                   <Button component="label" variant="outlined" disabled={busy}>Attach PDF or photo (up to 5 MB)<input hidden type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => { void upload(e.target.files?.[0]); e.target.value = '' }} /></Button>
                   {documents.length === 0 && <Typography color="text.secondary">No attachments recorded.</Typography>}
                   {documents.map(item => <Button key={item.id} onClick={() => void download(item)} sx={{ justifyContent: 'flex-start', overflowWrap: 'anywhere' }}>{item.fileName} · {label(item.type)}</Button>)}</>}
               </Stack>}
+              </AccordionDetails></Accordion>}
+              {!job && access.canFinancial && <Accordion sx={{ mt: 2 }}><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Estimate & warranty</Typography></AccordionSummary><AccordionDetails><Stack spacing={2}>
+                {number('estimatedCost', 'Estimated cost (FJD)')}
+                {!form.warrantyCovered && !warrantyDetails && <Button onClick={() => setWarrantyDetails(true)}>Add warranty details</Button>}
+                {(form.warrantyCovered || warrantyDetails) && <FormControlLabel control={<Checkbox checked={form.warrantyCovered} onChange={e => change('warrantyCovered', e.target.checked)} />} label="Covered by warranty" />}
+                {form.warrantyCovered && field('warrantyClaimNumber', 'Warranty claim reference')}
+              </Stack></AccordionDetails></Accordion>}
               {tab === 'Safety' && job && <Stack spacing={2.5}>
+                <Box><Typography variant="h6">Safety check</Typography><Typography color="text.secondary">An authorised inspector must confirm the asset is safe before release.</Typography></Box>
                 {job.releasedAt ? <Alert severity="success">Returned to service {date(job.releasedAt, true)} by {job.releasedByName}.</Alert> : !closed(job) ? <Alert severity="info">Complete or cancel the work before recording the final safety check.</Alert> : <Alert severity="warning">The work is closed. The asset remains unavailable until its safety check passes and all other blockers are resolved.</Alert>}
                 {!job.releasedAt && <Stack spacing={1.5}>
                   <Typography variant="subtitle1" fontWeight={700}>Other open maintenance work{detail?.blockingJobs ? ` (${detail.blockingJobs.length + (detail.restrictedBlockingJobCount ?? 0)})` : ' — unavailable'}</Typography>
@@ -251,11 +302,12 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
                   {detail?.safetyChecks.map(check => <FormControlLabel key={check} control={<Checkbox checked={checks.includes(check)} disabled={busy} onChange={e => { setChecks(values => e.target.checked ? [...values, check] : values.filter(x => x !== check)); setDirty(true) }} />} label={check} />)}
                   <TextField label={`Verified meter reading${job.meterUnit ? ` (${job.meterUnit})` : ''}`} type="number" value={safetyMeter} required={Boolean(job.meterUnit)} slotProps={{ htmlInput: { min: job.currentMeterReading ?? 0, step: 'any' } }} onChange={e => { setSafetyMeter(e.target.value); setDirty(true) }} />
                   <TextField label="Safety check / test run notes" helperText="Optional. Add observations beyond the checklist." value={safetyNotes} multiline minRows={2} onChange={e => { setSafetyNotes(e.target.value); setDirty(true) }} />
-                  <Button variant="contained" disabled={busy || !detail?.safetyChecks.length || checks.length !== detail.safetyChecks.length || Boolean(job.meterUnit && !safetyMeter)} onClick={() => void release()}>Confirm safety and return to service</Button>
                   <Typography variant="caption" color="text.secondary">Your account is recorded as the inspector. A failed check must be resolved before release.</Typography>
                 </> : !job.releasedAt && <Typography color="text.secondary">Return to service requires maintenance completion and asset inspection permissions.</Typography>}
               </Stack>}
               {tab === 'History' && detail && <Stack spacing={2.5}>
+                <Typography variant="h6">{job?.releasedAt ? 'Job finished' : 'Service record'}</Typography>
+                {job?.releasedAt && <Alert severity="success">Safety check passed {date(job.releasedAt, true)} by {job.releasedByName}. Current asset status: {label(job.assetStatus)}.</Alert>}
                 <Alert severity="info" icon={false}><Typography fontWeight={700}>{job?.jobNumber} · {job?.serviceType}</Typography><Typography variant="body2">{job?.faultDescription}</Typography><Typography variant="body2">Work performed: {job?.completionNotes || 'Not recorded'}</Typography></Alert>
                 <Typography variant="subtitle1" fontWeight={700}>Upcoming service and preventive rules</Typography>{detail.servicePlan && <MaintenanceServicePlan plan={detail.servicePlan} />}
                 <Grid container spacing={2}>{[['Completed jobs', detail.metrics.completedJobs], ['Recorded downtime', `${detail.metrics.downtimeHours} h`], ['Repeat failures', detail.metrics.repeatFailures], ...(access.canFinancial ? [['Total recorded cost', money(detail.metrics.totalRecordedCost ?? detail.metrics.totalCost ?? 0)], ['Total completed cost', money(detail.metrics.totalCost ?? 0)], ['Book value', detail.metrics.bookValue == null ? 'Not recorded' : money(detail.metrics.bookValue)], ['Maintenance / book value', detail.metrics.costToBookValuePercent == null ? 'Not available' : `${detail.metrics.costToBookValuePercent}%`]] : [])].map(([name, value]) => <Grid key={name} size={{ xs: 6, sm: 4 }}><Typography variant="caption" color="text.secondary">{name}</Typography><Typography fontWeight={700}>{value}</Typography></Grid>)}</Grid>
@@ -265,15 +317,23 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
                 <Accordion><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Meter history</Typography></AccordionSummary><AccordionDetails>{detail.meters.map((item, index) => <Typography key={index} variant="body2" mb={1}>{date(item.recordedAt, true)} · {item.reading} {item.unit} · {label(item.source)}</Typography>)}</AccordionDetails></Accordion>
                 <Accordion><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Job audit trail</Typography></AccordionSummary><AccordionDetails>{detail.audits.map((item, index) => <Box key={index} mb={2}><Button onClick={() => setAuditRecord(item)}>{item.action} · {item.userName}</Button><Typography variant="caption">{date(item.occurredAt, true)} · {item.summary}</Typography></Box>)}</AccordionDetails></Accordion>
               </Stack>}
-            </>}
+            </Box>
           </Box>
           {!job && <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 3, py: 2, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}><Button disabled={busy} onClick={() => guard(onClose)}>Cancel</Button><Button type="submit" variant="contained" disabled={busy || loading || !form.assetId}>{busy ? 'Creating…' : 'Create job'}</Button></Stack>}
-          {job && tab === 'Details' && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1.5} sx={{ px: { xs: 2, sm: 3 }, py: 2, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-            <Box>{job && !closed(job) && <Button color="error" disabled={busy} onClick={() => { setTransition('Cancelled'); setReason('') }}>Cancel job</Button>}</Box>
-            <Stack direction="row" gap={1} useFlexGap flexWrap="wrap" justifyContent={{ xs: 'flex-start', sm: 'flex-end' }}>
-              {job && !closed(job) && <>{job.status !== 'InProgress' && <Button variant="outlined" disabled={busy} onClick={() => { setTransition('InProgress'); setReason('') }}>{job.status === 'WaitingForParts' ? 'Resume work' : 'Start work'}</Button>}{job.status !== 'WaitingForParts' && <Button variant="outlined" disabled={busy} onClick={() => { setTransition('WaitingForParts'); setReason('') }}>Wait for parts</Button>}{access.canComplete && <Button variant="contained" disabled={busy} onClick={() => { setTransition('Completed'); setReason('') }}>Complete work</Button>}</>}
+          {job && ['Details', 'Repair'].includes(tab) && <Stack direction="row" justifyContent="space-between" alignItems="center" useFlexGap flexWrap="wrap" gap={1} sx={{ px: { xs: 2, sm: 3 }, py: 2, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+            <Button type="submit" disabled={busy || readOnly || loading || !dirty}>Save for later</Button>
+            <Stack direction="row" gap={1} useFlexGap flexWrap="wrap">
+              {tab === 'Repair' && job.status === 'InProgress' && <Button variant="outlined" disabled={busy || loading} onClick={() => { setTransition('WaitingForParts'); setReason('') }}>Wait for parts</Button>}
+              {job.status === 'Open' ? <Button variant="contained" disabled={busy || loading} onClick={() => { setTransition('InProgress'); setReason('') }}>Save & start work</Button>
+                : tab === 'Details' ? <Button variant="contained" disabled={busy || loading} onClick={() => navigate(closed(job) ? 'Safety' : 'Repair')}>{closed(job) ? 'View safety check' : 'Continue to repair'}</Button>
+                : job.status === 'WaitingForParts' ? <Button variant="contained" disabled={busy || loading} onClick={() => { setTransition('InProgress'); setReason('') }}>Resume work</Button>
+                : !closed(job) && access.canComplete ? <Button variant="contained" disabled={busy || loading} onClick={() => { setTransition('Completed'); setReason('') }}>Finish repair</Button>
+                : closed(job) && <Button variant="contained" disabled={busy || loading} onClick={() => navigate('Safety')}>View safety check</Button>}
             </Stack>
           </Stack>}
+          {job && tab === 'Safety' && !job.releasedAt && closed(job) && access.canComplete && access.canInspect && <Box sx={{ px: 3, py: 2, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper', textAlign: 'right' }}>
+            <Button variant="contained" disabled={busy || loading || !detail?.safetyChecks.length || checks.length !== detail.safetyChecks.length || Boolean(job.meterUnit && !safetyMeter)} onClick={() => { if (formElement.current?.reportValidity()) void release() }}>Confirm safety and return to service</Button>
+          </Box>}
         </Box>
       </Box>
     </Drawer>
