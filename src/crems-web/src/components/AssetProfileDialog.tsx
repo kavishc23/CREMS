@@ -19,7 +19,7 @@ import { detailedAssetReports } from '../utils/moduleReports'
 
 type Row = Record<string, unknown>
 type Asset = Row & { id:string; assetNumber:string; name:string; status:string; registrationNumber?:string; serialNumber?:string; manufacturer?:string; model?:string; modelYear?:number; currentMeterReading?:number; meterUnit?:string; nextServiceDate?:string; currentLocation?:string; acquisitionCost?:number; currentBookValue?:number; dailyRate?:number; insuranceExpiry?:string; warrantyExpiry?:string; branch?:{name:string}; division?:{name:string}; serviceOffering?:{name:string}; assetCategory?:{name:string}; attributeValues:Row[] }
-type Profile = { asset:Asset; availability:{isAvailable:boolean; unavailableReason:string|null; expectedAvailableAt:string|null; bookings:Row[]; maintenance:Row[]; transfers:Row[]}; alternatives:Row[]; inspections:Row[]; rentalInspections?:(Inspection & {bookingNumber:string})[]; meters:Row[]; maintenance:Row[]; documents:Row[]; lifecycle:Row[]; audits:Row[] }
+type Profile = { asset:Asset; availability:{isAvailable:boolean; unavailableReason:string|null; expectedAvailableAt:string|null; bookings:Row[]; maintenance:Row[]; transfers:Row[]}; alternatives:Row[]; inspections:Row[]; rentalInspections?:(Omit<Inspection,'evidenceJson'|'signatureDataUrl'> & {bookingNumber:string})[]; meters:Row[]; maintenance:Row[]; documents:Row[]; lifecycle:Row[]; audits:Row[] }
 type Finance = { rentalRevenue:number; maintenanceExpense:number; operatingExpense:number; transferExpense:number; totalExpense:number; operatingProfit:number; lifetimeNetAfterAcquisition:number; rentalCount:number; rentalDays:number; inspectionCount:number }
 type MeterForm = { type:string; unit:string; reading:string; fuelPercent:string; source:string }
 type InspectionForm = { stage:string; outcome:string; meterReading:string; fuelPercent:string; notes:string; staffSignatureName:string; photos:string[] }
@@ -125,6 +125,9 @@ function InspectionEvidence({value}:{value:unknown}){
 
 function AssetInspectionHistory({data}:{data:Profile}) {
   const [photo,setPhoto]=useState<string|null>(null)
+  const [details,setDetails]=useState<Record<string,Row>>({})
+  const [loading,setLoading]=useState<string|null>(null)
+  const [detailError,setDetailError]=useState<string|null>(null)
   const [search,setSearch]=useState('')
   const [stage,setStage]=useState('All')
   const [page,setPage]=useState(1)
@@ -136,6 +139,15 @@ function AssetInspectionHistory({data}:{data:Profile}) {
   const filtered=entries.filter(entry=>(stage==='All'||entry.stage===stage)&&`${entry.reference} ${entry.stage} ${entry.staff}`.toLowerCase().includes(search.toLowerCase().trim()))
   const pageCount=Math.max(1,Math.ceil(filtered.length/10))
   const currentPage=Math.min(page,pageCount)
+  async function openDetail(id:string,rental:boolean){
+    if(details[id])return
+    setLoading(id);setDetailError(null)
+    try{
+      const recordId=id.slice(id.indexOf('-')+1)
+      const result=await api.get<Row>(`/assets/${data.asset.id}/${rental?'rental-inspections':'inspections'}/${recordId}`)
+      setDetails(current=>({...current,[id]:result.data}))
+    }catch{setDetailError(id)}finally{setLoading(current=>current===id?null:current)}
+  }
   return <Stack spacing={2}>
     <SectionHeading title="Inspection history" subtitle="All saved inspections, newest first. Expand an inspection to view its results and photos."/>
     <Stack direction={{xs:'column',sm:'row'}} gap={2}>
@@ -146,12 +158,12 @@ function AssetInspectionHistory({data}:{data:Profile}) {
     </Stack>
     <Typography color="text.secondary">{filtered.length} of {entries.length} inspections</Typography>
     {!filtered.length&&<Alert severity="info">{entries.length?'No inspections match your search.':'No inspections are available for this asset.'}</Alert>}
-    <Box>{filtered.slice((currentPage-1)*10,currentPage*10).map(entry=><Accordion key={entry.id} expanded={expanded===entry.id} onChange={(_,open)=>setExpanded(open?entry.id:false)} slotProps={{transition:{unmountOnExit:true}}}>
+    <Box>{filtered.slice((currentPage-1)*10,currentPage*10).map(entry=><Accordion key={entry.id} expanded={expanded===entry.id} onChange={(_,open)=>{setExpanded(open?entry.id:false);if(open)void openDetail(entry.id,Boolean(entry.rental))}} slotProps={{transition:{unmountOnExit:true}}}>
       <AccordionSummary expandIcon={<ExpandMoreOutlined/>} id={`${entry.id}-header`} aria-controls={`${entry.id}-details`}>
-        <Box><Typography fontWeight={750}>{entry.reference} · {entry.stage}</Typography><Typography variant="body2" color="text.secondary">{format(entry.date)} · {entry.staff}</Typography></Box>
+        <Box><Typography fontWeight={750}>{entry.reference} · {entry.stage}</Typography><Typography variant="body2" color="text.secondary">{format(entry.date)} · {entry.staff}</Typography>{entry.rental&&<Typography variant="body2" color={entry.rental.damageNotes?'warning.main':'text.secondary'}>{entry.rental.damageNotes?`Damage or fault: ${entry.rental.damageNotes}`:entry.rental.conditionNotes||'Condition not recorded'}</Typography>}</Box>
       </AccordionSummary>
       <AccordionDetails id={`${entry.id}-details`}>
-        {entry.rental?<InspectionRecord record={entry.rental} onPhoto={setPhoto}/>:<RecordList rows={[entry.other!]} detailed/>}
+        {loading===entry.id?<CircularProgress size={24}/>:detailError===entry.id?<Alert severity="error" action={<Button onClick={()=>void openDetail(entry.id,Boolean(entry.rental))}>Retry</Button>}>Inspection details could not be loaded.</Alert>:details[entry.id]?(entry.rental?<InspectionRecord record={details[entry.id] as Inspection} onPhoto={setPhoto}/>:<AssetInspectionRecord record={details[entry.id]}/>):null}
       </AccordionDetails>
     </Accordion>)}</Box>
     {pageCount>1&&<Stack alignItems="center"><Pagination count={pageCount} page={currentPage} onChange={(_,value)=>{setPage(value);setExpanded(false)}}/></Stack>}
@@ -160,5 +172,18 @@ function AssetInspectionHistory({data}:{data:Profile}) {
       <DialogContent>{photo&&<Box component="img" src={photo} alt="Inspection evidence enlarged" sx={{width:'100%',maxHeight:'75vh',objectFit:'contain'}}/>}</DialogContent>
       <DialogActions><Button onClick={()=>setPhoto(null)}>Close photo</Button></DialogActions>
     </Dialog>
+  </Stack>
+}
+
+function AssetInspectionRecord({record}:{record:Row}) {
+  let responses:unknown=[]
+  try { responses=JSON.parse(String(record.responsesJson||'[]')) } catch { /* Keep the rest of the saved inspection visible. */ }
+  const items=Array.isArray(responses)?responses.filter((item):item is Record<string,unknown>=>item!==null&&typeof item==='object'):[]
+  return <Stack spacing={2}>
+    <RecordList rows={[record]} detailed/>
+    <Card variant="outlined"><CardContent>
+      <Typography fontWeight={700} mb={1}>Checklist responses</Typography>
+      {items.length?<Stack spacing={1}>{items.map((item,index)=><Box key={index}><Typography fontWeight={650}>{String(item.label||item.section||`Item ${index+1}`)}</Typography><Typography color="text.secondary">{item.passed===true?'Passed':item.passed===false?'Failed':String(item.result||item.response||'Recorded')}</Typography></Box>)}</Stack>:<Typography color="text.secondary">No checklist responses recorded.</Typography>}
+    </CardContent></Card>
   </Stack>
 }

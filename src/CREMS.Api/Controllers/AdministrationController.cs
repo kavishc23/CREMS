@@ -22,13 +22,27 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
     }
 
     [HttpGet("settings")]
-    public async Task<ActionResult> Settings(CancellationToken token) => Ok(await db.SystemSettings.AsNoTracking().Where(x => !x.Key.StartsWith("rentals.fijiPricingDefaults.")).OrderBy(x => x.Category).ThenBy(x => x.Key).Select(x => new { x.Id, x.Key, x.Value, x.Category, x.Description, x.IsSecret }).ToListAsync(token));
+    public async Task<ActionResult> Settings(CancellationToken token)
+    {
+        var settings = await db.SystemSettings.AsNoTracking().Where(x => !x.Key.StartsWith("rentals.fijiPricingDefaults.")).OrderBy(x => x.Category).ThenBy(x => x.Key).Select(x => new { x.Id, x.Key, x.Value, x.Category, x.Description, x.IsSecret }).ToListAsync(token);
+        if (!settings.Any(x => x.Key == "rentals.lateFeeMultiplier"))
+            settings.Add(new { Id = Guid.Empty, Key = "rentals.lateFeeMultiplier", Value = "1", Category = "Rental", Description = (string?)"Multiplier applied to prorated late return fees for new returns.", IsSecret = false });
+        return Ok(settings.OrderBy(x => x.Category).ThenBy(x => x.Key));
+    }
 
     [HttpPut("settings/{key}")]
     public async Task<ActionResult> SaveSetting(string key, SettingRequest request, CancellationToken token)
     {
         if (key.StartsWith("rentals.fijiPricingDefaults.", StringComparison.Ordinal)) return NotFound();
-        var setting = await db.SystemSettings.FirstOrDefaultAsync(x => x.Key == key, token); if (setting is null) return NotFound();
+        var setting = await db.SystemSettings.FirstOrDefaultAsync(x => x.Key == key, token);
+        if (setting is null && key == "rentals.lateFeeMultiplier")
+        {
+            setting = new SystemSetting { Key = key, Value = "1", Category = "Rental", Description = "Multiplier applied to prorated late return fees for new returns." };
+            db.SystemSettings.Add(setting);
+        }
+        if (setting is null) return NotFound();
+        if (key == "rentals.lateFeeMultiplier" && (!decimal.TryParse(request.Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var multiplier) || multiplier < 0 || multiplier > 10))
+            return BadRequest(new { message = "Enter a late fee multiplier between 0 and 10." });
         if (key == "rentals.vatRate")
         {
             if (!decimal.TryParse(request.Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var rate) || rate < 0 || rate > 100)

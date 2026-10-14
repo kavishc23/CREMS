@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
@@ -25,6 +26,7 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
     [Authorize(Policy = SystemPolicies.ManageDivisions)]
     public async Task<ActionResult<DivisionResponse>> Create(SaveDivisionRequest request, CancellationToken cancellationToken)
     {
+        if (!ValidObject(request.BrandingJson) || !ValidObject(request.CustomerBookingConfigurationJson)) return BadRequest(new { message = "Branding and customer booking settings must be JSON objects." });
         var code = request.Code.Trim().ToUpperInvariant();
         if (await db.Divisions.AnyAsync(x => x.Code == code, cancellationToken))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { [nameof(request.Code)] = ["This division code is already in use."] }));
@@ -41,6 +43,7 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
     [Authorize(Policy = SystemPolicies.ManageDivisions)]
     public async Task<ActionResult<DivisionResponse>> Update(Guid id, SaveDivisionRequest request, CancellationToken cancellationToken)
     {
+        if (!ValidObject(request.BrandingJson) || !ValidObject(request.CustomerBookingConfigurationJson)) return BadRequest(new { message = "Branding and customer booking settings must be JSON objects." });
         var division = await db.Divisions.FindAsync([id], cancellationToken);
         if (division is null) return NotFound();
         var code = request.Code.Trim().ToUpperInvariant();
@@ -59,6 +62,7 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
     [Authorize(Policy = SystemPolicies.ManageDivisions)]
     public async Task<ActionResult> AddService(Guid divisionId, SaveServiceRequest request, CancellationToken cancellationToken)
     {
+        if (!ValidDocuments(request.RequiredDocumentsJson) || !ValidObject(request.InspectionRequirementsJson) || !ValidMaintenance(request.MaintenanceRulesJson)) return BadRequest(new { message = "Service document, inspection or maintenance settings are invalid." });
         if (!await db.Divisions.AnyAsync(x => x.Id == divisionId, cancellationToken)) return NotFound();
         var code = request.Code.Trim().ToUpperInvariant();
         if (await db.ServiceOfferings.AnyAsync(x => x.DivisionId == divisionId && x.Code == code, cancellationToken))
@@ -74,6 +78,7 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
     [Authorize(Policy = SystemPolicies.ManageDivisions)]
     public async Task<ActionResult> UpdateService(Guid divisionId, Guid serviceId, SaveServiceRequest request, CancellationToken cancellationToken)
     {
+        if (!ValidDocuments(request.RequiredDocumentsJson) || !ValidObject(request.InspectionRequirementsJson) || !ValidMaintenance(request.MaintenanceRulesJson)) return BadRequest(new { message = "Service document, inspection or maintenance settings are invalid." });
         var service = await db.ServiceOfferings.FirstOrDefaultAsync(x => x.Id == serviceId && x.DivisionId == divisionId, cancellationToken);
         if (service is null) return NotFound();
         var code = request.Code.Trim().ToUpperInvariant();
@@ -97,6 +102,23 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
     private static DivisionResponse ToResponse(Division x) => new(x.Id, x.Code, x.Name, x.Description, x.ContactEmail,
         x.ContactPhone, x.Capabilities, x.IsPublic, x.IsActive, [], x.BrandingJson, x.DefaultCurrency, x.DefaultTaxRate, x.DefaultRentalTerms, x.DefaultApprovalWorkflowId, x.CustomerBookingConfigurationJson, x.DefaultBondAmount);
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static bool ValidObject(string? json)
+    {
+        try { using var doc = JsonDocument.Parse(json ?? "{}"); return doc.RootElement.ValueKind == JsonValueKind.Object; }
+        catch (JsonException) { return false; }
+    }
+    private static bool ValidDocuments(string? json)
+    {
+        try { using var doc = JsonDocument.Parse(json ?? "[]"); return doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.EnumerateArray().All(x => x.ValueKind == JsonValueKind.String); }
+        catch (JsonException) { return false; }
+    }
+    private static bool ValidMaintenance(string? json)
+    {
+        if (!ValidObject(json)) return false;
+        using var doc = JsonDocument.Parse(json ?? "{}");
+        return !doc.RootElement.TryGetProperty("meterInterval", out var interval) ||
+            interval.ValueKind == JsonValueKind.Number && interval.TryGetDecimal(out var value) && value > 0 && value <= 100000000;
+    }
 }
 
 public sealed record SaveDivisionRequest([Required, MaxLength(30)] string Code, [Required, MaxLength(150)] string Name,

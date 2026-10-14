@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Alert, Box, Button, Card, CardContent, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
 import { api } from '../api/client'
 
 export type Inspection = {
   id: string; type: 'Handover' | 'Return'; completedAt: string; completedByName: string | null
   conditionNotes: string | null; damageNotes: string | null; meterReading: number | null
   fuelLevelPercent: number | null; evidenceJson: string | null; signatureName: string | null; signatureDataUrl: string | null
+  identificationVerified?: boolean; driverLicenceVerified?: boolean; paymentVerified?: boolean
 }
-const safeImage = (value: unknown): value is string => typeof value === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(value)
+const safeImage = (value: unknown): value is string => typeof value === 'string' && /^(data:image\/(jpeg|jpg|png|webp);base64,|https?:\/\/|\/)/i.test(value)
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 
 export function RentalInspectionHistory({ bookingId, bookingNumber, assetName, onClose }: {
@@ -55,6 +56,9 @@ export function InspectionRecord({ record, onPhoto }: { record: Inspection; onPh
   } catch { unreadable = true }
   const photos = strings(evidence.photos).filter(safeImage)
   const checklist = strings(evidence.checklist)
+  const checklistResults = Array.isArray(evidence.checklistResults)
+    ? evidence.checklistResults.filter((item): item is {label:string;passed:boolean|null} => Boolean(item) && typeof item === 'object' && typeof item.label === 'string' && (typeof item.passed === 'boolean' || item.passed === null))
+    : checklist.map(label => ({label,passed:true}))
   const zones = strings(evidence.damageZones)
   const fields = [
     ['Recorded by', record.completedByName || 'Not recorded'],
@@ -66,13 +70,16 @@ export function InspectionRecord({ record, onPhoto }: { record: Inspection; onPh
     ['Accessories / quantities', typeof evidence.accessories === 'string' && evidence.accessories || 'Not recorded'],
     ['Damage locations', zones.join(', ') || 'None recorded'],
     ['Customer acknowledgement', record.signatureName || 'Not recorded'],
+    ...(record.identificationVerified === undefined ? [] : [['Identity verified', record.identificationVerified ? 'Yes' : 'No']]),
+    ...(record.driverLicenceVerified === undefined ? [] : [['Driver licence verified', record.driverLicenceVerified ? 'Yes' : 'No']]),
+    ...(record.paymentVerified === undefined ? [] : [['Payment verified', record.paymentVerified ? 'Yes' : 'No']]),
   ]
   return <Card variant="outlined"><CardContent><Stack spacing={2}>
     {fields.map(([label, value]) => <Box key={label}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{value}</Typography></Box>)}
-    <Box><Typography fontWeight={700}>Checklist</Typography>{checklist.length ? <Box component="ul" sx={{ pl: 3, my: 1 }}>{checklist.map((item, index) => <li key={index}>{item}</li>)}</Box> : <Typography color="text.secondary">No checklist recorded.</Typography>}</Box>
+    <Box><Typography fontWeight={700}>Checklist ({checklistResults.filter(item=>item.passed).length}/{checklistResults.length} passed)</Typography>{checklistResults.length ? <Stack spacing={1} mt={1}>{checklistResults.map((item,index)=><Stack key={index} direction="row" justifyContent="space-between" alignItems="center" gap={2}><Typography>{item.label}</Typography><Chip size="small" color={item.passed===true?'success':item.passed===false?'error':'default'} label={item.passed===true?'Passed':item.passed===false?'Failed':'Pending'}/></Stack>)}</Stack> : <Typography color="text.secondary">No checklist recorded.</Typography>}</Box>
     {safeImage(record.signatureDataUrl) && <Box component="img" src={record.signatureDataUrl} alt="Customer acknowledgement signature" sx={{ maxWidth: '100%', height: 100, objectFit: 'contain' }} />}
     <Typography fontWeight={700}>Photos ({photos.length})</Typography>
     {unreadable && <Alert severity="warning">The saved evidence could not be read. Other inspection details are shown above.</Alert>}
-    {photos.length ? <Stack direction="row" flexWrap="wrap" gap={1}>{photos.map((src, index) => <Button key={index} onClick={() => onPhoto(src)} aria-label={`Enlarge inspection photo ${index + 1}`} sx={{ p: 0.5 }}><Box component="img" src={src} alt={`Inspection photo ${index + 1}`} sx={{ width: 140, height: 110, objectFit: 'contain' }} /></Button>)}</Stack> : <Typography color="text.secondary">No photos recorded.</Typography>}
+    {photos.length ? <Stack direction="row" flexWrap="wrap" gap={1}>{photos.map((src, index) => <Button key={index} onClick={() => onPhoto(src)} aria-label={`Enlarge inspection photo ${index + 1}`} sx={{ p: 0.5, border: 1, borderColor: 'divider' }}><Box component="img" src={src} alt={`Inspection photo ${index + 1}`} sx={{ width: 180, height: 135, objectFit: 'contain' }} /></Button>)}</Stack> : <Typography color="text.secondary">No photos recorded in this inspection.</Typography>}
   </Stack></CardContent></Card>
 }

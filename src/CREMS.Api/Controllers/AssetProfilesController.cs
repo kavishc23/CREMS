@@ -27,7 +27,8 @@ public sealed class AssetProfilesController(ApplicationDbContext db, CurrentStaf
         const int historyLimit = 50;
         var bookingItems=await db.BookingItems.AsNoTracking().Where(x=>x.AssetId==assetId).Include(x=>x.Booking).OrderByDescending(x=>x.StartAt).Take(historyLimit).ToListAsync(token);
         var maintenance=await db.MaintenanceJobs.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.ReportedAt).Take(historyLimit).ToListAsync(token);
-        var inspections=await db.AssetInspections.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.CompletedAt).ThenByDescending(x=>x.Id).ToListAsync(token);
+        var inspections=await db.AssetInspections.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.CompletedAt).ThenByDescending(x=>x.Id)
+            .Select(x=>new{x.Id,x.BookingId,x.Stage,x.Outcome,x.CompletedAt,x.CompletedByName,x.Notes,x.MeterReading,x.FuelPercent}).ToListAsync(token);
         var rentalQuery = db.RentalInspections.AsNoTracking()
             .Where(x => x.Booking!.Items.Any(item => item.AssetId == assetId));
         if (!scope.IsAdministrator)
@@ -35,7 +36,8 @@ public sealed class AssetProfilesController(ApplicationDbContext db, CurrentStaf
         var rentalInspections = await rentalQuery.OrderByDescending(x => x.CompletedAt).ThenByDescending(x => x.Id)
             .Select(x => new { x.Id, x.BookingId, x.Booking!.BookingNumber, x.Type, x.CompletedAt,
                 x.CompletedByName, x.ConditionNotes, x.DamageNotes, x.MeterReading, x.FuelLevelPercent,
-                x.EvidenceJson, x.SignatureName, x.SignatureDataUrl }).ToListAsync(token);
+                x.IdentificationVerified, x.DriverLicenceVerified, x.PaymentVerified,
+                x.SignatureName }).ToListAsync(token);
         var lifecycle=await db.AssetLifecycleEvents.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.OccurredAt).Take(historyLimit).ToListAsync(token);
         var meters=await db.AssetMeterReadings.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.RecordedAt).Take(historyLimit).ToListAsync(token);
         var transfers=await db.AssetTransfers.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.CreatedAt).Take(50).ToListAsync(token);
@@ -72,6 +74,29 @@ public sealed class AssetProfilesController(ApplicationDbContext db, CurrentStaf
             })
         };
         return Ok(new{asset=assetProfile,availability=new{isAvailable=asset.Status==AssetStatus.Available,unavailableReason,expectedAvailableAt=future.Select(x=>(DateTimeOffset?)x.EndAt).FirstOrDefault(),bookings=bookingItems.Select(x=>new{x.StartAt,x.EndAt,status=x.Booking!.Status,reference=x.Booking.BookingNumber}),maintenance=maintenance.Select(x=>new{x.ReportedAt,endAt=x.CompletedAt,status=x.Status,reference=x.JobNumber}),transfers},alternatives,inspections,rentalInspections,meters,maintenance = maintenance.Select(x => MaintenanceWorkspace.Record(x, canFinancial)),documents,lifecycle,audits});
+    }
+
+    [HttpGet("inspections/{inspectionId:guid}")]
+    public async Task<ActionResult> InspectionDetail(Guid assetId, Guid inspectionId, CancellationToken token)
+    {
+        var asset = await AssetForScope(assetId, token);
+        if (asset.Result is not null) return asset.Result;
+        var record = await db.AssetInspections.AsNoTracking().FirstOrDefaultAsync(x => x.Id == inspectionId && x.AssetId == assetId, token);
+        return record is null ? NotFound() : Ok(record);
+    }
+
+    [HttpGet("rental-inspections/{inspectionId:guid}")]
+    public async Task<ActionResult> RentalInspectionDetail(Guid assetId, Guid inspectionId, CancellationToken token)
+    {
+        var asset = await AssetForScope(assetId, token);
+        if (asset.Result is not null) return asset.Result;
+        var record = await db.RentalInspections.AsNoTracking()
+            .Where(x => x.Id == inspectionId && x.Booking!.Items.Any(item => item.AssetId == assetId))
+            .Select(x => new { x.Id, x.BookingId, x.Booking!.BookingNumber, x.Type, x.CompletedAt,
+                x.CompletedByName, x.ConditionNotes, x.DamageNotes, x.MeterReading, x.FuelLevelPercent,
+                x.IdentificationVerified, x.DriverLicenceVerified, x.PaymentVerified,
+                x.EvidenceJson, x.SignatureName, x.SignatureDataUrl }).FirstOrDefaultAsync(token);
+        return record is null ? NotFound() : Ok(record);
     }
 
     [HttpPut("attributes"),Authorize(Policy=SystemPermissions.AssetsEdit)]

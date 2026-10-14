@@ -35,6 +35,9 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
         SaveBranchRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.DivisionIds is null || request.DivisionIds.Count == 0 ||
+            await db.Divisions.CountAsync(x => request.DivisionIds.Contains(x.Id) && x.IsActive, cancellationToken) != request.DivisionIds.Distinct().Count())
+            return BadRequest(new { message = "Select at least one active business/division for this branch." });
         var code = request.Code.Trim().ToUpperInvariant();
         if (await db.Branches.AnyAsync(branch => branch.Code == code, cancellationToken))
         {
@@ -73,6 +76,9 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
         if (scope is null || !scope.HasBranchAccess(id)) return Forbid();
         var branch = await db.Branches.FindAsync([id], cancellationToken);
         if (branch is null) return NotFound();
+        if (request.DivisionIds is not null &&
+            await db.Divisions.CountAsync(x => request.DivisionIds.Contains(x.Id) && x.IsActive, cancellationToken) != request.DivisionIds.Distinct().Count())
+            return BadRequest(new { message = "Select active businesses/divisions for this branch." });
 
         var code = scope.IsAdministrator ? request.Code.Trim().ToUpperInvariant() : branch.Code;
         if (await db.Branches.AnyAsync(other => other.Id != id && other.Code == code, cancellationToken))
