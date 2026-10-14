@@ -47,16 +47,23 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
         if (!string.IsNullOrWhiteSpace(request.SourceType) && request.SourceType is "Inspection" or "Damage" && !request.SourceInspectionId.HasValue && string.IsNullOrWhiteSpace(request.SourceReference)) return BadRequest(new { message = "Provide the originating inspection or damage reference." });
         if (request.SourceInspectionId.HasValue && !await db.AssetInspections.AnyAsync(x => x.Id == request.SourceInspectionId && x.AssetId == asset.Id, cancellationToken)) return BadRequest(new { message = "Select an inspection for this asset." });
         if (request.EstimatedCost > 0 && !(await authorization.AuthorizeAsync(User, SystemPermissions.AssetsViewFinancials)).Succeeded) return Forbid();
+        decimal? technicianRate = null;
         if (request.AssignedPersonnelId.HasValue) {
-            var technician = await db.Personnel.SingleOrDefaultAsync(x => x.Id == request.AssignedPersonnelId && x.IsActive && x.Type == PersonnelType.Technician && x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId, cancellationToken);
+            var technician = await db.Personnel.SingleOrDefaultAsync(x => x.Id == request.AssignedPersonnelId && x.IsActive && x.Type == PersonnelType.Technician && (x.Locations.Any(location => location.BranchId == asset.BranchId && location.DivisionId == asset.DivisionId) || !x.Locations.Any() && x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId), cancellationToken);
             if (technician is null || technician.Availability is PersonnelAvailability.Leave or PersonnelAvailability.Unavailable or PersonnelAvailability.Training) return BadRequest(new { message = "Select an active technician in this asset's branch and division." });
             request = request with { AssignedTo = technician.FullName };
+            technicianRate = technician.StandardCostRate;
+        }
+        if (request.SupplierId.HasValue) {
+            var supplier = await db.Suppliers.SingleAsync(x => x.Id == request.SupplierId, cancellationToken);
+            if (!supplier.IsActive) return BadRequest(new { message = "Select an active supplier." });
+            request = request with { Supplier = supplier.Name };
         }
         var job = new MaintenanceJob { JobNumber = $"MNT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
             AssetId = asset.Id, BranchId = asset.BranchId, ServiceType = request.ServiceType.Trim(),
             FaultDescription = request.FaultDescription.Trim(), AssignedTo = Normalize(request.AssignedTo),
             Supplier = Normalize(request.Supplier), SupplierId = request.SupplierId, UseDetailedCosts = true, HasEstimate = request.HasEstimate ?? true, EstimatedCost = request.EstimatedCost, IsPreventive = request.IsPreventive, NextServiceMeter = request.NextServiceMeter, WarrantyCovered = request.WarrantyCovered, WarrantyClaimNumber = Normalize(request.WarrantyClaimNumber), ParentFailureJobId = request.ParentFailureJobId,
-            AssignedPersonnelId = request.AssignedPersonnelId, SourceType = request.SourceType, SourceInspectionId = request.SourceInspectionId,
+            AssignedPersonnelId = request.AssignedPersonnelId, LabourRate = technicianRate, SourceType = request.SourceType, SourceInspectionId = request.SourceInspectionId,
             SourceReference = Normalize(request.SourceReference), ReportedByName = scope.UserName, ExpectedReleaseAt = request.ExpectedReleaseAt, ServiceIntervalMonths = request.ServiceIntervalMonths,
             TaxMode = MaintenanceTaxMode.Exclusive, TaxRate = asset.Division?.DefaultTaxRate ?? 0,
             NextServiceDate = request.NextServiceDate, Priority = request.Priority, Status = MaintenanceStatus.Open };
@@ -85,18 +92,35 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
             && !(await authorization.AuthorizeAsync(User, SystemPermissions.MaintenanceComplete)).Succeeded) return Forbid();
         var referenceError = await ValidateReferences(job.AssetId, job.Id, request.SupplierId, request.ParentFailureJobId, cancellationToken);
         if (referenceError is not null) return referenceError;
+        if (job.Status == MaintenanceStatus.Completed && request.Status == MaintenanceStatus.Cancelled)
+            return BadRequest(new { message = "Reopen completed work with a reason before cancelling it." });
         var reopening = job.Status is MaintenanceStatus.Completed or MaintenanceStatus.Cancelled && request.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled);
         if (reopening && !(await authorization.AuthorizeAsync(User, SystemPermissions.MaintenanceComplete)).Succeeded) return Forbid();
         if ((reopening || request.Status == MaintenanceStatus.Cancelled && job.Status != MaintenanceStatus.Cancelled || request.Status == MaintenanceStatus.WaitingForParts && job.Status != MaintenanceStatus.WaitingForParts) && string.IsNullOrWhiteSpace(request.TransitionReason)) return BadRequest(new { message = "Enter a reason for this status change." });
         if (job.Status == MaintenanceStatus.Cancelled && request.Status == MaintenanceStatus.Completed) return BadRequest(new { message = "Reopen cancelled work before completing it." });
+        decimal? technicianRate = null;
         if (request.AssignedPersonnelId.HasValue) {
-            var technician = await db.Personnel.SingleOrDefaultAsync(x => x.Id == request.AssignedPersonnelId && x.IsActive && x.Type == PersonnelType.Technician && x.BranchId == job.BranchId && x.DivisionId == job.Asset!.DivisionId, cancellationToken);
-            if (technician is null || technician.Availability is PersonnelAvailability.Leave or PersonnelAvailability.Unavailable or PersonnelAvailability.Training) return BadRequest(new { message = "Select an available technician for this branch and division." });
-            request = request with { AssignedTo = technician.FullName };
+            var technician = await db.Personnel.Include(x => x.Locations).SingleOrDefaultAsync(x => x.Id == request.AssignedPersonnelId && x.Type == PersonnelType.Technician, cancellationToken);
+            var changed = request.AssignedPersonnelId != job.AssignedPersonnelId;
+            if (technician is null || changed && (!technician.IsActive || !(technician.Locations.Any(location => location.BranchId == job.BranchId && location.DivisionId == job.Asset!.DivisionId) || technician.Locations.Count == 0 && technician.BranchId == job.BranchId && technician.DivisionId == job.Asset!.DivisionId) || technician.Availability is PersonnelAvailability.Leave or PersonnelAvailability.Unavailable or PersonnelAvailability.Training))
+                return BadRequest(new { message = "Select an available technician for this branch and division." });
+            request = request with { AssignedTo = changed ? technician.FullName : job.AssignedTo ?? technician.FullName };
+            technicianRate = changed ? technician.StandardCostRate : job.LabourRate ?? technician.StandardCostRate;
+        }
+        if (request.SupplierId.HasValue && request.SupplierId != job.SupplierId) {
+            var supplier = await db.Suppliers.SingleAsync(x => x.Id == request.SupplierId, cancellationToken);
+            if (!supplier.IsActive) return BadRequest(new { message = "Select an active supplier." });
+            request = request with { Supplier = supplier.Name };
         }
         var financial = (await authorization.AuthorizeAsync(User, SystemPermissions.AssetsViewFinancials)).Succeeded;
         if (!financial) request = request with { HasEstimate = job.HasEstimate, EstimatedCost = job.EstimatedCost, ActualCost = job.ActualCost, PartsCost = job.PartsCost, LabourCost = job.LabourCost, TransportCost = job.TransportCost, ExternalServiceCost = job.ExternalServiceCost, TaxCost = job.TaxCost, OtherCost = job.OtherCost, FuelCost = job.FuelCost, LabourHours = job.LabourHours, LabourRate = job.LabourRate, InvoiceNumber = job.InvoiceNumber, UseDetailedCosts = job.UseDetailedCosts, TaxMode = job.TaxMode, TaxRate = job.TaxRate, TaxableCosts = job.TaxableCosts, TaxOverrideReason = job.TaxOverrideReason };
-        if (request.LabourHours.HasValue != request.LabourRate.HasValue) return BadRequest(new { message = "Enter both labour hours and hourly rate, or leave both blank." });
+        if (request.AssignedPersonnelId.HasValue) request = request with { LabourRate = technicianRate };
+        // Invoice totals take precedence over stale hidden breakdown inputs.
+        // The issued-stock minimum below still prevents discarding stock costs.
+        if ((request.UseDetailedCosts ?? job.UseDetailedCosts) == false)
+            request = request with { PartsCost = 0, LabourCost = 0, TransportCost = 0, ExternalServiceCost = 0,
+                FuelCost = 0, TaxCost = 0, OtherCost = 0, LabourHours = null, LabourRate = technicianRate };
+        if (request.LabourHours.HasValue && !request.LabourRate.HasValue || !request.AssignedPersonnelId.HasValue && !request.LabourHours.HasValue && request.LabourRate.HasValue) return BadRequest(new { message = "Enter both labour hours and hourly rate, or leave both blank." });
         if (request.LabourHours.HasValue) request = request with { LabourCost = decimal.Round(request.LabourHours.Value * request.LabourRate!.Value, 2) };
         var completing = request.Status == MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Completed;
         if (completing && request.CalculateDowntime) request = request with { DowntimeHours = (int)Math.Min(100000, Math.Max(0, Math.Ceiling((DateTimeOffset.UtcNow - job.ReportedAt).TotalHours))) };

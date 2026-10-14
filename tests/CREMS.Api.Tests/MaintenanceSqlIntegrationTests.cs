@@ -10,6 +10,7 @@ using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
+using CREMS.Api.Domain.Operations;
 using CREMS.Api.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -50,7 +51,9 @@ public sealed class MaintenanceSqlIntegrationTests
             var user = new ApplicationUser { FullName = "SQL tester", UserName = "sql-tester", BranchId = branch.Id, DivisionId = division.Id };
             var asset = new Asset { AssetNumber = "SQL-1", Name = "SQL test asset", BranchId = branch.Id, DivisionId = division.Id };
             var stock = new InventoryPart { PartNumber = "SQL-PART", Name = "SQL test part", BranchId = branch.Id, QuantityOnHand = 1, UnitCost = 10 };
-            db.AddRange(branch, division, user, asset, stock,
+            var technician = new Personnel { EmployeeNumber = "SQL-TECH", FullName = "Shared SQL technician", Type = PersonnelType.Technician, BranchId = branch.Id, DivisionId = division.Id, StandardCostRate = 25 };
+            technician.Locations.Add(new PersonnelLocation { PersonnelId = technician.Id, BranchId = branch.Id, DivisionId = division.Id });
+            db.AddRange(branch, division, user, asset, stock, technician,
                 new RolePermission { RoleName = SystemRoles.Administrator, Permission = SystemPermissions.AssetsView },
                 new RolePermission { RoleName = SystemRoles.Administrator, Permission = SystemPermissions.AssetsViewFinancials },
                 new RolePermission { RoleName = SystemRoles.Administrator, Permission = SystemPermissions.AssetsInspect },
@@ -85,6 +88,8 @@ public sealed class MaintenanceSqlIntegrationTests
                 { BaseAddress = new Uri(app.Urls.Single()), Timeout = TimeSpan.FromSeconds(60) };
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/maintenance-jobs", token)).StatusCode);
             (await client.PostAsync("/test-session", null, token)).EnsureSuccessStatusCode();
+            var technicianOptions = await client.GetFromJsonAsync<JsonElement>("/api/maintenance-jobs/options", token);
+            Assert.Single(technicianOptions.GetProperty("technicians")[0].GetProperty("locations").EnumerateArray());
             var created = await client.PostAsJsonAsync("/api/maintenance-jobs", new SaveMaintenanceJobRequest(asset.Id, "Repair", "SQL repair", null, null, 0, null), token);
             created.EnsureSuccessStatusCode();
             var jobId = (await created.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("id").GetGuid();
