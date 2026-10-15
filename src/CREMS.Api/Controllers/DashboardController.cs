@@ -74,8 +74,11 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
         var scope = await staffScope.GetAsync(User);
         if (scope is null) return Forbid();
         var now = DateTimeOffset.UtcNow;
-        var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
-        var previousMonthStart = monthStart.AddMonths(-1);
+        var today = MaintenanceRules.LocalDate(now);
+        var currentMonth = new DateOnly(today.Year, today.Month, 1);
+        var previousMonth = currentMonth.AddMonths(-1);
+        var (monthStart, monthEnd) = ReportingKpis.FijiPeriod(currentMonth, today);
+        var (previousMonthStart, _) = ReportingKpis.FijiPeriod(previousMonth, previousMonth);
         var assets = db.Assets.AsNoTracking().Where(asset => asset.IsActive);
         var bookings = db.Bookings.AsNoTracking();
         var invoices = db.RentalInvoices.AsNoTracking().Where(invoice => invoice.Booking != null);
@@ -91,10 +94,14 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
             approvals = approvals.Where(item => scope.BranchIds.Contains(item.BranchId));
             audit = audit.Where(item => !item.BranchId.HasValue || scope.BranchIds.Contains(item.BranchId.Value));
         }
-        var currentRevenue = await invoices.Where(item => item.IssuedAt >= monthStart).SumAsync(item => (decimal?)item.Total, cancellationToken) ?? 0;
-        var previousRevenue = await invoices.Where(item => item.IssuedAt >= previousMonthStart && item.IssuedAt < monthStart).SumAsync(item => (decimal?)item.Total, cancellationToken) ?? 0;
-        var currentCosts = await maintenance.Where(item => item.ReportedAt >= monthStart).SumAsync(item => (decimal?)(item.ActualCost ?? item.PartsCost + item.LabourCost + item.TransportCost + item.ExternalServiceCost + (item.TaxMode == MaintenanceTaxMode.Inclusive ? 0 : item.TaxCost) + item.OtherCost), cancellationToken) ?? 0;
-        var previousCosts = await maintenance.Where(item => item.ReportedAt >= previousMonthStart && item.ReportedAt < monthStart).SumAsync(item => (decimal?)(item.ActualCost ?? item.PartsCost + item.LabourCost + item.TransportCost + item.ExternalServiceCost + (item.TaxMode == MaintenanceTaxMode.Inclusive ? 0 : item.TaxCost) + item.OtherCost), cancellationToken) ?? 0;
+        var monthlyInvoices = await invoices.Where(item => item.IssuedAt >= previousMonthStart && item.IssuedAt < monthEnd).ToListAsync(cancellationToken);
+        var monthlyInvoiceIds = monthlyInvoices.Select(x => x.Id).ToArray();
+        var monthlyCredits = await db.CreditNotes.AsNoTracking().Where(x => monthlyInvoiceIds.Contains(x.InvoiceId) && x.Status == CreditNoteStatus.Applied).ToListAsync(cancellationToken);
+        var currentRevenue = ReportingKpis.Revenue(monthlyInvoices.Where(x => x.IssuedAt >= monthStart), monthlyCredits);
+        var previousRevenue = ReportingKpis.Revenue(monthlyInvoices.Where(x => x.IssuedAt < monthStart), monthlyCredits);
+        var monthlyJobs = await maintenance.Where(item => item.ReportedAt >= previousMonthStart && item.ReportedAt < monthEnd).ToListAsync(cancellationToken);
+        var currentCosts = ReportingKpis.MaintenanceExpense(monthlyJobs.Where(x => x.ReportedAt >= monthStart));
+        var previousCosts = ReportingKpis.MaintenanceExpense(monthlyJobs.Where(x => x.ReportedAt < monthStart));
         var fleet = await assets.GroupBy(item => new { Division = item.Division != null ? item.Division.Name : "Unassigned", item.Status }).Select(group => new { group.Key.Division, Status = group.Key.Status.ToString(), Count = group.Count() }).ToListAsync(cancellationToken);
         var alerts = new List<object>();
         alerts.AddRange(await bookings.Where(item => item.Status == BookingStatus.ConvertedToRental && item.Items.Any(line => line.EndAt < now)).OrderBy(item => item.BookingNumber).Take(5).Select(item => new { Type = "Overdue return", Detail = item.BookingNumber + " requires return follow-up", Priority = "High", Page = "rentals" }).ToListAsync(cancellationToken));

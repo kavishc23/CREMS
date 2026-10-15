@@ -8,9 +8,14 @@ namespace CREMS.Api.Controllers;
   var scope=await staffScope.GetAsync(User);if(scope is null)return Forbid();
   var invoices=db.RentalInvoices.AsNoTracking().Where(x=>x.Booking!=null&&(scope.IsAdministrator||scope.BranchIds.Contains(x.Booking.BranchId)));
   var payments=db.RentalPayments.AsNoTracking().Where(x=>x.Booking!=null&&(scope.IsAdministrator||scope.BranchIds.Contains(x.Booking.BranchId)));
+  var allInvoices=await invoices.ToListAsync(token);
+  var invoiceIds=allInvoices.Select(x=>x.Id).ToArray();
+  var credits=await db.CreditNotes.AsNoTracking().Where(x=>invoiceIds.Contains(x.InvoiceId)&&x.Status==CreditNoteStatus.Applied).ToListAsync(token);
+  var creditByInvoice=credits.GroupBy(x=>x.InvoiceId).ToDictionary(x=>x.Key,x=>x.Sum(y=>y.Subtotal));
   var invoiceRows=await invoices.OrderByDescending(x=>x.IssuedAt).Take(200).Select(x=>new{x.Id,x.InvoiceNumber,x.BookingId,BookingNumber=x.Booking!.BookingNumber,CustomerName=x.Booking.Customer!.Name,BranchName=x.Booking.Branch!.Name,x.Subtotal,x.TaxAmount,x.Total,x.AmountPaid,x.BalanceDue,Status=x.Status.ToString(),x.IssuedAt}).ToListAsync(token);
+  var invoiceDisplay=invoiceRows.Select(x=>new{x.Id,x.InvoiceNumber,x.BookingId,x.BookingNumber,x.CustomerName,x.BranchName,x.Subtotal,x.TaxAmount,x.Total,x.AmountPaid,x.BalanceDue,x.Status,x.IssuedAt,creditSubtotal=creditByInvoice.GetValueOrDefault(x.Id)}).ToArray();
   var paymentRows=await payments.OrderByDescending(x=>x.CreatedAt).Take(200).Select(x=>new{x.Id,x.BookingId,BookingNumber=x.Booking!.BookingNumber,CustomerName=x.Booking.Customer!.Name,BranchName=x.Booking.Branch!.Name,Type=x.Type.ToString(),Method=x.Method.ToString(),x.Amount,x.ReceiptNumber,Status=x.Status.ToString(),x.CreatedAt,x.RecordedByName}).ToListAsync(token);
-  return Ok(new{summary=new{invoiced=invoiceRows.Sum(x=>x.Total),received=invoiceRows.Sum(x=>x.AmountPaid),outstanding=invoiceRows.Sum(x=>x.BalanceDue),unpaidInvoices=invoiceRows.Count(x=>x.BalanceDue>0),depositsHeld=paymentRows.Where(x=>x.Type==PaymentType.Deposit.ToString()&&x.Status==PaymentStatus.Recorded.ToString()).Sum(x=>x.Amount)},invoices=invoiceRows,payments=paymentRows});
+  return Ok(new{summary=new{revenue=ReportingKpis.Revenue(allInvoices,credits),invoiced=ReportingKpis.GrossInvoiced(allInvoices),received=paymentRows.Where(x=>x.Status==PaymentStatus.Recorded.ToString()&&x.Type!=PaymentType.Refund.ToString()&&x.Type!=PaymentType.BondRefund.ToString()).Sum(x=>x.Amount),outstanding=ReportingKpis.Outstanding(allInvoices),unpaidInvoices=allInvoices.Count(x=>x.Status!=InvoiceStatus.Voided&&x.BalanceDue>0),depositsHeld=paymentRows.Where(x=>x.Type==PaymentType.Deposit.ToString()&&x.Status==PaymentStatus.Recorded.ToString()).Sum(x=>x.Amount)},invoices=invoiceDisplay,payments=paymentRows});
  }
  [HttpGet("bookings/{bookingId:guid}/reconciliation")]
  public async Task<ActionResult> Reconciliation(Guid bookingId,CancellationToken token)

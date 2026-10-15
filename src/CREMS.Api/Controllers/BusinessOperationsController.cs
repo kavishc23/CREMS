@@ -223,19 +223,41 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     [Authorize(Policy = SystemPolicies.ViewReports)]
     public async Task<IActionResult> ExportProfitability(CancellationToken token)
     {
-        var result = await AssetProfitability(token); if (result.Result is not OkObjectResult ok) return result.Result!; var json = JsonSerializer.Serialize(ok.Value, new JsonSerializerOptions(JsonSerializerDefaults.Web)); using var document = JsonDocument.Parse(json); var rows = document.RootElement.GetProperty("assets").EnumerateArray(); var csv = new StringBuilder("Asset number,Asset,Revenue,Expense,Gross profit,Margin %,Loss making\n");
-        foreach (var row in rows) csv.AppendLine(string.Join(',', Csv(row.GetProperty("assetNumber").GetString()), Csv(row.GetProperty("name").GetString()), row.GetProperty("revenue").GetDecimal().ToString(CultureInfo.InvariantCulture), row.GetProperty("totalExpense").GetDecimal().ToString(CultureInfo.InvariantCulture), row.GetProperty("grossProfit").GetDecimal().ToString(CultureInfo.InvariantCulture), row.GetProperty("profitMargin").GetDecimal().ToString(CultureInfo.InvariantCulture), row.GetProperty("lossMaking").GetBoolean()));
+        var result = await AssetProfitability(token); if (result.Result is not OkObjectResult ok) return result.Result!;
+        var json = JsonSerializer.Serialize(ok.Value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        using var document = JsonDocument.Parse(json);
+        var csv = new StringBuilder("\uFEFFRecord type,Asset number,Asset,Branch ID,Division ID,Revenue FJD,Maintenance cost FJD,Direct cost FJD,Booking charge cost FJD,Personnel cost FJD,Total expense FJD,Gross profit FJD,Profit margin %,Acquisition cost FJD,Current book value FJD,Cost per operating hour FJD,Current meter reading,Meter unit,Loss making,Asset ID\r\n");
+        static string Amount(JsonElement row, string field) => row.GetProperty(field).GetDecimal().ToString(CultureInfo.InvariantCulture);
+        foreach (var row in document.RootElement.GetProperty("assets").EnumerateArray())
+        {
+            var bookValue = row.GetProperty("currentBookValue");
+            csv.AppendLine(string.Join(',', "Asset", Csv(row.GetProperty("assetNumber").GetString()), Csv(row.GetProperty("name").GetString()),
+                Csv(row.GetProperty("branchId").GetString()), Csv(row.GetProperty("divisionId").ValueKind == JsonValueKind.Null ? null : row.GetProperty("divisionId").GetString()),
+                Amount(row, "revenue"), Amount(row, "maintenanceCost"), Amount(row, "directCost"), Amount(row, "componentCost"),
+                Amount(row, "personnelCost"), Amount(row, "totalExpense"), Amount(row, "grossProfit"), Amount(row, "profitMargin"),
+                Amount(row, "acquisitionCost"), bookValue.ValueKind == JsonValueKind.Null ? "" : bookValue.GetDecimal().ToString(CultureInfo.InvariantCulture),
+                Amount(row, "costPerOperatingHour"), row.GetProperty("currentMeterReading").ValueKind == JsonValueKind.Null ? "" : Amount(row, "currentMeterReading"),
+                Csv(row.GetProperty("meterUnit").ValueKind == JsonValueKind.Null ? null : row.GetProperty("meterUnit").GetString()),
+                row.GetProperty("lossMaking").GetBoolean(), Csv(row.GetProperty("id").GetString())));
+        }
         var unallocated = document.RootElement.GetProperty("unallocated");
         if (unallocated.GetProperty("revenue").GetDecimal() != 0 || unallocated.GetProperty("expense").GetDecimal() != 0)
-            csv.AppendLine(string.Join(',', "Unallocated", "Booking amounts with no asset", unallocated.GetProperty("revenue").GetDecimal().ToString(CultureInfo.InvariantCulture), unallocated.GetProperty("expense").GetDecimal().ToString(CultureInfo.InvariantCulture), unallocated.GetProperty("profit").GetDecimal().ToString(CultureInfo.InvariantCulture), "", unallocated.GetProperty("profit").GetDecimal() < 0));
-        return File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv", $"asset-profitability-{DateTime.UtcNow:yyyyMMdd}.csv");
+            csv.AppendLine(string.Join(',', "Unallocated", "", Csv("Booking amounts with no asset"), "", "", Amount(unallocated, "revenue"), "", "", "", "", Amount(unallocated, "expense"), Amount(unallocated, "profit"), "", "", "", "", "", "", "", ""));
+        var totals = document.RootElement.GetProperty("totals");
+        csv.AppendLine(string.Join(',', "Total", "", Csv("Scoped asset and unallocated amounts"), "", "", Amount(totals, "revenue"), "", "", "", "", Amount(totals, "expense"), Amount(totals, "profit"), "", "", "", "", "", "", "", ""));
+        return File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv; charset=utf-8", $"asset-profitability-{DateTime.UtcNow:yyyyMMdd}.csv");
     }
 
     private async Task<StaffDataScope?> Scope() => await staffScope.GetAsync(User);
     private IQueryable<Asset> AssetScope(StaffDataScope scope) => db.Assets.Where(x => scope.IsAdministrator || scope.BranchIds.Contains(x.BranchId) && x.DivisionId.HasValue && scope.DivisionIds.Contains(x.DivisionId.Value));
     private ActionResult Validation(string key, string message) => BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { [key] = [message] }));
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    private static string Csv(string? value) => $"\"{(value ?? string.Empty).Replace("\"", "\"\"")}\"";
+    private static string Csv(string? value)
+    {
+        var safe = value ?? string.Empty;
+        if (safe.TrimStart().StartsWith('=') || safe.TrimStart().StartsWith('+') || safe.TrimStart().StartsWith('-') || safe.TrimStart().StartsWith('@')) safe = "'" + safe;
+        return $"\"{safe.Replace("\"", "\"\"")}\"";
+    }
     private static readonly IReadOnlyDictionary<AssetStatus, AssetStatus[]> AllowedLifecycleTransitions = new Dictionary<AssetStatus, AssetStatus[]>
     {
         [AssetStatus.Available] = [AssetStatus.Reserved, AssetStatus.Inspection, AssetStatus.Maintenance, AssetStatus.OutOfService, AssetStatus.Retired],

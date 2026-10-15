@@ -1,5 +1,5 @@
 export type ReportRow = Record<string, unknown>
-export type ReportSection = { title: string; columns: string[]; rows: ReportRow[] }
+export type ReportSection = { title: string; columns: string[]; csvColumns?: string[]; rows: ReportRow[] }
 export type StaffReport = { title: string; description: string; coverage: string; sections: ReportSection[] }
 
 export const reportLabel = (key: string) => key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase())
@@ -10,11 +10,11 @@ export function reportValue(value: unknown): string {
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(T|$)/.test(value) && !Number.isNaN(Date.parse(value))) return new Date(value).toLocaleDateString('en-FJ', { timeZone: 'Pacific/Fiji' })
   return String(value)
 }
-export function reportSection(title: string, rows: ReportRow[], columns: string[]): ReportSection { return { title, rows, columns } }
+export function reportSection(title: string, rows: ReportRow[], columns: string[], csvColumns?: string[]): ReportSection { return { title, rows, columns, csvColumns } }
 export function filterReport(report: StaffReport, search: string, from: string, to: string): StaffReport {
   const term = search.trim().toLowerCase()
   return { ...report, sections: report.sections.map(section => ({ ...section, rows: section.rows.filter(row => {
-    const matches = !term || section.columns.some(key => reportValue(row[key]).toLowerCase().includes(term))
+    const matches = !term || (section.csvColumns ?? section.columns).some(key => reportValue(row[key]).toLowerCase().includes(term))
     // Each report declares its primary date as the "date" column. Undated sections remain visible.
     const raw = row.date
     const date = typeof raw === 'string' && !Number.isNaN(Date.parse(raw))
@@ -27,8 +27,27 @@ function saveBlob(blob: Blob, name: string) {
   link.href = url; link.download = name; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 export function reportCsv(report: StaffReport): string {
-  const cell = (value: unknown) => { const text = reportValue(value); return `"${(/^[=+@\-\t\r]/.test(text) ? "'" : '') + text.replace(/"/g, '""')}"` }
-  return [[report.title], [report.coverage], ...report.sections.flatMap(section => [[section.title], section.columns.map(reportLabel), ...section.rows.map(row => section.columns.map(key => row[key])), []])].map(row => row.map(cell).join(',')).join('\r\n')
+  const columns = [...new Set(report.sections.flatMap(section => section.csvColumns ?? section.columns))]
+  const generatedAt = `${new Intl.DateTimeFormat('sv-SE', { timeZone: 'Pacific/Fiji', dateStyle: 'short', timeStyle: 'medium' }).format(new Date())} Pacific/Fiji`
+  const value = (input: unknown): string => {
+    if (input == null) return ''
+    if (typeof input === 'number') return Number.isFinite(input) ? String(input) : ''
+    if (typeof input === 'boolean') return input ? 'Yes' : 'No'
+    if (Array.isArray(input) || typeof input === 'object') return JSON.stringify(input)
+    return String(input)
+  }
+  const cell = (input: unknown) => {
+    const raw = value(input)
+    // Spreadsheet applications interpret leading =, +, -, @ and control characters as formulas.
+    const safe = typeof input === 'string' && /^[\s\u0000-\u001f]*[=+\-@]/.test(raw) ? `'${raw}` : raw
+    return `"${safe.replace(/"/g, '""')}"`
+  }
+  const heading = ['Report', 'Section', 'Generated at (Fiji)', 'Coverage', 'Row number', ...columns.map(reportLabel)]
+  const rows = report.sections.flatMap(section => section.rows.map((row, index) => [
+    report.title, section.title, generatedAt, report.coverage, index + 1,
+    ...columns.map(key => (section.csvColumns ?? section.columns).includes(key) ? row[key] : null),
+  ]))
+  return [heading, ...rows].map(row => row.map(cell).join(',')).join('\r\n') + '\r\n'
 }
 export function downloadReportCsv(report: StaffReport) { saveBlob(new Blob(['\uFEFF', reportCsv(report)], { type: 'text/csv;charset=utf-8' }), `${report.title.replace(/[^a-z0-9]+/gi, '-')}.csv`) }
 export async function buildReportPdf(report: StaffReport) {
