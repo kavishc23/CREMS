@@ -60,7 +60,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var rows = await selected.OrderBy(x => x.Items.Select(i => i.StartAt).FirstOrDefault()).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(x => new RentalWorkQueueRow(x.Id, x.BookingNumber, x.Status.ToString(), x.Customer!.Name, x.Customer.Phone,
                 x.Branch!.Name, x.Items.Select(i => i.Asset!.AssetNumber).FirstOrDefault(), x.Items.Select(i => i.Asset!.Name).FirstOrDefault(),
-                x.Items.Select(i => i.Asset!.AssetCategory!.Code).FirstOrDefault(), x.Items.Select(i => i.Asset!.Category).FirstOrDefault(),
+                x.Items.Select(i => i.Asset!.Type == AssetType.PropertyUnit ? "PROPERTY_UNIT" : i.Asset.AssetCategory!.Code).FirstOrDefault(), x.Items.Select(i => i.Asset!.Category).FirstOrDefault(),
                 x.Charges.Any(c => c.Category == ChargeCategory.Driver || c.Category == ChargeCategory.Operator),
                 x.Items.Select(i => (DateTimeOffset?)i.StartAt).FirstOrDefault(), x.Items.Select(i => (DateTimeOffset?)i.EndAt).FirstOrDefault(),
                 x.RentalAgreement != null, x.RentalAgreement != null
@@ -273,17 +273,14 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             if (hasDamage)
                 db.MaintenanceJobs.Add(new MaintenanceJob { JobNumber = $"MNT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}", AssetId = asset.Id, BranchId = asset.BranchId, SourceType = "Damage", SourceReference = booking.BookingNumber, ReportedByName = scope.UserName, ServiceType = "Post-hire damage assessment", FaultDescription = request.DamageNotes!.Trim(), Description = $"Automatically referred from return of {booking.BookingNumber}.", Priority = MaintenancePriority.High, Status = MaintenanceStatus.Open, MeterReading = request.MeterReading });
         }
-        var rentalSubtotal = booking.Items.Sum(item => item.DailyRate * Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)));
+        var rentalSubtotal = booking.Items.Sum(item => HirePricing.Amount(item));
         var invoiceSubtotal = Math.Max(0, rentalSubtotal - booking.DiscountAmount + quotedChargeTotal + returnChargeTotal);
-        var taxableSubtotal = Math.Max(0, rentalSubtotal - booking.DiscountAmount +
+        var taxableSubtotal = Math.Max(0, booking.Items.Where(x=>x.HireIsTaxable).Sum(HirePricing.Amount) - booking.DiscountAmount +
             booking.Charges.Where(x => x.IsTaxable).Sum(x => x.Quantity * x.UnitRate) + returnChargeTotal);
         var invoiceTax = decimal.Round(taxableSubtotal * booking.TaxRate / 100m, 2);
         var paid = await db.RentalPayments.Where(x => x.BookingId == bookingId && x.Status == PaymentStatus.Recorded &&
             (x.Type == PaymentType.RentalCharge || x.Type == PaymentType.AdditionalCharge)).SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
-        var invoiceLines = new List<InvoiceLine>
-        {
-            new() { Description = "Rental charges", Quantity = 1, UnitPrice = rentalSubtotal, TaxRate = booking.TaxRate, IsTaxable = true },
-        };
+        var invoiceLines = booking.Items.Select(item => new InvoiceLine { Description = $"{item.Asset?.Name ?? "Rental"} hire ({item.HireUnit})", Quantity = HirePricing.Quantity(item), UnitPrice = item.DailyRate, TaxRate = booking.TaxRate, IsTaxable = item.HireIsTaxable }).ToList();
         if (booking.DiscountAmount > 0)
             invoiceLines.Add(new InvoiceLine { Description = "Discount", Quantity = 1, UnitPrice = -booking.DiscountAmount, TaxRate = booking.TaxRate, IsTaxable = true });
         invoiceLines.AddRange(booking.Charges.Select(x => new InvoiceLine { Description = x.Description, Quantity = x.Quantity,
@@ -338,8 +335,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
 
     private static object ToResponse(Booking booking)
     {
-        var subtotal = booking.Items.Sum(item => item.DailyRate * Math.Max(1,
-            (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)));
+        var subtotal = booking.Items.Sum(item => HirePricing.Amount(item));
         var taxable = Math.Max(0, subtotal - booking.DiscountAmount + booking.AdditionalCharges);
         return new { booking.Id, booking.BookingNumber, booking.Status, booking.DepositRequired,
             bond = new { required = booking.DepositRequired, held = booking.BondAmountHeld, deduction = booking.BondDeductionAmount, booking.BondDeductionReason, refund = booking.BondRefundAmount, status = booking.BondStatus.ToString(), booking.BondSettledAt },

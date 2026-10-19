@@ -174,12 +174,12 @@ public sealed class CustomerAccountController(
             document.Type.Contains(required, StringComparison.OrdinalIgnoreCase) || document.FileName.Contains(required, StringComparison.OrdinalIgnoreCase)));
 
         var baseSubtotal = booking.Items.Sum(item =>
-            Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)) * item.DailyRate);
+            HirePricing.Amount(item));
         var visibleCharges = booking.Charges.Select(x => new { x.Description, x.Category, x.Unit,
             x.Quantity, x.UnitRate, Amount = x.Quantity * x.UnitRate, x.IsTaxable }).ToList();
         var chargeTotal = visibleCharges.Sum(x => x.Amount);
         var subtotal = Math.Max(0, baseSubtotal - booking.DiscountAmount + chargeTotal);
-        var taxable = Math.Max(0, baseSubtotal - booking.DiscountAmount + visibleCharges.Where(x => x.IsTaxable).Sum(x => x.Amount));
+        var taxable = Math.Max(0, booking.Items.Where(x=>x.HireIsTaxable).Sum(HirePricing.Amount) - booking.DiscountAmount + visibleCharges.Where(x => x.IsTaxable).Sum(x => x.Amount));
         var tax = decimal.Round(taxable * booking.TaxRate / 100m, 2);
 
         return Ok(new
@@ -312,7 +312,7 @@ public sealed class CustomerAccountController(
             convertedBooking = await db.Bookings.FirstOrDefaultAsync(x => x.Id == quote.ConvertedBookingId.Value, token);
             if (convertedBooking is not null)
             {
-                convertedBooking.BookingNumber = $"BKR-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
+                convertedBooking.BookingNumber = await RentalSettings.Reference(db, false, token);
                 convertedBooking.Notes = Append(convertedBooking.Notes, $"Customer accepted quotation {quote.QuoteNumber}.");
                 convertedBooking.UpdatedAt = DateTimeOffset.UtcNow;
             }

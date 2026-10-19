@@ -1,0 +1,557 @@
+Using launch settings from C:\Github\CREMS\src\CREMS.Api\Properties\launchSettings.json...
+Building...
+info: Microsoft.EntityFrameworkCore.Migrations[20411]
+      Acquiring an exclusive lock for migration application. See https://aka.ms/efcore-docs-migrations-lock for more information if this takes too long.
+info: Microsoft.EntityFrameworkCore.Migrations[20402]
+      Applying migration '20261013034823_TechnicianLocations'.
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: http://localhost:5080
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Development
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: C:\Github\CREMS\src\CREMS.Api
+fail: Microsoft.EntityFrameworkCore.Database.Command[20102]
+      Failed executing DbCommand (17,010,077ms) [Parameters=[@p='?' (DbType = Int32), @now='?' (DbType = DateTimeOffset)], CommandType='Text', CommandTimeout='30']
+      SELECT TOP(@p) [o].[Id], [o].[Attempts], [o].[Category], [o].[CreatedAt], [o].[FailureReason], [o].[HtmlBody], [o].[NextAttemptAt], [o].[ProviderMessageId], [o].[Recipient], [o].[SentAt], [o].[Status], [o].[Subject], [o].[TextBody], [o].[UpdatedAt]
+      FROM [OutboundEmails] AS [o]
+      WHERE [o].[Status] IN (0, 3) AND [o].[Attempts] < 5 AND [o].[NextAttemptAt] <= @now
+      ORDER BY [o].[CreatedAt]
+fail: Microsoft.EntityFrameworkCore.Query[10100]
+      An exception occurred while iterating over the results of a query for context type 'CREMS.Api.Data.ApplicationDbContext'.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:86f3daae-8615-4cc8-ad9e-2cfd5dc24082
+      Error Number:-2,State:0,Class:11
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:86f3daae-8615-4cc8-ad9e-2cfd5dc24082
+      Error Number:-2,State:0,Class:11
+fail: CREMS.Api.Services.EmailDeliveryWorker[0]
+      Email delivery cycle failed.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at CREMS.Api.Services.EmailDeliveryWorker.Process(CancellationToken token) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 79
+         at CREMS.Api.Services.EmailDeliveryWorker.ExecuteAsync(CancellationToken stoppingToken) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 67
+      ClientConnectionId:86f3daae-8615-4cc8-ad9e-2cfd5dc24082
+      Error Number:-2,State:0,Class:11
+fail: Microsoft.EntityFrameworkCore.Database.Command[20102]
+      Failed executing DbCommand (36,964,183ms) [Parameters=[@p='?' (DbType = Int32), @now='?' (DbType = DateTimeOffset)], CommandType='Text', CommandTimeout='30']
+      SELECT TOP(@p) [o].[Id], [o].[Attempts], [o].[Category], [o].[CreatedAt], [o].[FailureReason], [o].[HtmlBody], [o].[NextAttemptAt], [o].[ProviderMessageId], [o].[Recipient], [o].[SentAt], [o].[Status], [o].[Subject], [o].[TextBody], [o].[UpdatedAt]
+      FROM [OutboundEmails] AS [o]
+      WHERE [o].[Status] IN (0, 3) AND [o].[Attempts] < 5 AND [o].[NextAttemptAt] <= @now
+      ORDER BY [o].[CreatedAt]
+fail: Microsoft.EntityFrameworkCore.Query[10100]
+      An exception occurred while iterating over the results of a query for context type 'CREMS.Api.Data.ApplicationDbContext'.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:86f3daae-8615-4cc8-ad9e-2cfd5dc24082
+      Error Number:-2,State:0,Class:11
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:86f3daae-8615-4cc8-ad9e-2cfd5dc24082
+      Error Number:-2,State:0,Class:11
+fail: CREMS.Api.Services.EmailDeliveryWorker[0]
+      Email delivery cycle failed.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at CREMS.Api.Services.EmailDeliveryWorker.Process(CancellationToken token) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 79
+         at CREMS.Api.Services.EmailDeliveryWorker.ExecuteAsync(CancellationToken stoppingToken) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 67
+      ClientConnectionId:86f3daae-8615-4cc8-ad9e-2cfd5dc24082
+      Error Number:-2,State:0,Class:11
+fail: Microsoft.EntityFrameworkCore.Database.Command[20102]
+      Failed executing DbCommand (237,492ms) [Parameters=[@p='?' (DbType = Int32), @now='?' (DbType = DateTimeOffset)], CommandType='Text', CommandTimeout='30']
+      SELECT TOP(@p) [o].[Id], [o].[Attempts], [o].[Category], [o].[CreatedAt], [o].[FailureReason], [o].[HtmlBody], [o].[NextAttemptAt], [o].[ProviderMessageId], [o].[Recipient], [o].[SentAt], [o].[Status], [o].[Subject], [o].[TextBody], [o].[UpdatedAt]
+      FROM [OutboundEmails] AS [o]
+      WHERE [o].[Status] IN (0, 3) AND [o].[Attempts] < 5 AND [o].[NextAttemptAt] <= @now
+      ORDER BY [o].[CreatedAt]
+fail: Microsoft.EntityFrameworkCore.Query[10100]
+      An exception occurred while iterating over the results of a query for context type 'CREMS.Api.Data.ApplicationDbContext'.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:86f3daae-8615-4cc8-ad9e-2cfd5dc24082
+      Error Number:-2,State:0,Class:11
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:86f3daae-8615-4cc8-ad9e-2cfd5dc24082
+      Error Number:-2,State:0,Class:11
+fail: CREMS.Api.Services.EmailDeliveryWorker[0]
+      Email delivery cycle failed.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at CREMS.Api.Services.EmailDeliveryWorker.Process(CancellationToken token) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 79
+         at CREMS.Api.Services.EmailDeliveryWorker.ExecuteAsync(CancellationToken stoppingToken) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 67
+      ClientConnectionId:86f3daae-8615-4cc8-ad9e-2cfd5dc24082
+      Error Number:-2,State:0,Class:11
+fail: Microsoft.EntityFrameworkCore.Database.Command[20102]
+      Failed executing DbCommand (9,131,461ms) [Parameters=[@p='?' (DbType = Int32), @now='?' (DbType = DateTimeOffset)], CommandType='Text', CommandTimeout='30']
+      SELECT TOP(@p) [o].[Id], [o].[Attempts], [o].[Category], [o].[CreatedAt], [o].[FailureReason], [o].[HtmlBody], [o].[NextAttemptAt], [o].[ProviderMessageId], [o].[Recipient], [o].[SentAt], [o].[Status], [o].[Subject], [o].[TextBody], [o].[UpdatedAt]
+      FROM [OutboundEmails] AS [o]
+      WHERE [o].[Status] IN (0, 3) AND [o].[Attempts] < 5 AND [o].[NextAttemptAt] <= @now
+      ORDER BY [o].[CreatedAt]
+fail: Microsoft.EntityFrameworkCore.Query[10100]
+      An exception occurred while iterating over the results of a query for context type 'CREMS.Api.Data.ApplicationDbContext'.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:6848b412-8cff-4d2d-84d4-0e41be0f1721
+      Error Number:-2,State:0,Class:11
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:6848b412-8cff-4d2d-84d4-0e41be0f1721
+      Error Number:-2,State:0,Class:11
+fail: CREMS.Api.Services.EmailDeliveryWorker[0]
+      Email delivery cycle failed.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at CREMS.Api.Services.EmailDeliveryWorker.Process(CancellationToken token) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 79
+         at CREMS.Api.Services.EmailDeliveryWorker.ExecuteAsync(CancellationToken stoppingToken) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 67
+      ClientConnectionId:6848b412-8cff-4d2d-84d4-0e41be0f1721
+      Error Number:-2,State:0,Class:11
+fail: Microsoft.EntityFrameworkCore.Database.Command[20102]
+      Failed executing DbCommand (1,417ms) [Parameters=[@p='?' (DbType = Int32), @now='?' (DbType = DateTimeOffset)], CommandType='Text', CommandTimeout='30']
+      SELECT TOP(@p) [o].[Id], [o].[Attempts], [o].[Category], [o].[CreatedAt], [o].[FailureReason], [o].[HtmlBody], [o].[NextAttemptAt], [o].[ProviderMessageId], [o].[Recipient], [o].[SentAt], [o].[Status], [o].[Subject], [o].[TextBody], [o].[UpdatedAt]
+      FROM [OutboundEmails] AS [o]
+      WHERE [o].[Status] IN (0, 3) AND [o].[Attempts] < 5 AND [o].[NextAttemptAt] <= @now
+      ORDER BY [o].[CreatedAt]
+fail: Microsoft.EntityFrameworkCore.Query[10100]
+      An exception occurred while iterating over the results of a query for context type 'CREMS.Api.Data.ApplicationDbContext'.
+      System.InvalidOperationException: An exception has been raised that is likely due to a transient failure. Consider enabling transient error resiliency by adding 'EnableRetryOnFailure' to the 'UseSqlServer' call.
+       ---> Microsoft.Data.SqlClient.SqlException (0x80131904): A transport-level error has occurred when receiving results from the server. (provider: TCP Provider, error: 0 - An established connection was aborted by the software in your host machine.)
+       ---> System.ComponentModel.Win32Exception (10053): An established connection was aborted by the software in your host machine.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+      ClientConnectionId:6848b412-8cff-4d2d-84d4-0e41be0f1721
+      Error Number:10053,State:0,Class:20
+         --- End of inner exception stack trace ---
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      System.InvalidOperationException: An exception has been raised that is likely due to a transient failure. Consider enabling transient error resiliency by adding 'EnableRetryOnFailure' to the 'UseSqlServer' call.
+       ---> Microsoft.Data.SqlClient.SqlException (0x80131904): A transport-level error has occurred when receiving results from the server. (provider: TCP Provider, error: 0 - An established connection was aborted by the software in your host machine.)
+       ---> System.ComponentModel.Win32Exception (10053): An established connection was aborted by the software in your host machine.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+      ClientConnectionId:6848b412-8cff-4d2d-84d4-0e41be0f1721
+      Error Number:10053,State:0,Class:20
+         --- End of inner exception stack trace ---
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+fail: CREMS.Api.Services.EmailDeliveryWorker[0]
+      Email delivery cycle failed.
+      System.InvalidOperationException: An exception has been raised that is likely due to a transient failure. Consider enabling transient error resiliency by adding 'EnableRetryOnFailure' to the 'UseSqlServer' call.
+       ---> Microsoft.Data.SqlClient.SqlException (0x80131904): A transport-level error has occurred when receiving results from the server. (provider: TCP Provider, error: 0 - An established connection was aborted by the software in your host machine.)
+       ---> System.ComponentModel.Win32Exception (10053): An established connection was aborted by the software in your host machine.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+      ClientConnectionId:6848b412-8cff-4d2d-84d4-0e41be0f1721
+      Error Number:10053,State:0,Class:20
+         --- End of inner exception stack trace ---
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at CREMS.Api.Services.EmailDeliveryWorker.Process(CancellationToken token) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 79
+         at CREMS.Api.Services.EmailDeliveryWorker.ExecuteAsync(CancellationToken stoppingToken) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 67
+fail: Microsoft.EntityFrameworkCore.Database.Command[20102]
+      Failed executing DbCommand (25,979,088ms) [Parameters=[@p='?' (DbType = Int32), @now='?' (DbType = DateTimeOffset)], CommandType='Text', CommandTimeout='30']
+      SELECT TOP(@p) [o].[Id], [o].[Attempts], [o].[Category], [o].[CreatedAt], [o].[FailureReason], [o].[HtmlBody], [o].[NextAttemptAt], [o].[ProviderMessageId], [o].[Recipient], [o].[SentAt], [o].[Status], [o].[Subject], [o].[TextBody], [o].[UpdatedAt]
+      FROM [OutboundEmails] AS [o]
+      WHERE [o].[Status] IN (0, 3) AND [o].[Attempts] < 5 AND [o].[NextAttemptAt] <= @now
+      ORDER BY [o].[CreatedAt]
+fail: Microsoft.EntityFrameworkCore.Query[10100]
+      An exception occurred while iterating over the results of a query for context type 'CREMS.Api.Data.ApplicationDbContext'.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:30bcd10d-c0bc-41af-997f-db205bd99378
+      Error Number:-2,State:0,Class:11
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:30bcd10d-c0bc-41af-997f-db205bd99378
+      Error Number:-2,State:0,Class:11
+fail: CREMS.Api.Services.EmailDeliveryWorker[0]
+      Email delivery cycle failed.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at CREMS.Api.Services.EmailDeliveryWorker.Process(CancellationToken token) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 79
+         at CREMS.Api.Services.EmailDeliveryWorker.ExecuteAsync(CancellationToken stoppingToken) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 67
+      ClientConnectionId:30bcd10d-c0bc-41af-997f-db205bd99378
+      Error Number:-2,State:0,Class:11
+fail: Microsoft.EntityFrameworkCore.Database.Command[20102]
+      Failed executing DbCommand (3,088,319ms) [Parameters=[@p='?' (DbType = Int32), @now='?' (DbType = DateTimeOffset)], CommandType='Text', CommandTimeout='30']
+      SELECT TOP(@p) [o].[Id], [o].[Attempts], [o].[Category], [o].[CreatedAt], [o].[FailureReason], [o].[HtmlBody], [o].[NextAttemptAt], [o].[ProviderMessageId], [o].[Recipient], [o].[SentAt], [o].[Status], [o].[Subject], [o].[TextBody], [o].[UpdatedAt]
+      FROM [OutboundEmails] AS [o]
+      WHERE [o].[Status] IN (0, 3) AND [o].[Attempts] < 5 AND [o].[NextAttemptAt] <= @now
+      ORDER BY [o].[CreatedAt]
+fail: Microsoft.EntityFrameworkCore.Query[10100]
+      An exception occurred while iterating over the results of a query for context type 'CREMS.Api.Data.ApplicationDbContext'.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:cd93e437-7c49-4d84-9a94-aeb76c6113ee
+      Error Number:-2,State:0,Class:11
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:cd93e437-7c49-4d84-9a94-aeb76c6113ee
+      Error Number:-2,State:0,Class:11
+fail: CREMS.Api.Services.EmailDeliveryWorker[0]
+      Email delivery cycle failed.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at CREMS.Api.Services.EmailDeliveryWorker.Process(CancellationToken token) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 79
+         at CREMS.Api.Services.EmailDeliveryWorker.ExecuteAsync(CancellationToken stoppingToken) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 67
+      ClientConnectionId:cd93e437-7c49-4d84-9a94-aeb76c6113ee
+      Error Number:-2,State:0,Class:11
+fail: Microsoft.EntityFrameworkCore.Database.Command[20102]
+      Failed executing DbCommand (9,450,923ms) [Parameters=[@p='?' (DbType = Int32), @now='?' (DbType = DateTimeOffset)], CommandType='Text', CommandTimeout='30']
+      SELECT TOP(@p) [o].[Id], [o].[Attempts], [o].[Category], [o].[CreatedAt], [o].[FailureReason], [o].[HtmlBody], [o].[NextAttemptAt], [o].[ProviderMessageId], [o].[Recipient], [o].[SentAt], [o].[Status], [o].[Subject], [o].[TextBody], [o].[UpdatedAt]
+      FROM [OutboundEmails] AS [o]
+      WHERE [o].[Status] IN (0, 3) AND [o].[Attempts] < 5 AND [o].[NextAttemptAt] <= @now
+      ORDER BY [o].[CreatedAt]
+fail: Microsoft.EntityFrameworkCore.Query[10100]
+      An exception occurred while iterating over the results of a query for context type 'CREMS.Api.Data.ApplicationDbContext'.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+      A transport-level error has occurred when receiving results from the server. (provider: SSL Provider, error: 31 - Encryption(ssl/tls) handshake failed)
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:27cefd27-7ea0-4d95-93e7-1df4a2e23e81
+      Error Number:-2,State:0,Class:11
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+      A transport-level error has occurred when receiving results from the server. (provider: SSL Provider, error: 31 - Encryption(ssl/tls) handshake failed)
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:27cefd27-7ea0-4d95-93e7-1df4a2e23e81
+      Error Number:-2,State:0,Class:11
+fail: CREMS.Api.Services.EmailDeliveryWorker[0]
+      Email delivery cycle failed.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+      A transport-level error has occurred when receiving results from the server. (provider: SSL Provider, error: 31 - Encryption(ssl/tls) handshake failed)
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at CREMS.Api.Services.EmailDeliveryWorker.Process(CancellationToken token) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 79
+         at CREMS.Api.Services.EmailDeliveryWorker.ExecuteAsync(CancellationToken stoppingToken) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 67
+      ClientConnectionId:27cefd27-7ea0-4d95-93e7-1df4a2e23e81
+      Error Number:-2,State:0,Class:11
+fail: Microsoft.EntityFrameworkCore.Database.Command[20102]
+      Failed executing DbCommand (970,826ms) [Parameters=[@p='?' (DbType = Int32), @now='?' (DbType = DateTimeOffset)], CommandType='Text', CommandTimeout='30']
+      SELECT TOP(@p) [o].[Id], [o].[Attempts], [o].[Category], [o].[CreatedAt], [o].[FailureReason], [o].[HtmlBody], [o].[NextAttemptAt], [o].[ProviderMessageId], [o].[Recipient], [o].[SentAt], [o].[Status], [o].[Subject], [o].[TextBody], [o].[UpdatedAt]
+      FROM [OutboundEmails] AS [o]
+      WHERE [o].[Status] IN (0, 3) AND [o].[Attempts] < 5 AND [o].[NextAttemptAt] <= @now
+      ORDER BY [o].[CreatedAt]
+fail: Microsoft.EntityFrameworkCore.Query[10100]
+      An exception occurred while iterating over the results of a query for context type 'CREMS.Api.Data.ApplicationDbContext'.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:d573fa13-5448-45a7-adb2-539eaaa7592b
+      Error Number:-2,State:0,Class:11
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+      ClientConnectionId:d573fa13-5448-45a7-adb2-539eaaa7592b
+      Error Number:-2,State:0,Class:11
+fail: CREMS.Api.Services.EmailDeliveryWorker[0]
+      Email delivery cycle failed.
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Execution Timeout Expired.  The timeout period elapsed prior to completion of the operation or the server is not responding.
+       ---> System.ComponentModel.Win32Exception (258): The wait operation timed out.
+         at System.Threading.Tasks.ContinuationResultTaskFromResultTask`2.InnerInvoke()
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.InitializeReaderAsync(AsyncEnumerator enumerator, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal.SqlServerExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.Query.Internal.SingleQueryingEnumerable`1.AsyncEnumerator.MoveNextAsync()
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync[TSource](IQueryable`1 source, CancellationToken cancellationToken)
+         at CREMS.Api.Services.EmailDeliveryWorker.Process(CancellationToken token) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 79
+         at CREMS.Api.Services.EmailDeliveryWorker.ExecuteAsync(CancellationToken stoppingToken) in C:\Github\CREMS\src\CREMS.Api\Services\EmailDelivery.cs:line 67
+      ClientConnectionId:d573fa13-5448-45a7-adb2-539eaaa7592b
+      Error Number:-2,State:0,Class:11

@@ -23,4 +23,13 @@ public static class QuotePolicy
         var tax = decimal.Round(taxable * taxRate / 100m, 2, MidpointRounding.AwayFromZero);
         return (subtotal, tax, taxable + tax);
     }
+    public static (decimal Subtotal, decimal Tax, decimal Total) Calculate(
+        IEnumerable<(decimal Quantity, decimal Rate, bool IsTaxable)> lines, decimal discount, decimal taxRate)
+    {
+        var values=lines.ToList();
+        var subtotal=values.Sum(x=>x.Quantity*x.Rate);
+        var taxable=Math.Max(0,values.Where(x=>x.IsTaxable).Sum(x=>x.Quantity*x.Rate)-discount);
+        var tax=decimal.Round(taxable*taxRate/100m,2,MidpointRounding.AwayFromZero);
+        return (subtotal,tax,Math.Max(0,subtotal-discount)+tax);
+    }
 }

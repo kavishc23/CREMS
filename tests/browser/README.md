@@ -1,5 +1,21 @@
 # Inspection browser regression checks
 
+## Organization and Operations centre
+
+For real SQL-backed browser checks with actual password login, see
+[`../CREMS.E2E/README.md`](../CREMS.E2E/README.md). That harness creates and removes
+a disposable database and runs `organization-operations-e2e.cjs` without API mocks.
+
+Run `node tests/browser/organization-operations-browser.cjs` against Vite, setting
+`CREMS_TEST_URL` to the server URL (this script defaults to http://127.0.0.1:5175).
+Set `PLAYWRIGHT_MODULE` if Playwright is not installed locally.
+
+Uses fictional intercepted API responses to check branch service reactivation without
+duplicate IDs, clearing optional pickup cutoffs, required category inputs, branch
+listing, task completion, dispatch recipient validation and submitted payloads,
+every Business tools section, search, partial-load failure/retry and mobile navigation.
+These checks do not verify SQL persistence, authentication or server authorization.
+
 Start the frontend development server on http://localhost:5173.
 Run from the repository root with Node and Playwright (Chrome installed).
 If Playwright is not in node_modules, set PLAYWRIGHT_MODULE to its absolute package path.

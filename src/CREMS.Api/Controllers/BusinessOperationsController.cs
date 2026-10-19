@@ -58,11 +58,11 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
         // grouped navigation SelectMany aggregates into a single customer revenue expression.
         var reportBookings = await bookings.Select(b => new { b.Id, b.CustomerId, b.Status }).ToListAsync(token);
         var reportItems = await db.BookingItems.AsNoTracking().Where(i => bookingIds.Contains(i.BookingId))
-            .Select(i => new { i.BookingId, i.DailyRate, i.StartAt, i.EndAt }).ToListAsync(token);
+            .Select(i => new { i.BookingId, i.DailyRate, i.HireQuantity, i.StartAt, i.EndAt }).ToListAsync(token);
         var reportCharges = await db.BookingCharges.AsNoTracking().Where(c => bookingIds.Contains(c.BookingId))
             .Select(c => new { c.BookingId, c.Quantity, c.UnitRate }).ToListAsync(token);
         var itemRevenue = reportItems.GroupBy(i => i.BookingId).ToDictionary(g => g.Key,
-            g => g.Sum(i => i.DailyRate * Math.Max(1m, (decimal)Math.Ceiling((i.EndAt - i.StartAt).TotalDays))));
+            g => g.Sum(i => i.DailyRate * (i.HireQuantity ?? Math.Max(1m, (decimal)Math.Ceiling((i.EndAt - i.StartAt).TotalDays)))));
         var chargeRevenue = reportCharges.GroupBy(c => c.BookingId).ToDictionary(g => g.Key, g => g.Sum(c => c.Quantity * c.UnitRate));
         var customerHistory = reportBookings.GroupBy(b => b.CustomerId).Select(g => new {
             customerId = g.Key, rentals = g.Count(), completed = g.Count(b => b.Status == BookingStatus.Completed),

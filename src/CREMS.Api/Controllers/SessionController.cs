@@ -32,6 +32,7 @@ public sealed class SessionController(
         // Use the same response for missing and disabled accounts to prevent account discovery.
         if (user is null || !user.IsActive || user.AccountStatus is AccountLifecycleStatus.Suspended or AccountLifecycleStatus.Deactivated) { await Record(null, request.Email, SecurityEventType.LoginFailed, false, "Unavailable account"); return Unauthorized(); }
 
+        userManager.Options = await RentalSettings.LoginOptions(db, userManager.Options, HttpContext.RequestAborted);
         var result = await signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
         if (!result.Succeeded) { await Record(user.Id, user.Email, SecurityEventType.LoginFailed, false, result.IsLockedOut ? "Account locked" : "Invalid credentials"); return Unauthorized(); }
         var roles = await userManager.GetRolesAsync(user);
