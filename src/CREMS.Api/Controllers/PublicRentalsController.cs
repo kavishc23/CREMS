@@ -112,7 +112,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             .Select(asset => new
             {
                 asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status,
-                asset.BranchId, BranchName = asset.Branch!.Name, asset.DailyRate,
+                asset.BranchId, BranchName = asset.Branch!.Name, asset.DailyRate, asset.HireUnit, asset.UseServiceHireRate,
                 asset.RegistrationNumber, asset.SerialNumber, asset.DivisionId,
                 DivisionName = asset.Division != null ? asset.Division.Name : null,
                 asset.Category, CategoryCode = asset.AssetCategory != null ? asset.AssetCategory.Code : null,
@@ -142,7 +142,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.Attributes,
             startDate.HasValue
                 ? !unavailableAssetIds.Contains(asset.Id)
-                : asset.Status == AssetStatus.Available, asset.BondAmount)).ToList());
+                : asset.Status == AssetStatus.Available, asset.BondAmount, asset.HireUnit, asset.UseServiceHireRate)).ToList());
     }
 
     [HttpGet("assets/{assetId:guid}")]
@@ -203,8 +203,12 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             .Select(x => new { x.Id, x.Name, x.Category, x.Unit, x.DefaultSellingRate, x.IsRequired, x.IsTaxable })
             .ToListAsync(cancellationToken);
 
+        HireRate hireRate;
+        try { hireRate = await ConfiguredHirePricing.Resolve(db, asset, cancellationToken); }
+        catch (InvalidOperationException error) { return Conflict(new { message = error.Message }); }
         return Ok(new
         {
+            hireRate,
             asset.Id, asset.Name, asset.Type, asset.Category, asset.DailyRate, PersonnelRequirement = AssetCategoryPolicy.Personnel(asset),
             BondAmount = AssetCategoryPolicy.Bond(asset), TaxRate = asset.Division?.DefaultTaxRate ?? FijiRentalDefaults.VatRate,
             asset.Manufacturer, asset.Model, asset.ModelYear, asset.PhotoUrlsJson,
@@ -337,37 +341,42 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             request.Fulfilment == "Delivery", pricedTransportAvailable);
         var selectedExtras = (request.Extras ?? []).Where(x => x.Quantity > 0 && x.Quantity <= 1000)
             .GroupBy(x => x.ChargeDefinitionId).ToDictionary(x => x.Key, x => x.First().Quantity);
-        var charges = availableCharges.Where(x => x.Category is not (ChargeCategory.Operator or ChargeCategory.Driver) || personnelRequested)
+        var applicableCharges = availableCharges.Where(x => x.Category is not (ChargeCategory.Operator or ChargeCategory.Driver) || personnelRequested)
             .Where(x => !(requiresQuote && asset.RequiresDelivery && x.Category == ChargeCategory.Transport) && (x.IsRequired || selectedExtras.ContainsKey(x.Id) ||
                 request.Fulfilment == "Delivery" && x.Category == ChargeCategory.Transport ||
                 personnelRequested && x.Category is ChargeCategory.Operator or ChargeCategory.Driver))
-            .Select(x => new
-            {
-                Definition = x,
-                Quantity = selectedExtras.GetValueOrDefault(x.Id, x.Unit switch
-                {
-                    ChargeUnit.Day => hireDays,
-                    ChargeUnit.Hour => Math.Max(1, request.PersonnelHours ?? hireDays * 8),
-                    _ => 1,
-                })
-            }).ToList();
-        var baseSubtotal = hireDays * asset.DailyRate;
+            .ToList();
+        if (applicableCharges.Any(x => HirePricing.IsMeasured(x.Unit) && !selectedExtras.ContainsKey(x.Id)))
+            return BadRequest(new { message = "Enter a quantity for each selected per-unit, trip, distance, weight or area charge." });
+        var charges = applicableCharges.Select(x => new {
+            Definition = x,
+            Quantity = x.Unit == ChargeUnit.Hour && x.Category is ChargeCategory.Operator or ChargeCategory.Driver
+                ? Math.Max(1, request.PersonnelHours ?? hireDays * 8)
+                : HirePricing.Quantity(x.Unit,start,end,selectedExtras.GetValueOrDefault(x.Id))
+        }).ToList();
+        HireRate hireRate;
+        decimal hireQuantity;
+        try {
+            hireRate = await ConfiguredHirePricing.Resolve(db, asset, cancellationToken);
+            hireQuantity = HirePricing.Quantity(hireRate.Unit, start, end, request.HireQuantity);
+        } catch (Exception error) when (error is ArgumentException or InvalidOperationException) { return BadRequest(new { message = error.Message }); }
+        var baseSubtotal = decimal.Round(hireQuantity * hireRate.Rate, 2, MidpointRounding.AwayFromZero);
         var chargeSubtotal = charges.Sum(x => x.Quantity * x.Definition.DefaultSellingRate);
         var taxRate = asset.Division?.DefaultTaxRate ?? FijiRentalDefaults.VatRate;
-        var tax = decimal.Round((baseSubtotal + charges.Where(x => x.Definition.IsTaxable).Sum(x => x.Quantity * x.Definition.DefaultSellingRate)) * taxRate / 100m, 2);
+        var tax = decimal.Round(((hireRate.IsTaxable ? baseSubtotal : 0) + charges.Where(x => x.Definition.IsTaxable).Sum(x => x.Quantity * x.Definition.DefaultSellingRate)) * taxRate / 100m, 2);
         var total = baseSubtotal + chargeSubtotal + tax;
         var booking = new Booking
         {
             BookingNumber = requiresQuote
                 ? $"REQ-{Guid.NewGuid():N}"[..16].ToUpperInvariant()
-                : $"BKR-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}",
+                : await RentalSettings.Reference(db, false, cancellationToken),
             CustomerId = activeCustomer.Id, BranchId = asset.BranchId, Status = BookingStatus.Draft,
             Notes = BuildRequestNotes(request, personnelRequested) + (requiresQuote ? "\nRequest type: Quotation." : "\nRequest type: Booking."),
             TaxRate = taxRate, DepositRequired = AssetCategoryPolicy.Bond(asset),
             BondStatus = AssetCategoryPolicy.Bond(asset) > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired,
             AdditionalCharges = chargeSubtotal,
             AdditionalChargesDescription = charges.Count == 0 ? null : string.Join(", ", charges.Select(x => x.Definition.Name)),
-            Items = [new BookingItem { AssetId = asset.Id, StartAt = start, EndAt = end, DailyRate = asset.DailyRate }],
+            Items = [new BookingItem { AssetId = asset.Id, StartAt = start, EndAt = end, DailyRate = hireRate.Rate, HireUnit = hireRate.Unit, HireQuantity = hireQuantity, HireIsTaxable = hireRate.IsTaxable }],
         };
         foreach (var charge in charges)
             booking.Charges.Add(new BookingCharge { AssetId = asset.Id, ChargeDefinitionId = charge.Definition.Id,
@@ -378,9 +387,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
 
         if (requiresQuote)
         {
-            var lineItems = new List<QuoteLine> { new($"{asset.Name} hire", hireDays, asset.DailyRate, ChargeUnit.Day, Category: ChargeCategory.BaseHire) };
+            var lineItems = new List<QuoteLine> { new($"{asset.Name} hire", hireQuantity, hireRate.Rate, hireRate.Unit, Category: ChargeCategory.BaseHire, IsTaxable: hireRate.IsTaxable) };
             lineItems.AddRange(charges.Select(x => new QuoteLine(x.Definition.Name, x.Quantity,
-                x.Definition.DefaultSellingRate, x.Definition.Unit, Category: x.Definition.Category, ChargeDefinitionId: x.Definition.Id)));
+                x.Definition.DefaultSellingRate, x.Definition.Unit, Category: x.Definition.Category, ChargeDefinitionId: x.Definition.Id, IsTaxable: x.Definition.IsTaxable)));
             var quote = new SalesQuote
             {
                 QuoteNumber = $"QUO-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
@@ -533,7 +542,7 @@ public sealed record PublicAssetResponse(
     string? RegistrationNumber, string? SerialNumber, Guid? DivisionId,
     string? DivisionName, string? Category, string? CategoryCode, PersonnelRequirement PersonnelRequirement,
     string? ServiceName, bool RequiresQuote, bool RequiresDelivery, string PhotoUrlsJson,
-    IReadOnlyList<PublicAssetAttributeResponse> Attributes, bool IsAvailable, decimal BondAmount);
+    IReadOnlyList<PublicAssetAttributeResponse> Attributes, bool IsAvailable, decimal BondAmount, ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false);
 public sealed record PublicAssetAttributeResponse(string Code, string Name, string Value, string? Unit);
 public sealed record PublicBookingRequest(
     Guid AssetId,
@@ -557,7 +566,7 @@ public sealed record PublicBookingRequest(
     [MaxLength(150)] string? DriverName,
     [MaxLength(100)] string? DriverLicence,
     bool RequestQuotation,
-    IReadOnlyList<PublicBookingExtraRequest>? Extras);
+    IReadOnlyList<PublicBookingExtraRequest>? Extras, decimal? HireQuantity = null);
 public sealed record PublicBookingExtraRequest(Guid ChargeDefinitionId, decimal Quantity);
 public sealed record PublicBookingResponse(
     string Reference, string AssetName, string BranchName,

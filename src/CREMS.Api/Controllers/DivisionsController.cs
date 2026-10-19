@@ -18,7 +18,7 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
     public async Task<ActionResult<IReadOnlyList<DivisionResponse>>> GetAll(CancellationToken cancellationToken)
     {
         var scope = await staffScope.GetAsync(User); if (scope is null) return Unauthorized();
-        var query = Query(); if (!scope.IsAdministrator) query = query.Where(x => scope.DivisionIds.Contains(x.Id));
+        var query = Query(scope);
         return Ok(await query.ToListAsync(cancellationToken));
     }
 
@@ -93,7 +93,8 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
         return NoContent();
     }
 
-    private IQueryable<DivisionResponse> Query() => db.Divisions.AsNoTracking()
+    private IQueryable<DivisionResponse> Query(StaffDataScope scope) => db.Divisions.AsNoTracking()
+        .Where(x => scope.IsAdministrator || scope.DivisionIds.Contains(x.Id))
         .OrderBy(x => x.Name).Select(x =>
         new DivisionResponse(x.Id, x.Code, x.Name, x.Description, x.ContactEmail, x.ContactPhone, x.Capabilities,
             x.IsPublic, x.IsActive, x.ServiceOfferings

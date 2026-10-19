@@ -54,7 +54,7 @@ public static class AssetProfitabilityReport
                 entries.Add(new(id, date, revenues[id], Component: personnel ? 0 : expenses[id], Personnel: personnel ? expenses[id] : 0));
         }
         foreach (var item in items.Where(x => ids.Contains(x.AssetId)))
-            entries.Add(new(item.AssetId, MaintenanceRules.LocalDate(item.CreatedAt), Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)) * item.DailyRate));
+            entries.Add(new(item.AssetId, MaintenanceRules.LocalDate(item.CreatedAt), HirePricing.Amount(item)));
         foreach (var charge in charges) {
             var date = MaintenanceRules.LocalDate(charge.CreatedAt);
             if (charge.AssetId.HasValue) {

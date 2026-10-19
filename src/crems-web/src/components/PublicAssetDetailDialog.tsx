@@ -1,3 +1,4 @@
+import { hireQuantity, measuredUnit } from '../utils/hirePricing'
 import { useEffect, useState } from 'react'
 import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined'
 import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
@@ -11,7 +12,7 @@ import {
 } from '@mui/material'
 import { api } from '../api/client'
 
-type AssetType='Vehicle'|'Equipment'|'PassengerVehicle'|'CommercialVehicle'|'HeavyEquipment'|'MaterialHandlingEquipment'|'PowerEquipment'|'LightEquipment'|'Scaffolding'|'PortableSanitation'|'WasteContainer'
+type AssetType='Vehicle'|'Equipment'|'PassengerVehicle'|'CommercialVehicle'|'HeavyEquipment'|'MaterialHandlingEquipment'|'PowerEquipment'|'LightEquipment'|'Scaffolding'|'PortableSanitation'|'WasteContainer'|'PropertyUnit'
 import axios from 'axios'
 
 type AssetSummary = {
@@ -19,6 +20,7 @@ type AssetSummary = {
   name: string
   type: AssetType
   branchName: string
+  hireRate?: { rate:number; unit:string }; hireUnit?:string
   dailyRate: number
   isAvailable: boolean
 }
@@ -28,6 +30,7 @@ type AssetDetails = {
   name: string
   type: string
   category: string | null
+  hireRate?: { rate:number; unit:string }; hireUnit?:string
   dailyRate: number
   personnelRequirement: 'None' | 'Optional' | 'Required'
   manufacturer: string | null
@@ -80,7 +83,9 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
     return () => { active = false }
   }, [asset, endDate, open, previewDetails, startDate])
 
-  const days = Math.max(1, Math.ceil((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86400000))
+  const unit=details?.hireRate?.unit??details?.hireUnit??'Day'
+  const rate=details?.hireRate?.rate??details?.dailyRate??0
+  const quantity=hireQuantity(unit,startDate,endDate)
   const available = details?.isAvailable ?? asset?.isAvailable ?? false
   const visibleImageIndex = imageUrls.length ? imageIndex % imageUrls.length : 0
 
@@ -101,7 +106,7 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
         <Grid size={{ xs: 12, md: 6 }} sx={{ p: 3.5 }}><Stack spacing={2.5} width="100%">
           <Box sx={{ display: 'grid', gridTemplateColumns: { sm: 'minmax(220px, 1fr) auto' }, gap: 2, alignItems: 'start' }}>
             <Stack gap={1} alignItems="flex-start"><Chip color={available ? 'success' : 'default'} icon={available ? <CheckCircleOutlined /> : undefined} label={available ? 'Available for your dates' : 'Unavailable for your dates'} /><Chip icon={<CalendarMonthOutlined />} label={`${startDate} to ${endDate}`} /></Stack>
-            <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}><Typography variant="caption" color="text.secondary">Estimated base hire</Typography><Typography variant="h5" fontWeight={800} whiteSpace="nowrap">FJD {(details.dailyRate * days).toFixed(2)}</Typography><Typography variant="body2" color="text.secondary" whiteSpace="nowrap">{days} {days === 1 ? 'day' : 'days'} × FJD {details.dailyRate.toFixed(2)}</Typography></Box>
+            <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}><Typography variant="caption" color="text.secondary">Estimated base hire</Typography><Typography variant="h5" fontWeight={800} whiteSpace="nowrap">FJD {(rate * quantity).toFixed(2)}</Typography><Typography variant="body2" color="text.secondary" whiteSpace="nowrap">{quantity} {unit.toLowerCase()} × FJD {rate.toFixed(2)}{measuredUnit(unit)?' · Confirm quantity at checkout':''}</Typography></Box>
           </Box>
           <Typography variant="h6" fontWeight={750} fontSize="1.15rem">Rental information</Typography><Divider /><Grid container columnSpacing={1.35} rowSpacing={.75}>
             {[['Category', details.category], ['Manufacturer', details.manufacturer], ['Model', details.model], ['Year', details.modelYear?.toString()], ['Hire unit', details.service?.defaultHireUnit?.toLowerCase()], ['Personnel', details.personnelRequirement === 'None' ? 'Not required' : `${details.personnelRequirement} trained personnel`]].filter(([, value]) => value).map(([label, value]) => <Grid key={label} size={{ xs: 6 }}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography fontSize=".95rem" fontWeight={650}>{value}</Typography></Grid>)}

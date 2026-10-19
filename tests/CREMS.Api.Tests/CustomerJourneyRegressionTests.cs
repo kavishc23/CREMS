@@ -243,10 +243,11 @@ public sealed class CustomerJourneyRegressionTests
     {
         await using var f = await Fixture.Create();
         f.Db.CustomerLicences.Add(new() { CustomerId = f.Customer.Id, StorageKey = "test-only.png", ContentType = "image/png", ContentHash = "test-only", LicenceNumber = "TEST-LICENCE", Status = LicenceVerificationStatus.Verified });
+        f.Db.SystemSettings.Add(new() { Key="rentals.bookingPrefix", Value="HIRE", Category="Numbering" });
         await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var response = await f.Public.RequestBooking(f.PublicRequest(), TestContext.Current.CancellationToken);
         var submitted = Assert.IsType<PublicBookingResponse>(Assert.IsType<OkObjectResult>(response.Result).Value);
-        Assert.Equal("Booking", submitted.RequestType); Assert.StartsWith("BKR-", submitted.Reference);
+        Assert.Equal("Booking", submitted.RequestType); Assert.StartsWith("HIRE-", submitted.Reference);
         var booking = await f.Db.Bookings.Include(b => b.Items).SingleAsync(TestContext.Current.CancellationToken);
         Assert.Equal(f.Customer.Id, booking.CustomerId);
         Assert.Single(booking.Items); Assert.Equal(100m, booking.Items.Single().DailyRate);

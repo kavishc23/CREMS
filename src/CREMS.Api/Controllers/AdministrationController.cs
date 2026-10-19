@@ -1,3 +1,4 @@
+using CREMS.Api.Services;
 using System.Globalization;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Common;
@@ -24,43 +25,68 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
     [HttpGet("settings")]
     public async Task<ActionResult> Settings(CancellationToken token)
     {
-        var settings = await db.SystemSettings.AsNoTracking().Where(x => !x.Key.StartsWith("rentals.fijiPricingDefaults.")).OrderBy(x => x.Category).ThenBy(x => x.Key).Select(x => new { x.Id, x.Key, x.Value, x.Category, x.Description, x.IsSecret }).ToListAsync(token);
-        if (!settings.Any(x => x.Key == "rentals.lateFeeMultiplier"))
-            settings.Add(new { Id = Guid.Empty, Key = "rentals.lateFeeMultiplier", Value = "1", Category = "Rental", Description = (string?)"Multiplier applied to prorated late return fees for new returns.", IsSecret = false });
-        return Ok(settings.OrderBy(x => x.Category).ThenBy(x => x.Key));
+        var stored = await db.SystemSettings.AsNoTracking().ToDictionaryAsync(x => x.Key, token);
+        return Ok(RentalSettings.Definitions.Select(entry => new {
+            Id = stored.GetValueOrDefault(entry.Key)?.Id ?? Guid.Empty,
+            Key = entry.Key, Value = stored.GetValueOrDefault(entry.Key)?.Value ?? entry.Value.Default,
+            entry.Value.Category, entry.Value.Description, IsSecret = false
+        }).OrderBy(x => x.Category).ThenBy(x => x.Key));
     }
 
     [HttpPut("settings/{key}")]
     public async Task<ActionResult> SaveSetting(string key, SettingRequest request, CancellationToken token)
     {
-        if (key.StartsWith("rentals.fijiPricingDefaults.", StringComparison.Ordinal)) return NotFound();
+        if (!RentalSettings.Definitions.TryGetValue(key, out var definition)) return NotFound();
+        var error = RentalSettings.Validate(key, request.Value);
+        if (error is not null) return BadRequest(new { message = error });
+        var value = request.Value.Trim();
+        if (key.EndsWith("Prefix", StringComparison.Ordinal)) value = value.ToUpperInvariant();
         var setting = await db.SystemSettings.FirstOrDefaultAsync(x => x.Key == key, token);
-        if (setting is null && key == "rentals.lateFeeMultiplier")
+        if (setting is null)
         {
-            setting = new SystemSetting { Key = key, Value = "1", Category = "Rental", Description = "Multiplier applied to prorated late return fees for new returns." };
+            setting = new SystemSetting { Key = key, Value = definition.Default, Category = definition.Category };
             db.SystemSettings.Add(setting);
         }
-        if (setting is null) return NotFound();
-        if (key == "rentals.lateFeeMultiplier" && (!decimal.TryParse(request.Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var multiplier) || multiplier < 0 || multiplier > 10))
-            return BadRequest(new { message = "Enter a late fee multiplier between 0 and 10." });
+        var scope = await staffScope.GetAsync(User);
         if (key == "rentals.vatRate")
         {
-            if (!decimal.TryParse(request.Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var rate) || rate < 0 || rate > 100)
-                return BadRequest(new { message = "Enter a VAT percentage between 0 and 100." });
+            var rate = decimal.Parse(value, CultureInfo.InvariantCulture);
             var divisions = await db.Divisions.ToListAsync(token);
-            var actor = await staffScope.GetAsync(User);
             foreach (var division in divisions.Where(x => x.DefaultTaxRate != rate))
             {
                 var previousRate = division.DefaultTaxRate;
                 division.DefaultTaxRate = rate;
                 division.UpdatedAt = DateTimeOffset.UtcNow;
-                if (actor is not null) AuditWriter.Record(db, actor, "Division VAT updated", "Division", division.Id,
+                if (scope is not null) AuditWriter.Record(db, scope, "Division VAT updated", "Division", division.Id,
                     "Global VAT applied to new rental requests.", null, previousRate.ToString(CultureInfo.InvariantCulture), rate.ToString(CultureInfo.InvariantCulture));
             }
         }
-        var previous = setting.IsSecret ? "[protected]" : setting.Value; setting.Value = request.Value.Trim(); setting.UpdatedAt = DateTimeOffset.UtcNow;
-        var scope = await staffScope.GetAsync(User); if (scope is not null) AuditWriter.Record(db, scope, "System setting updated", "SystemSetting", setting.Id, $"{setting.Key} was updated.", null, previous, setting.IsSecret ? "[protected]" : setting.Value);
-        await db.SaveChangesAsync(token); return NoContent();
+        var previous = setting.Value;
+        setting.Value = value; setting.Description = definition.Description; setting.UpdatedAt = DateTimeOffset.UtcNow;
+        if (scope is not null) AuditWriter.Record(db, scope, "System setting updated", "SystemSetting", setting.Id, $"{setting.Key} was updated.", null, previous, setting.Value);
+        await db.SaveChangesAsync(token);
+        return NoContent();
+    }
+
+    [HttpGet("retention-review")]
+    public async Task<ActionResult> RetentionReview([FromQuery] int page = 1, CancellationToken token = default)
+    {
+        var years = int.Parse(await RentalSettings.Read(db, "data.retentionYears", token), CultureInfo.InvariantCulture);
+        var cutoff = DateTimeOffset.UtcNow.AddYears(-years);
+        var bookings = db.Bookings.AsNoTracking().Where(x =>
+            (x.Status == CREMS.Api.Domain.Rentals.BookingStatus.Completed || x.Status == CREMS.Api.Domain.Rentals.BookingStatus.Cancelled || x.Status == CREMS.Api.Domain.Rentals.BookingStatus.Expired) &&
+            (x.UpdatedAt ?? x.CreatedAt) < cutoff && !x.Items.Any(item => item.EndAt >= cutoff));
+        var audits = db.AuditEvents.AsNoTracking().Where(x => x.OccurredAt < cutoff);
+        page = Math.Clamp(page, 1, 1000000);
+        const int pageSize = 25;
+        return Ok(new {
+            years, cutoff, page, pageSize,
+            bookingCount = await bookings.CountAsync(token), auditCount = await audits.CountAsync(token),
+            bookings = await bookings.OrderBy(x => x.UpdatedAt ?? x.CreatedAt).ThenBy(x => x.Id).Skip((page - 1) * pageSize).Take(pageSize)
+                .Select(x => new { x.Id, reference = x.BookingNumber, status = x.Status.ToString(), lastActivity = x.UpdatedAt ?? x.CreatedAt }).ToListAsync(token),
+            audits = await audits.OrderBy(x => x.OccurredAt).ThenBy(x => x.Id).Skip((page - 1) * pageSize).Take(pageSize)
+                .Select(x => new { x.Id, x.Action, x.EntityType, x.OccurredAt }).ToListAsync(token)
+        });
     }
 
     [HttpGet("templates")]

@@ -40,6 +40,8 @@ public sealed class Asset : Entity
     public PersonnelRequirement PersonnelRequirement { get; set; }
     public bool RequiresDelivery { get; set; }
     public decimal DailyRate { get; set; }
+    public ChargeUnit HireUnit { get; set; } = ChargeUnit.Day;
+    public bool UseServiceHireRate { get; set; }
     public decimal DefaultBondAmount { get; set; }
     public bool InheritBond { get; set; }
     public PersonnelRequirement? PersonnelOverride { get; set; }
@@ -126,6 +128,7 @@ public enum AssetType
     Scaffolding = 8,
     PortableSanitation = 9,
     WasteContainer = 10,
+    PropertyUnit = 11,
 }
 
 public enum AssetStatus

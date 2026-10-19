@@ -85,6 +85,9 @@ public sealed class BookingItem : Entity
     public DateTimeOffset StartAt { get; set; }
     public DateTimeOffset EndAt { get; set; }
     public decimal DailyRate { get; set; }
+    public ChargeUnit HireUnit { get; set; } = ChargeUnit.Day;
+    public decimal? HireQuantity { get; set; }
+    public bool HireIsTaxable { get; set; } = true;
 }
 
 public enum BookingStatus
