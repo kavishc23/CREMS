@@ -247,7 +247,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (asset is null || asset.Branch is null || !asset.Branch.IsActive ||
             asset.Division is not { IsActive: true, IsPublic: true } ||
             asset.ServiceOffering is { IsActive: false } ||
-            asset.ServiceOffering is { IsBookableOnline: false } ||
+            asset.ServiceOffering is { IsBookableOnline: false, RequiresQuote: false } ||
             asset.Status is AssetStatus.Maintenance or AssetStatus.Inspection or AssetStatus.OutOfService or AssetStatus.Retired)
             return NotFound("The selected rental item is no longer available.");
         var flow = DivisionBookingFlow.For(asset.Division);

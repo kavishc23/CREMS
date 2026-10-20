@@ -65,6 +65,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
           </Box>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
+          {authenticated && isNotificationModuleEnabled && <NotificationBell customer key={accountName}/> }
           <Box sx={{ display: { xs: 'none', lg: 'block' } }}>{desktopNavigation}</Box>
           <IconButton color="inherit" aria-label="Open navigation" sx={{ display: { lg: 'none' } }} onClick={() => setMobileOpen(true)}><MenuOutlined /></IconButton>
         </Toolbar>

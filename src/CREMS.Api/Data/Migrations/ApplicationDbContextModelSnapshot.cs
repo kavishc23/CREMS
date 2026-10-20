@@ -1334,17 +1334,18 @@ namespace CREMS.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int?>("AssetTypeCondition")
+                        .HasColumnType("int");
+
                     b.Property<bool>("AppliesToBooking")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(true);
+                        .HasDefaultValue(true)
+                        .HasColumnType("bit");
 
                     b.Property<bool>("AppliesToQuotation")
                         .HasColumnType("bit");
 
                     b.Property<int?>("AssetTypeCondition")
                         .HasColumnType("int");
-
                     b.Property<Guid?>("BranchId")
                         .HasColumnType("uniqueidentifier");
 

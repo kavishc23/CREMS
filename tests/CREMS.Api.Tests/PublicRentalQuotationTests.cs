@@ -114,7 +114,6 @@ public sealed class PublicRentalQuotationTests
         var booking = await fixture.Db.Bookings.SingleAsync(token);
         Assert.Contains("North Coast Builders Ltd", booking.Notes);
     }
-
     private sealed class ThrowingEmailQueue : IEmailQueue
     {
         public OutboundEmail Queue(ApplicationDbContext db, string recipient, string subject,
