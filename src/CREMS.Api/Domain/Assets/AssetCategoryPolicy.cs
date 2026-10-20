@@ -1,4 +1,5 @@
 using CREMS.Api.Domain.Common;
+using CREMS.Api.Domain.Rentals;
 
 namespace CREMS.Api.Domain.Assets;
 
@@ -11,11 +12,10 @@ public static class AssetCategoryPolicy
         (IsVehicle(asset.Type) ? "RENTAL_VEHICLE" : "GENERAL_EQUIPMENT");
 
     public static PersonnelRequirement Personnel(Asset asset) =>
-        asset.PersonnelOverride ?? asset.AssetCategory?.PersonnelRequirement ?? asset.ServiceOffering?.PersonnelRequirement ?? asset.PersonnelRequirement;
+        asset.PersonnelOverride ?? DivisionBookingFlow.For(asset.Division).PersonnelRequirement;
 
     public static bool AllowsPersonnel(Asset asset) => Personnel(asset) != PersonnelRequirement.None;
     public static decimal Bond(Asset asset) => !asset.InheritBond ? asset.DefaultBondAmount :
-        asset.ServiceOffering is { InheritBond: false } service ? service.DefaultDepositAmount :
         asset.Division?.DefaultBondAmount ?? 0m;
     public static bool RequiresPersonnel(Asset asset) => Personnel(asset) == PersonnelRequirement.Required;
     public static bool RequiresDrivingLicence(Asset asset, bool professionalPersonnelProvided) =>

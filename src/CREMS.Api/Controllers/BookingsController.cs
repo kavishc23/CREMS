@@ -146,7 +146,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
     [HttpPost("{id:guid}/quotation")]
     public async Task<ActionResult> PrepareQuotation(Guid id, PrepareBookingQuotationRequest request, CancellationToken cancellationToken)
     {
-        var booking = await db.Bookings.Include(x => x.Customer).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.AssetCategory).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var booking = await db.Bookings.Include(x => x.Customer).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.AssetCategory).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
@@ -386,6 +386,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var booking = await db.Bookings
             .Include(item => item.Customer)
             .Include(item => item.Branch)
+            .Include(item => item.Items).ThenInclude(item => item.Asset).ThenInclude(item => item!.Division)
             .Include(item => item.Items).ThenInclude(item => item.Asset).ThenInclude(item => item!.ServiceOffering)
             .Include(item => item.Charges)
             .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);

@@ -51,20 +51,13 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         Response.Headers.Append("X-Total-Count", totalCount.ToString());
 
         var assets = await query
+            .Include(asset => asset.Division)
+            .Include(asset => asset.Branch)
             .OrderBy(asset => asset.AssetNumber)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(asset => new AssetResponse(
-                asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status,
-                asset.DivisionId, asset.Division != null ? asset.Division.Name : null,
-                asset.BranchId, asset.Branch!.Name, asset.RegistrationNumber,
-                asset.SerialNumber, asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear,
-                asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
-                asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType,
-                asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-                asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.PersonnelRequirement, asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride))
             .ToListAsync(cancellationToken);
-        return Ok(assets);
+        return Ok(assets.Select(asset => ToResponse(asset, asset.Branch?.Name ?? string.Empty)).ToList());
     }
 
     [HttpGet("summary")]
@@ -113,9 +106,6 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         if (!request.DivisionId.HasValue || !await db.BranchDivisions.AnyAsync(x => x.BranchId == request.BranchId && x.DivisionId == request.DivisionId && x.IsActive, cancellationToken))
         { ModelState.AddModelError(nameof(request.DivisionId), "Select a division operating at this branch."); return ValidationProblem(ModelState); }
         if (!await ValidClassification(request, cancellationToken)) { ModelState.AddModelError(nameof(request.AssetCategoryId), "The service and asset category must belong to the selected division and be enabled at this branch."); return ValidationProblem(ModelState); }
-        var classification = request.AssetCategoryId.HasValue
-            ? await db.AssetCategories.AsNoTracking().FirstAsync(x => x.Id == request.AssetCategoryId, cancellationToken) : null;
-
         var asset = new Asset
         {
             AssetNumber = assetNumber,
@@ -133,18 +123,19 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             AcquisitionDate = request.AcquisitionDate, AcquisitionCost = request.AcquisitionCost, CurrentBookValue = request.CurrentBookValue,
             OwnershipType = Normalize(request.OwnershipType), InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber), InsuranceExpiry = request.InsuranceExpiry, WarrantyExpiry = request.WarrantyExpiry,
             DailyRate = request.DailyRate,
-            DefaultBondAmount = request.DefaultBondAmount, InheritBond = request.InheritBond, PersonnelOverride = request.PersonnelOverride ?? request.PersonnelRequirement,
+            DefaultBondAmount = request.DefaultBondAmount, InheritBond = request.InheritBond, PersonnelOverride = request.PersonnelOverride,
             NextServiceDate = request.NextServiceDate,
             CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name,
             PhotoUrlsJson = request.PhotoUrlsJson ?? "[]",
             IsActive = true,
-            PersonnelRequirement = request.PersonnelOverride ?? request.PersonnelRequirement ?? classification?.PersonnelRequirement ?? PersonnelRequirement.None,
+            PersonnelRequirement = request.PersonnelOverride ?? PersonnelRequirement.None,
             RequiresDelivery = request.RequiresDelivery,
         };
         db.Assets.Add(asset);
         AuditWriter.Record(db, scope, "Asset created", "Asset", asset.Id,
             $"{asset.AssetNumber} was added to {branch.Name}.", asset.BranchId);
         await db.SaveChangesAsync(cancellationToken);
+        await db.Entry(asset).Reference(x => x.Division).LoadAsync(cancellationToken);
         return CreatedAtAction(nameof(GetAll), ToResponse(asset, branch.Name));
     }
 
@@ -179,9 +170,6 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         if (!request.DivisionId.HasValue || !await db.BranchDivisions.AnyAsync(x => x.BranchId == request.BranchId && x.DivisionId == request.DivisionId && x.IsActive, cancellationToken))
         { ModelState.AddModelError(nameof(request.DivisionId), "Select a division operating at this branch."); return ValidationProblem(ModelState); }
         if (!await ValidClassification(request, cancellationToken)) { ModelState.AddModelError(nameof(request.AssetCategoryId), "The service and asset category must belong to the selected division and be enabled at this branch."); return ValidationProblem(ModelState); }
-        var classification = request.AssetCategoryId.HasValue
-            ? await db.AssetCategories.AsNoTracking().FirstAsync(x => x.Id == request.AssetCategoryId, cancellationToken) : null;
-
         asset.AssetNumber = assetNumber;
         asset.Name = request.Name.Trim();
         asset.Type = request.Type;
@@ -189,7 +177,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.DivisionId = request.DivisionId;
         asset.ServiceOfferingId = request.ServiceOfferingId;
         asset.AssetCategoryId = request.AssetCategoryId;
-        asset.PersonnelRequirement = request.PersonnelOverride ?? request.PersonnelRequirement ?? classification?.PersonnelRequirement ?? PersonnelRequirement.None;
+        asset.PersonnelRequirement = request.PersonnelOverride ?? PersonnelRequirement.None;
         asset.RequiresDelivery = request.RequiresDelivery;
         asset.BranchId = branch.Id;
         asset.RegistrationNumber = Normalize(request.RegistrationNumber);
@@ -200,7 +188,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber); asset.InsuranceExpiry = request.InsuranceExpiry; asset.WarrantyExpiry = request.WarrantyExpiry;
         asset.DailyRate = request.DailyRate;
         asset.DefaultBondAmount = request.DefaultBondAmount;
-        asset.InheritBond = request.InheritBond; asset.PersonnelOverride = request.PersonnelOverride ?? request.PersonnelRequirement;
+        asset.InheritBond = request.InheritBond; asset.PersonnelOverride = request.PersonnelOverride;
         asset.UpdatedAt = DateTimeOffset.UtcNow;
         asset.NextServiceDate = request.NextServiceDate;
         asset.CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name;
@@ -208,6 +196,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         AuditWriter.Record(db, scope, "Asset updated", "Asset", asset.Id,
             $"{asset.AssetNumber} details were updated.", asset.BranchId);
         await db.SaveChangesAsync(cancellationToken);
+        await db.Entry(asset).Reference(x => x.Division).LoadAsync(cancellationToken);
         return Ok(ToResponse(asset, branch.Name));
     }
 
@@ -356,7 +345,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.BranchId, branchName, asset.RegistrationNumber, asset.SerialNumber,
         asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear, asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
         asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType, asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, asset.PersonnelRequirement, asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride);
+        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, AssetCategoryPolicy.Personnel(asset), asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride);
 }
 
 public sealed record SaveAssetRequest(

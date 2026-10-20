@@ -5,6 +5,7 @@ using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Customers;
 using CREMS.Api.Domain.Identity;
+using CREMS.Api.Domain.Rentals;
 using CREMS.Api.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -61,6 +62,59 @@ public sealed class PublicRentalQuotationTests
         Assert.Equal(0, await fixture.Db.CustomerCases.CountAsync(cancellationToken));
     }
 
+    [Fact]
+    public async Task Optional_delivery_still_requires_a_destination()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var asset = await fixture.Db.Assets.SingleAsync(token);
+        asset.RequiresDelivery = false;
+        asset.ServiceOffering!.RequiresDelivery = false;
+        await fixture.Db.SaveChangesAsync(token);
+
+        var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with { DeliveryAddress = null }, token);
+
+        Assert.IsType<ObjectResult>(response.Result);
+        Assert.Empty(await fixture.Db.Bookings.ToListAsync(token));
+    }
+
+    [Fact]
+    public async Task Required_daily_fee_uses_hire_days_even_when_client_sends_quantity_one()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var asset = await fixture.Db.Assets.SingleAsync(token);
+        var fee = new ChargeDefinition { DivisionId = asset.DivisionId!.Value, Code = "DAILY-FEE", Name = "Daily fee",
+            Category = ChargeCategory.Other, Unit = ChargeUnit.Day, DefaultSellingRate = 10, IsRequired = true };
+        fixture.Db.ChargeDefinitions.Add(fee);
+        await fixture.Db.SaveChangesAsync(token);
+
+        var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with
+        { Extras = [new PublicBookingExtraRequest(fee.Id, 1)] }, token);
+
+        Assert.IsType<OkObjectResult>(response.Result);
+        var charge = await fixture.Db.BookingCharges.SingleAsync(x => x.ChargeDefinitionId == fee.Id, token);
+        Assert.Equal(6, charge.Quantity);
+    }
+
+    [Fact]
+    public async Task Business_identity_comes_from_the_account_not_a_spoofed_request()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var customer = await fixture.Db.Customers.SingleAsync(token);
+        customer.Type = CustomerType.Business;
+        customer.Name = "North Coast Builders Ltd";
+        await fixture.Db.SaveChangesAsync(token);
+
+        var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with
+        { CustomerType = CustomerType.Individual, CompanyName = null }, token);
+
+        Assert.IsType<OkObjectResult>(response.Result);
+        var booking = await fixture.Db.Bookings.SingleAsync(token);
+        Assert.Contains("North Coast Builders Ltd", booking.Notes);
+    }
+
     private sealed class ThrowingEmailQueue : IEmailQueue
     {
         public OutboundEmail Queue(ApplicationDbContext db, string recipient, string subject,
@@ -91,12 +145,13 @@ public sealed class PublicRentalQuotationTests
             await db.Database.EnsureCreatedAsync();
 
             var branch = new Branch { Code = "LTK", Name = "Lautoka" };
-            var division = new Division { Code = "EQUIP", Name = "Equipment", DefaultTaxRate = 0 };
+            var division = new Division { Code = "EQUIP", Name = "Equipment", DefaultTaxRate = 0,
+                CustomerBookingConfigurationJson = new DivisionBookingFlow(PersonnelRequirement.Required, QuoteMode: "Always").ToJson() };
             var service = new ServiceOffering
             {
                 DivisionId = division.Id, Code = "EQUIPMENT_HIRE", Name = "Equipment hire",
                 Type = ServiceOfferingType.EquipmentHire, PersonnelRequirement = PersonnelRequirement.Required,
-                IsBookableOnline = false, RequiresQuote = true, RequiresDelivery = true,
+                IsBookableOnline = true, RequiresQuote = true, RequiresDelivery = true,
             };
             var category = new AssetCategory
             {

@@ -70,8 +70,8 @@ public class AssetProfitabilityTests
         var csv = Encoding.UTF8.GetString(Assert.IsType<FileContentResult>(await controller.ExportProfitability(token)).FileContents);
         Assert.Contains("TEST-1",csv);
         var unallocatedLine = csv.Split('\n').Single(x=>x.StartsWith("Unallocated," )).Split(',');
-        Assert.Equal(20m,decimal.Parse(unallocatedLine[2],System.Globalization.CultureInfo.InvariantCulture));
-        Assert.Equal(8m,decimal.Parse(unallocatedLine[3],System.Globalization.CultureInfo.InvariantCulture));
-        Assert.Equal(12m,decimal.Parse(unallocatedLine[4],System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(20m,decimal.Parse(unallocatedLine[5],System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(8m,decimal.Parse(unallocatedLine[10],System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(12m,decimal.Parse(unallocatedLine[11],System.Globalization.CultureInfo.InvariantCulture));
     }
 }

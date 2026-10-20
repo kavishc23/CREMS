@@ -214,7 +214,7 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         if (quote.ValidUntil <= DateTimeOffset.UtcNow) return Validation("expiry", "Revise the expired quotation before sending it.");
         if (quote.ConvertedBookingId is Guid bookingId)
         {
-            var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.AssetCategory).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == bookingId, token);
+            var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.AssetCategory).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == bookingId, token);
             if (booking is null || booking.Status != BookingStatus.Draft) return Validation("booking", "Only an open rental request can be quoted.");
             var match = await ApprovalWorkflowService.MatchBookingAsync(db, new(booking.BranchId, quote.DivisionId, quote.Total,
                 booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.IsEquipment(x.Asset.Type)),
