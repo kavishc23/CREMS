@@ -17,6 +17,27 @@ namespace CREMS.Api.Tests;
 
 public sealed class ReturnChargesAndBondTests
 {
+    [Fact]
+    public async Task Monthly_property_return_preserves_agreed_rate_quantity_and_tax_exemption()
+    {
+        await using var db=CreateDb();
+        var (booking,context)=await Seed(db,BookingStatus.ConvertedToRental);
+        var item=booking.Items.Single();
+        item.Asset!.Type=AssetType.PropertyUnit;
+        item.StartAt=new DateTimeOffset(2026,8,1,0,0,0,TimeSpan.Zero);item.EndAt=item.StartAt.AddMonths(1);
+        item.DailyRate=900;item.HireUnit=ChargeUnit.Month;item.HireQuantity=1;item.HireIsTaxable=false;
+        item.Asset.DailyRate=1200;
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var controller=new RentalOperationsController(db,new CurrentStaffScope(db)){ControllerContext=context};
+        var request=new ReturnInspectionRequest("A-1",true,false,null,null,"Property intact",null,"Customer",0,null,0,0,0,0,0,0,null,PaymentMethod.Cash)
+        { ReturnedAt=item.EndAt,SignatureDataUrl="data:image/png;base64,AA==",ChecklistItems=["Checked"],EvidenceDataUrls=["data:image/png;base64,AA=="] };
+        Assert.IsType<OkObjectResult>(await controller.Return(booking.Id,request,TestContext.Current.CancellationToken));
+        var invoice=await db.RentalInvoices.Include(x=>x.Lines).SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(900,invoice.Subtotal);Assert.Equal(0,invoice.TaxAmount);Assert.Equal(900,invoice.Total);
+        var hire=Assert.Single(invoice.Lines,x=>x.Description.Contains("Month"));
+        Assert.Equal(1,hire.Quantity);Assert.Equal(900,hire.UnitPrice);Assert.False(hire.IsTaxable);
+    }
+
     [Theory]
     [InlineData(-1, 0)]
     [InlineData(0, 0)]
@@ -42,12 +63,18 @@ public sealed class ReturnChargesAndBondTests
 
     [Theory]
     [InlineData(null, 60)]
+    [InlineData(null, 90, "1.5")]
+    [InlineData(null, 0, "0")]
+    [InlineData(25, 25, "2")]
     [InlineData(0, 0)]
     [InlineData(25, 25)]
-    public async Task Return_invoice_uses_automatic_fee_or_explicit_staff_override(int? fee, int expected)
+    public async Task Return_invoice_uses_automatic_fee_or_explicit_staff_override(int? fee, int expected, string multiplier = "1")
     {
         await using var db = CreateDb();
         var (booking, context) = await Seed(db, BookingStatus.ConvertedToRental);
+        var settings = new AdministrationController(db, new CurrentStaffScope(db), null!, null!) { ControllerContext = context };
+        Assert.IsType<NoContentResult>(await settings.SaveSetting("rentals.lateFeeMultiplier", new SettingRequest(multiplier), TestContext.Current.CancellationToken));
+        Assert.Contains(await db.AuditEvents.ToListAsync(TestContext.Current.CancellationToken), x => x.Action == "System setting updated" && x.NewValues == multiplier);
         var returnedAt = booking.Items.Single().EndAt.AddHours(6);
         var controller = new RentalOperationsController(db, new CurrentStaffScope(db)) { ControllerContext = context };
         var request = new ReturnInspectionRequest("A-1", true, true, null, null, "Returned intact", null,

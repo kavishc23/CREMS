@@ -75,7 +75,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         var now = DateTimeOffset.UtcNow;
         var agreement = new RentalAgreement
         {
-            AgreementNumber = $"RA-{now:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+            AgreementNumber = await RentalSettings.Reference(db, true, cancellationToken),
             BookingId = booking.Id, BranchId = booking.BranchId, TermsVersion = TermsVersion,
             TermsJson = JsonSerializer.Serialize(draft.Terms, SnapshotJson), CustomerSnapshotJson = JsonSerializer.Serialize(draft.Customer, SnapshotJson),
             AssetSnapshotJson = JsonSerializer.Serialize(draft.Asset, SnapshotJson), PricingSnapshotJson = JsonSerializer.Serialize(draft.Pricing, SnapshotJson),
@@ -191,14 +191,14 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
     {
         var item = booking.Items.First();
         var days = Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays));
-        var subtotal = days * item.DailyRate;
+        var subtotal = HirePricing.Amount(item);
         var taxable = Math.Max(0, subtotal - booking.DiscountAmount + booking.AdditionalCharges);
-        var tax = taxable * booking.TaxRate / 100m;
+        var tax = HirePricing.Tax(booking);
         return new AgreementData(
             new CustomerAgreementSnapshot(booking.CustomerId, booking.Customer!.CustomerNumber, booking.Customer.Name, booking.Customer.Type.ToString(), booking.Customer.Email, booking.Customer.Phone, booking.Customer.Address, booking.Customer.IdentificationNumber),
             new AssetAgreementSnapshot(item.AssetId, item.Asset!.AssetNumber, item.Asset.Name, item.Asset.Type.ToString(), item.Asset.RegistrationNumber, item.Asset.SerialNumber),
             new RentalAgreementSnapshot(booking.Id, booking.BookingNumber, booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone, item.StartAt, item.EndAt, days),
-            new PricingAgreementSnapshot(item.DailyRate, subtotal, booking.DiscountAmount, booking.AdditionalCharges, booking.AdditionalChargesDescription, booking.TaxRate, tax, taxable + tax, booking.DepositRequired),
+            new PricingAgreementSnapshot(item.DailyRate, subtotal, booking.DiscountAmount, booking.AdditionalCharges, booking.AdditionalChargesDescription, booking.TaxRate, tax, taxable + tax, booking.DepositRequired, item.HireUnit, HirePricing.Quantity(item)),
             string.IsNullOrWhiteSpace(item.Asset.Division?.DefaultRentalTerms)
                 ? DefaultTerms()
                 : [new AgreementTerm("Rental terms", item.Asset.Division.DefaultRentalTerms)]);
@@ -235,7 +235,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
     private sealed record CustomerAgreementSnapshot(Guid CustomerId, string CustomerNumber, string Name, string Type, string? Email, string? Phone, string? Address, string? IdentificationNumber);
     private sealed record AssetAgreementSnapshot(Guid AssetId, string AssetNumber, string Name, string Type, string? RegistrationNumber, string? SerialNumber);
     private sealed record RentalAgreementSnapshot(Guid Id, string BookingNumber, Guid BranchId, string BranchName, string? BranchAddress, string? BranchPhone, DateTimeOffset StartAt, DateTimeOffset EndAt, decimal Days);
-    private sealed record PricingAgreementSnapshot(decimal DailyRate, decimal Subtotal, decimal DiscountAmount, decimal AdditionalCharges, string? AdditionalChargesDescription, decimal TaxRate, decimal TaxAmount, decimal Total, decimal DepositRequired);
+    private sealed record PricingAgreementSnapshot(decimal DailyRate, decimal Subtotal, decimal DiscountAmount, decimal AdditionalCharges, string? AdditionalChargesDescription, decimal TaxRate, decimal TaxAmount, decimal Total, decimal DepositRequired, ChargeUnit HireUnit, decimal HireQuantity);
     private sealed record AgreementTerm(string Title, string Content);
 }
 

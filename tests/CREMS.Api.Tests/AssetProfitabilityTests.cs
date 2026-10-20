@@ -69,9 +69,10 @@ public class AssetProfitabilityTests
         var controller = new BusinessOperationsController(db,new CurrentStaffScope(db)) {ControllerContext = jobs.ControllerContext};
         var csv = Encoding.UTF8.GetString(Assert.IsType<FileContentResult>(await controller.ExportProfitability(token)).FileContents);
         Assert.Contains("TEST-1",csv);
+        var headers = csv.TrimStart('\uFEFF').Split('\n')[0].TrimEnd('\r').Split(',');
         var unallocatedLine = csv.Split('\n').Single(x=>x.StartsWith("Unallocated," )).Split(',');
-        Assert.Equal(20m,decimal.Parse(unallocatedLine[5],System.Globalization.CultureInfo.InvariantCulture));
-        Assert.Equal(8m,decimal.Parse(unallocatedLine[10],System.Globalization.CultureInfo.InvariantCulture));
-        Assert.Equal(12m,decimal.Parse(unallocatedLine[11],System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(20m,decimal.Parse(unallocatedLine[Array.IndexOf(headers,"Revenue FJD")],System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(8m,decimal.Parse(unallocatedLine[Array.IndexOf(headers,"Total expense FJD")],System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(12m,decimal.Parse(unallocatedLine[Array.IndexOf(headers,"Gross profit FJD")],System.Globalization.CultureInfo.InvariantCulture));
     }
 }

@@ -435,6 +435,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
 
         builder.Entity<BookingItem>(entity =>
         {
+            entity.Property(x => x.HireQuantity).HasPrecision(18, 4);
             entity.Property(x => x.DailyRate).HasPrecision(18, 2);
             entity.HasIndex(x => new { x.AssetId, x.StartAt, x.EndAt });
             entity.HasOne(x => x.Asset).WithMany().HasForeignKey(x => x.AssetId)

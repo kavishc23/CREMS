@@ -115,7 +115,7 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
         var branch = await db.Branches.FindAsync([id], cancellationToken);
         if (branch is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
-        if (scope is null) return Forbid();
+        if (scope is null || !scope.HasBranchAccess(id)) return Forbid();
         if (!request.IsActive && (await db.Bookings.AnyAsync(x => x.BranchId == id && x.Status != Domain.Rentals.BookingStatus.Completed && x.Status != Domain.Rentals.BookingStatus.Cancelled && x.Status != Domain.Rentals.BookingStatus.Expired, cancellationToken) || await db.Assets.AnyAsync(x => x.BranchId == id && x.IsActive && x.Status != Domain.Assets.AssetStatus.Retired, cancellationToken))) return Conflict(new { message = "Close active rentals and transfer or retire all assets before deactivating this branch." });
         branch.IsActive = request.IsActive;
         AuditWriter.Record(db, scope, "Branch status changed", "Branch", branch.Id,
