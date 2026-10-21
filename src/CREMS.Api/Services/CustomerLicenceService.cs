@@ -55,8 +55,9 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
 #pragma warning disable CA1416 // PDFtoImage supports every runtime targeted by this web API.
                 using var bitmap = PDFtoImage.Conversion.ToImage(pdf, page: 0, options: new PDFtoImage.RenderOptions(Dpi: 300));
 #pragma warning restore CA1416
+                using var card = TrimWhiteScanMargins(bitmap);
                 using var firstPage = new MemoryStream();
-                if (!bitmap.Encode(firstPage, SkiaSharp.SKEncodedImageFormat.Png, 100))
+                if (!card.Encode(firstPage, SkiaSharp.SKEncodedImageFormat.Png, 100))
                     throw new LicenceException("unreadable_pdf", "The first PDF page could not be converted to an image.");
                 content = firstPage.ToArray();
             }
@@ -65,6 +66,7 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
             using var engine = new TesseractOCR.Engine(dataPath, TesseractOCR.Enums.Language.English, TesseractOCR.Enums.EngineMode.Default);
             var readings = new List<string>();
             var centreClassReadings = new List<string>();
+            var classValueReadings = new List<string>();
             using (var image = TesseractOCR.Pix.Image.LoadFromMemory(content))
             using (var page = engine.Process(image)) readings.Add(page.Text);
             using var source = SkiaSharp.SKBitmap.Decode(content);
@@ -89,14 +91,30 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
                     if (!enhanced.ExtractSubset(cropped, region)) continue;
                     readings.Add(Read(engine, cropped));
                 }
-                var classRegion = new SkiaSharp.SKRectI(enlarged.Width / 4, enlarged.Height / 4,
-                    enlarged.Width * 2 / 3, enlarged.Height * 3 / 5);
+                // Keep the complete centre value line, including comma-separated
+                // classes, inside the higher-resolution OCR pass.
+                var classRegion = new SkiaSharp.SKRectI(enlarged.Width / 6, enlarged.Height / 4,
+                    enlarged.Width * 3 / 4, enlarged.Height * 3 / 5);
                 using var classCrop = new SkiaSharp.SKBitmap(classRegion.Width, classRegion.Height);
                 if (enhanced.ExtractSubset(classCrop, classRegion))
                 {
                     using var classEnlarged = Resize(classCrop, Math.Max(classCrop.Width, 1600));
                     using var strongerClassContrast = Grayscale(classEnlarged, 1.35f);
                     centreClassReadings.Add(Read(engine, strongerClassContrast, TesseractOCR.Enums.PageSegMode.SingleBlock));
+                }
+                engine.SetVariable("tessedit_char_whitelist", "0123456789,");
+                foreach (var (left, top, right, bottom, mode) in new[]
+                {
+                    (42, 45, 53, 53, TesseractOCR.Enums.PageSegMode.SingleWord),
+                    (45, 45, 49, 52, TesseractOCR.Enums.PageSegMode.RawLine)
+                })
+                {
+                    var valueRegion = new SkiaSharp.SKRectI(enlarged.Width * left / 100, enlarged.Height * top / 100,
+                        enlarged.Width * right / 100, enlarged.Height * bottom / 100);
+                    using var valueCrop = new SkiaSharp.SKBitmap(valueRegion.Width, valueRegion.Height);
+                    if (!enlarged.ExtractSubset(valueCrop, valueRegion)) continue;
+                    using var valueEnlarged = Resize(valueCrop, Math.Max(valueCrop.Width, 1200));
+                    classValueReadings.Add(Read(engine, valueEnlarged, mode));
                 }
             }
             // Keep OCR passes separated. Without a non-whitespace boundary, a class
@@ -107,6 +125,8 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
             var centreText = string.Join(passBreak, centreClassReadings.Where(value => !string.IsNullOrWhiteSpace(value)));
             if (!string.IsNullOrWhiteSpace(centreText))
                 text += $"\n[[CREMS_CENTRE_BEGIN]]\n{centreText}\n[[CREMS_CENTRE_END]]";
+            var valueText = string.Join(passBreak, classValueReadings.Where(value => !string.IsNullOrWhiteSpace(value)));
+            text += $"\n[[CREMS_CLASS_VALUE_BEGIN]]\n{valueText}\n[[CREMS_CLASS_VALUE_END]]";
             if (string.IsNullOrWhiteSpace(text))
                 throw new LicenceException("ocr_no_text", "No readable licence details were found. Try a clearer image.");
             return text;
@@ -171,6 +191,37 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
         return result;
     }
 
+    internal static SkiaSharp.SKBitmap TrimWhiteScanMargins(SkiaSharp.SKBitmap source)
+    {
+        static bool IsInk(SkiaSharp.SKColor color) => color.Red < 240 || color.Green < 240 || color.Blue < 240;
+        var stride = Math.Max(1, source.Width / 250);
+        var threshold = Math.Max(1, (source.Width / stride) / 8);
+        var top = 0;
+        for (; top < source.Height; top += stride)
+        {
+            var count = 0;
+            for (var x = 0; x < source.Width; x += stride)
+                if (IsInk(source.GetPixel(x, top))) count++;
+            if (count >= threshold) break;
+        }
+        var bottom = source.Height - 1;
+        for (; bottom > top; bottom -= stride)
+        {
+            var count = 0;
+            for (var x = 0; x < source.Width; x += stride)
+                if (IsInk(source.GetPixel(x, bottom))) count++;
+            if (count >= threshold) break;
+        }
+        if (bottom - top < source.Height / 4) return source.Copy();
+        var padding = source.Height / 100;
+        var region = new SkiaSharp.SKRectI(0, Math.Max(0, top - padding), source.Width,
+            Math.Min(source.Height, bottom + padding + 1));
+        var cropped = new SkiaSharp.SKBitmap(region.Width, region.Height);
+        if (source.ExtractSubset(cropped, region)) return cropped;
+        cropped.Dispose();
+        return source.Copy();
+    }
+
     private static SkiaSharp.SKBitmap Grayscale(SkiaSharp.SKBitmap source, float contrast)
     {
         var result = new SkiaSharp.SKBitmap(source.Width, source.Height);
@@ -196,23 +247,25 @@ public sealed class CustomerLicenceService(ApplicationDbContext db, ILicenceOcrP
     private static readonly Regex NameLine = new(@"(?im)(?:name|holder)\s*[:#-]?\s*([A-Z][A-Z .'’-]{2,100})", RegexOptions.Compiled);
     private static readonly Regex TitledNameLine = new(@"^\s*(?:MR|MRS|MS|MISS|DR)[.,:]?\s+([A-Z][A-Z .'’,-]{4,100})\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
     private static readonly Regex ClassesLine = new(
-        @"(?im)(?:full\s+licen[cs]e\s+class(?:es)?|licen[cs]e\s+class(?:es)?|class(?:es)?|categories)\s*[:#-]?\s*((?<!\d)[1-9](?:[\t ,;/]+[1-9])*)(?!\d)",
+        @"(?im)(?:full[\t ]+licen[cs]e[\t ]+class(?:es)?|licen[cs]e[\t ]+class(?:es)?|class(?:es)?)\b[\t ]*[:#-]?[\t ]*(?:\r?\n[\t ]*)?([1-9](?:[\t ]*,[\t ]*[1-9])*)(?![\d,])",
         RegexOptions.Compiled);
     private static readonly Regex CentreClassRegion = new(
         @"\[\[CREMS_CENTRE_BEGIN\]\](.*?)\[\[CREMS_CENTRE_END\]\]",
         RegexOptions.Compiled | RegexOptions.Singleline);
-    private static readonly Regex StandaloneCentreClass = new(@"(?m)^\s*([1-9](?:[\t ,;/]+[1-9])*)\s*$", RegexOptions.Compiled);
+    private static readonly Regex ClassValueRegion = new(
+        @"\[\[CREMS_CLASS_VALUE_BEGIN\]\](.*?)\[\[CREMS_CLASS_VALUE_END\]\]",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex StandaloneCentreClass = new(@"(?m)^\s*([1-9](?:[\t ]*,[\t ]*[1-9])*)\s*$", RegexOptions.Compiled);
 
     public async Task<StagedLicence> ScanAsync(Guid customerId, IFormFile file, LicenceUploadSource source, Guid? actorId, CancellationToken token)
     {
         var customer = await db.Customers.FirstOrDefaultAsync(x => x.Id == customerId, token) ?? throw new LicenceException("customer_not_found", "Customer account was not found.");
         var (bytes, contentType) = await ReadAndValidateAsync(file, token);
+        EnsureImageIsSharpEnough(bytes, contentType);
         var submission = await StoreAsync(customerId, bytes, contentType, source, actorId, token);
         try
         {
             var text = await ocr.ReadFirstPageAsync(bytes, contentType, token);
-            // Name and number are required to continue. If a small class digit cannot be read
-            // confidently, the confirmation checklist remains empty for safe user correction.
             var result = Parse(text, allowMissingClasses: true, expectedName: customer.Name);
             submission.ExtractedName = result.FullName;
             submission.LicenceNumber = result.LicenceNumber;
@@ -254,6 +307,9 @@ public sealed class CustomerLicenceService(ApplicationDbContext db, ILicenceOcrP
         var cleanNumber = licenceNumber.Trim();
         var cleanClasses = ValidateClasses(classes);
         if (string.IsNullOrWhiteSpace(cleanNumber)) throw new LicenceException("licence_number_required", "Enter the licence number.");
+        if (requireNameMatch && (!string.Equals(cleanNumber, submission.LicenceNumber, StringComparison.Ordinal) ||
+            !cleanClasses.SequenceEqual(submission.LicenceClasses.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse))))
+            throw new LicenceException("scan_details_changed", "Scanned details cannot be edited. Reupload the licence or ask an administrator to enter it manually.");
         if (requireNameMatch && (submission.OcrStatus != LicenceOcrStatus.Completed || !NamesMatch(customer.Name, submission.ExtractedName ?? string.Empty)))
             throw new LicenceException("name_mismatch", "The licence name does not match the customer name recorded in CREMS.");
         var previous = await db.CustomerLicences.Where(x => x.CustomerId == customerId && x.Status == LicenceVerificationStatus.Verified && x.Id != submission.Id).ToListAsync(token);
@@ -295,18 +351,27 @@ public sealed class CustomerLicenceService(ApplicationDbContext db, ILicenceOcrP
         // field. Prefer that spatially trusted region and allow a standalone value
         // there because a blurred label may disappear while its class digit survives.
         var centreText = CentreClassRegion.Match(text).Groups[1].Value;
-        var classSource = string.IsNullOrWhiteSpace(centreText) ? text : centreText;
-        var labelledClasses = ClassesLine.Matches(classSource)
-            .SelectMany(match => Regex.Matches(match.Groups[1].Value, "[1-9]")
-                .Select(value => int.Parse(value.Value)))
-            .ToArray();
-        var centreStandaloneClasses = string.IsNullOrWhiteSpace(centreText) || labelledClasses.Length > 0
+        var valueText = ClassValueRegion.Match(text).Groups[1].Value;
+        var isolatedValues = StandaloneCentreClass.Matches(valueText)
+            .Select(match => match.Groups[1].Value).ToArray();
+        var isolatedValue = isolatedValues.FirstOrDefault(value => value.Contains(',')) ?? isolatedValues.LastOrDefault();
+        var isolatedClasses = isolatedValue is null ? [] : isolatedValue.Split(',')
+            .Select(token => int.Parse(token.Trim())).ToArray();
+        // Use the centre reading when it contains a valid labelled value. A noisy
+        // centre crop must not suppress a clear full-card reading of "2,3".
+        var centreLabelled = ClassesLine.Matches(centreText).Select(match => match.Groups[1].Value).ToArray();
+        var labelledValues = centreLabelled.Length > 0 ? centreLabelled : ClassesLine.Matches(text)
+            .Select(match => match.Groups[1].Value).ToArray();
+        var labelledClasses = labelledValues.SelectMany(value => value.Split(',')
+            .Select(token => int.Parse(token.Trim()))).ToArray();
+        var hasIsolatedValueRegion = ClassValueRegion.IsMatch(text);
+        var centreStandaloneClasses = string.IsNullOrWhiteSpace(centreText) || labelledClasses.Length > 0 || hasIsolatedValueRegion
             ? []
             : StandaloneCentreClass.Matches(centreText)
-                .SelectMany(match => Regex.Matches(match.Groups[1].Value, "[1-9]")
-                    .Select(value => int.Parse(value.Value)))
+                .SelectMany(match => match.Groups[1].Value.Split(',')
+                    .Select(token => int.Parse(token.Trim())))
                 .ToArray();
-        var classes = labelledClasses.Concat(centreStandaloneClasses)
+        var classes = (isolatedClasses.Length > 0 ? isolatedClasses : labelledClasses.Concat(centreStandaloneClasses))
             .Distinct().Order().ToArray();
         if (string.IsNullOrWhiteSpace(name)) throw new LicenceException("ocr_name_missing", "The full name could not be read. Try a clearer image.");
         if (string.IsNullOrWhiteSpace(number)) throw new LicenceException("ocr_number_missing", "The licence number could not be read. Enter it manually or try another image.");
@@ -422,6 +487,53 @@ public sealed class CustomerLicenceService(ApplicationDbContext db, ILicenceOcrP
             throw new LicenceException("unreadable_image", "The image could not be read. Choose a clear, undamaged image.");
         if (contentType == "application/pdf" && !Encoding.ASCII.GetString(bytes).Contains("%%EOF", StringComparison.Ordinal))
             throw new LicenceException("unreadable_pdf", "The PDF could not be read. Choose a valid PDF document.");
+    }
+
+    private static void EnsureImageIsSharpEnough(byte[] bytes, string contentType)
+    {
+        try
+        {
+            SkiaSharp.SKBitmap? rendered = null;
+            if (contentType == "application/pdf")
+            {
+                using var pdf = new MemoryStream(bytes);
+#pragma warning disable CA1416 // PDFtoImage supports every runtime targeted by this web API.
+                rendered = PDFtoImage.Conversion.ToImage(pdf, page: 0, options: new PDFtoImage.RenderOptions(Dpi: 150));
+#pragma warning restore CA1416
+            }
+            else rendered = SkiaSharp.SKBitmap.Decode(bytes);
+            using (rendered)
+            {
+                if (rendered is null) throw new LicenceException("unreadable_image", "The licence image could not be opened. Please reupload it.");
+                using var normalized = contentType == "application/pdf" ? HttpLicenceOcrProvider.TrimWhiteScanMargins(rendered) : rendered.Copy();
+                if (normalized.Width < 450 || normalized.Height < 280 || SharpnessScore(normalized) < 8)
+                    throw new LicenceException("blurry_licence", "The licence image is too blurry to scan. Please reupload a clearer image or PDF.");
+            }
+        }
+        catch (LicenceException) { throw; }
+        catch
+        {
+            throw new LicenceException("unreadable_image", "The licence image could not be opened. Please reupload it.");
+        }
+    }
+
+    private static double SharpnessScore(SkiaSharp.SKBitmap bitmap)
+    {
+        static double Gray(SkiaSharp.SKColor color) => .299 * color.Red + .587 * color.Green + .114 * color.Blue;
+        var step = Math.Max(1, bitmap.Width / 900);
+        double sum = 0, sumSquares = 0;
+        var count = 0;
+        for (var y = step; y < bitmap.Height * 7 / 10 - step; y += step)
+        for (var x = step; x < bitmap.Width * 4 / 5 - step; x += step)
+        {
+            var laplacian = 4 * Gray(bitmap.GetPixel(x, y)) - Gray(bitmap.GetPixel(x - step, y))
+                - Gray(bitmap.GetPixel(x + step, y)) - Gray(bitmap.GetPixel(x, y - step))
+                - Gray(bitmap.GetPixel(x, y + step));
+            sum += laplacian;
+            sumSquares += laplacian * laplacian;
+            count++;
+        }
+        return count == 0 ? 0 : sumSquares / count - Math.Pow(sum / count, 2);
     }
 
     private static int[] ValidateClasses(IReadOnlyList<int> classes)

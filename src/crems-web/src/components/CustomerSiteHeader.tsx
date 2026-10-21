@@ -50,7 +50,6 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
       aria-current={accountActive ? 'page' : undefined}
       sx={{ ml: 1, color: '#111', boxShadow: accountActive ? '0 0 0 2px #fff' : 'none' }}
     >{accountLabel}</Button>
-    {authenticated && <NotificationBell customer key={accountName}/>}
   </Stack>
 
   return <>
@@ -64,8 +63,8 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
           </Box>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
-          {authenticated && <NotificationBell customer key={accountName}/> }
           <Box sx={{ display: { xs: 'none', lg: 'block' } }}>{desktopNavigation}</Box>
+          {authenticated && <NotificationBell customer key={accountName} />}
           <IconButton color="inherit" aria-label="Open navigation" sx={{ display: { lg: 'none' } }} onClick={() => setMobileOpen(true)}><MenuOutlined /></IconButton>
         </Toolbar>
       </Container>
