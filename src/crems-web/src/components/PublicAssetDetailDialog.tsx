@@ -23,6 +23,7 @@ type AssetSummary = {
   hireRate?: { rate:number; unit:string }; hireUnit?:string
   dailyRate: number
   isAvailable: boolean
+  requiresQuote?: boolean; isBookableOnline?: boolean; allowsQuoteRequests?: boolean
 }
 
 type AssetDetails = {
@@ -38,7 +39,7 @@ type AssetDetails = {
   modelYear: number | null
   division: { id: string; code: string; name: string } | null
   branch: { id: string; name: string; address: string | null; phone: string | null; email: string | null; pickupInstructions: string | null; deliveryCoverage: string | null }
-  service: { name: string; description: string | null; requiresQuote: boolean; defaultHireUnit: string; requiresDelivery: boolean; defaultDepositAmount: number; requiredDocuments: string[] } | null
+  service: { name: string; description: string | null; requiresQuote: boolean; isBookableOnline: boolean; allowsQuoteRequests: boolean; defaultHireUnit: string; requiresDelivery: boolean; defaultDepositAmount: number; requiredDocuments: string[] } | null
   specifications: { name: string; value: string; unit: string | null }[]
   charges: { name: string; category: string; unit: string; defaultSellingRate: number; isRequired: boolean }[]
   isAvailable: boolean
@@ -117,6 +118,6 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
         </Grid>
       </Grid>}
     </DialogContent>
-    <DialogActions sx={{ p: { xs: 2.5, md: 3 }, pt: 0, flexShrink: 0, bgcolor: 'background.paper' }}><Button onClick={onClose}>Close</Button><Box sx={{ flex: 1 }} /><Button variant="contained" disabled={!details || !available} onClick={() => asset && onContinue(asset)}>{details?.service?.requiresQuote || Boolean(asset && !['Vehicle','PassengerVehicle','CommercialVehicle'].includes(asset.type)) ? 'Continue to request quote' : 'Continue to booking'}</Button></DialogActions>
+    <DialogActions sx={{ p: { xs: 2.5, md: 3 }, pt: 0, flexShrink: 0, bgcolor: 'background.paper' }}><Button onClick={onClose}>Close</Button><Box sx={{ flex: 1 }} /><Button variant="contained" disabled={!details || !available} onClick={() => asset && onContinue(asset)}>{details?.service?.requiresQuote || details?.service?.isBookableOnline === false ? 'Continue to quotation' : 'Continue to booking'}</Button></DialogActions>
   </Dialog>
 }

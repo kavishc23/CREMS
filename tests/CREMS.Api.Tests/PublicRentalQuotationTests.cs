@@ -49,6 +49,55 @@ public sealed class PublicRentalQuotationTests
     }
 
     [Fact]
+    public async Task Hourly_request_uses_entered_hours_in_saved_price()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var asset = await fixture.Db.Assets.SingleAsync(token);
+        asset.HireUnit = ChargeUnit.Hour;
+        asset.DailyRate = 10m;
+        await fixture.Db.SaveChangesAsync(token);
+
+        var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with { HireQuantity = 8m }, token);
+        Assert.IsType<OkObjectResult>(response.Result);
+        var item = await fixture.Db.BookingItems.SingleAsync(token);
+        Assert.Equal(8m, item.HireQuantity);
+        Assert.Equal(80m, item.HireQuantity * item.DailyRate);
+    }
+
+    [Fact]
+    public async Task Asset_pickup_choice_overrides_a_service_delivery_default()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var asset = await fixture.Db.Assets.Include(x => x.ServiceOffering).SingleAsync(token);
+        asset.RequiresDelivery = false;
+        Assert.True(asset.ServiceOffering!.RequiresDelivery);
+        await fixture.Db.SaveChangesAsync(token);
+
+        var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with { Fulfilment = "Pickup", DeliveryAddress = null }, token);
+        Assert.IsType<OkObjectResult>(response.Result);
+    }
+
+    [Fact]
+    public async Task Booking_only_service_stays_a_booking_even_with_division_quote_default()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var asset = await fixture.Db.Assets.Include(x => x.ServiceOffering).SingleAsync(token);
+        asset.RequiresDelivery = false;
+        asset.ServiceOffering!.RequiresQuote = false;
+        asset.ServiceOffering.AllowsQuoteRequests = false;
+        await fixture.Db.SaveChangesAsync(token);
+
+        var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with
+        { Fulfilment = "Pickup", DeliveryAddress = null, RequestQuotation = false }, token);
+        var request = Assert.IsType<PublicBookingResponse>(Assert.IsType<OkObjectResult>(response.Result).Value);
+        Assert.Equal("Booking", request.RequestType);
+        Assert.Empty(await fixture.Db.SalesQuotes.ToListAsync(token));
+    }
+
+    [Fact]
     public async Task Later_confirmation_failure_does_not_leave_partial_request()
     {
         await using var fixture = await QuotationFixture.CreateAsync(new ThrowingEmailQueue());

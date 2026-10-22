@@ -185,6 +185,31 @@ public sealed class CustomerJourneyRegressionTests
         Assert.IsType<NotFoundResult>(await f.Account.ChangeDates(other.Id, new(start, end), TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task On_hire_asset_is_not_advertised_as_available_for_future_dates()
+    {
+        await using var f = await Fixture.Create();
+        f.Asset.Status = AssetStatus.Rented;
+        await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var start = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30));
+        var result = await f.Public.GetAssets(null, null, null, start, start.AddDays(1), TestContext.Current.CancellationToken);
+        var assets = Assert.IsAssignableFrom<IReadOnlyList<PublicAssetResponse>>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.False(Assert.Single(assets).IsAvailable);
+    }
+
+    [Fact]
+    public async Task Customer_can_save_a_preferred_service_from_a_new_division()
+    {
+        await using var f = await Fixture.Create();
+        var service = new ServiceOffering { DivisionId = f.Division.Id, Code = "PRESENTATION", Name = "Presentation hire", IsActive = true, IsBookableOnline = true };
+        f.Db.ServiceOfferings.Add(service);
+        await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        Assert.IsType<OkObjectResult>(await f.Account.UpdateProfile(new("7654321", null, [], [service.Id]), TestContext.Current.CancellationToken));
+        f.Db.ChangeTracker.Clear();
+        var saved = await f.Db.Customers.SingleAsync(x => x.Id == f.Customer.Id, TestContext.Current.CancellationToken);
+        Assert.Equal(service.Id, Assert.Single(saved.PreferredServiceIds));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]

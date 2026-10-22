@@ -1,7 +1,7 @@
 export type CustomerQuestion = { code: string; label: string; type: string; required: boolean; help?: string | null; options?: string[] | null; serviceCode?: string | null; categoryCode?: string | null }
 export type BookingFlow = { personnelRequirement: string; quoteMode: string; onlineRequestsEnabled: boolean; businessCustomersRequireQuote: boolean; unpricedPersonnelRequiresQuote: boolean; unpricedDeliveryRequiresQuote: boolean; requireVerifiedLicenceForVehicles: boolean; minimumHireDays: number; maximumHireDays: number; quoteValidityDays: number; customerFields?: CustomerQuestion[] | null }
 export type DivisionSettings = { code: string; name: string; description: string | null; contactEmail: string | null; contactPhone: string | null; capabilities: number | string; isPublic: boolean; isActive: boolean; brandingJson: string; defaultCurrency: string; defaultTaxRate: number; defaultBondAmount: number; defaultRentalTerms: string | null; defaultApprovalWorkflowId: string | null; customerBookingConfigurationJson: string }
-export type ServiceSettings = { code: string; name: string; description: string | null; type: string; personnelRequirement: string; isBookableOnline: boolean; requiresQuote: boolean; isActive: boolean; defaultHireUnit: string; requiresDelivery: boolean; requiredDocumentsJson: string; defaultDepositAmount: number; inspectionRequirementsJson: string; meterType: string | null; maintenanceRulesJson: string; inheritBond: boolean }
+export type ServiceSettings = { code: string; name: string; description: string | null; type: string; personnelRequirement: string; isBookableOnline: boolean; requiresQuote: boolean; allowsQuoteRequests: boolean; isActive: boolean; defaultHireUnit: string; requiresDelivery: boolean; requiredDocumentsJson: string; defaultDepositAmount: number; inspectionRequirementsJson: string; meterType: string | null; maintenanceRulesJson: string; inheritBond: boolean }
 export type Attribute = { code: string; name: string; dataType: string; unit: string | null; isRequired: boolean; isSearchable: boolean; isCustomerVisible: boolean; isReportable: boolean; displayOrder: number; optionsJson: string }
 export type CategorySettings = { defaultAssetType?: string | null; divisionId: string; serviceOfferingId: string | null; code: string; name: string; description: string | null; defaultMeterType: string | null; personnelRequirement: string; isActive: boolean }
 export type ChecklistSection = { section: string; items: { label: string }[] }
@@ -9,7 +9,7 @@ export type SetupTemplate = { id: string | null; name: string; stage: 'PreHire' 
 export type SetupCategory = { id: string | null; category: CategorySettings; attributes: Attribute[]; templates: SetupTemplate[] }
 export type SetupService = { id: string | null; service: ServiceSettings; branchIds: string[]; categories: SetupCategory[] }
 export type SetupDocument = { id: string | null; revision: string | null; division: DivisionSettings; flow: BookingFlow; services: SetupService[] }
-export type BranchOption = { id: string; name: string; code: string; isActive: boolean; divisionIds: string[] }
+export type BranchOption = { id: string; name: string; code: string; isActive: boolean; isPublic?: boolean; divisionIds: string[] }
 export const fieldTypes = ['Text', 'LongText', 'Number', 'Integer', 'Date', 'Choice', 'Boolean']
 export const capabilityOptions = [['Rental', 1], ['Maintenance', 2], ['Property leasing', 4], ['Logistics', 8], ['Retail', 16], ['Personnel supported hire', 32]] as const
 export function readJson<T>(json: string | null | undefined, fallback: T): T { try { const value:unknown=JSON.parse(json || '{}'); if(Array.isArray(fallback))return (Array.isArray(value)?value:fallback) as T; if(fallback&&typeof fallback==='object')return (value&&typeof value==='object'&&!Array.isArray(value)?value:fallback) as T;return (value??fallback) as T } catch { return fallback } }
@@ -22,10 +22,10 @@ export function newCategory(code = 'GENERAL', name = 'General assets'): SetupCat
   return { id: null, category: { divisionId: '00000000-0000-0000-0000-000000000000', serviceOfferingId: null, code, name, defaultAssetType: null, description: '', defaultMeterType: null, personnelRequirement: 'None', isActive: true }, attributes: [], templates: [newTemplate('PreHire', ['Identity and quantity match', 'Condition and safety checked', 'Accessories recorded']), newTemplate('PostHire', ['Returned identity and quantity match', 'Condition compared with handover', 'Damage and missing items recorded'])] }
 }
 export function newService(): SetupService {
-  return { id: null, service: { code: '', name: '', description: '', type: 'Other', personnelRequirement: 'None', isBookableOnline: true, requiresQuote: false, isActive: true, defaultHireUnit: 'Day', requiresDelivery: false, requiredDocumentsJson: '[]', defaultDepositAmount: 0, inspectionRequirementsJson: '{}', meterType: null, maintenanceRulesJson: '{}', inheritBond: true }, branchIds: [], categories: [] }
+  return { id: null, service: { code: '', name: '', description: '', type: 'Other', personnelRequirement: 'None', isBookableOnline: true, requiresQuote: false, allowsQuoteRequests: true, isActive: true, defaultHireUnit: 'Day', requiresDelivery: false, requiredDocumentsJson: '[]', defaultDepositAmount: 0, inspectionRequirementsJson: '{"tracksMeter":false,"tracksFuel":false}', meterType: null, maintenanceRulesJson: '{}', inheritBond: true }, branchIds: [], categories: [] }
 }
 export function newDocument(): SetupDocument {
-  return { id: null, revision: null, division: { code: '', name: '', description: '', contactEmail: '', contactPhone: '', capabilities: 3, isPublic: false, isActive: true, brandingJson: '{}', defaultCurrency: 'FJD', defaultTaxRate: 12.5, defaultBondAmount: 0, defaultRentalTerms: '', defaultApprovalWorkflowId: null, customerBookingConfigurationJson: '{}' }, flow: { personnelRequirement: 'None', quoteMode: 'Automatic', onlineRequestsEnabled: true, businessCustomersRequireQuote: true, unpricedPersonnelRequiresQuote: true, unpricedDeliveryRequiresQuote: true, requireVerifiedLicenceForVehicles: true, minimumHireDays: 1, maximumHireDays: 366, quoteValidityDays: 14, customerFields: [] }, services: [newService()] }
+  return { id: null, revision: null, division: { code: '', name: '', description: '', contactEmail: '', contactPhone: '', capabilities: 0, isPublic: false, isActive: true, brandingJson: '{}', defaultCurrency: 'FJD', defaultTaxRate: 12.5, defaultBondAmount: 0, defaultRentalTerms: '', defaultApprovalWorkflowId: null, customerBookingConfigurationJson: '{}' }, flow: { personnelRequirement: 'None', quoteMode: 'Automatic', onlineRequestsEnabled: true, businessCustomersRequireQuote: true, unpricedPersonnelRequiresQuote: true, unpricedDeliveryRequiresQuote: true, requireVerifiedLicenceForVehicles: true, minimumHireDays: 1, maximumHireDays: 366, quoteValidityDays: 14, customerFields: [] }, services: [newService()] }
 }
 export const setupTemplates = [
   { label: 'Vehicles', assetType: 'PassengerVehicle', type: 'VehicleRental', code: 'VEHICLES', meter: 'Kilometres', fields: ['Chassis number', 'Engine number', 'Registration number'], checks: ['Body, glass and tyres checked', 'Lights and safety equipment checked', 'Odometer and fuel recorded'] },
@@ -37,12 +37,43 @@ export const setupTemplates = [
   { label: 'Portable toilets', assetType: 'PortableSanitation', type: 'EquipmentHire', code: 'PORTABLE_TOILET', meter: '', fields: ['Unit reference', 'Tank capacity', 'Sanitation date'], checks: ['Tank, door, locks and vents checked', 'Cleanliness and consumables checked', 'Safe placement checked'] },
   { label: 'Property spaces', assetType: 'PropertyUnit', type: 'PropertyLease', code: 'PROPERTY', meter: '', fields: ['Property reference', 'Floor area', 'Number of rooms'], checks: ['Rooms, fixtures and utilities checked', 'Safety systems checked', 'Keys and access devices counted'] },
   { label: 'ICT / engineering', assetType: 'LightEquipment', type: 'MaintenanceService', code: 'TECHNICAL', meter: '', fields: ['Equipment reference', 'Technical specification'], checks: ['Identity and accessories recorded', 'Condition and safety checked', 'Function test recorded'] },
+  { label: 'Furniture & appliances', assetType: 'Equipment', type: 'Other', code: 'FURNISHINGS', meter: '', fields: ['Inventory reference', 'Dimensions', 'Finish', 'Accessories'], checks: ['Items and accessories counted', 'Surfaces and condition checked', 'Function and electrical safety checked'] },
+  { label: 'Marine & workshop', assetType: 'Equipment', type: 'MaintenanceService', code: 'MARINE_WORKSHOP', meter: '', fields: ['Asset reference', 'Rated capacity', 'Certification expiry'], checks: ['Identity and condition recorded', 'Safety certification checked', 'Work area and access checked'] },
+  { label: 'Service resources', assetType: 'Equipment', type: 'Other', code: 'RESOURCES', meter: '', fields: ['Resource reference', 'Location', 'Specification'], checks: ['Resource and assigned items verified', 'Condition and access checked', 'Documents and accessories recorded'] },
 ]
 export function templateService(index: number, suffix = ''): SetupService {
   const t = setupTemplates[index], result = newService()
-  result.service = { ...result.service, code: t.code + suffix, name: t.label + ' hire', type: t.type, meterType: t.meter || null, inspectionRequirementsJson: JSON.stringify({ tracksMeter: Boolean(t.meter), tracksFuel: Boolean(t.meter) }) }
+  result.service = { ...result.service, code: t.code + suffix, name: t.label + ' hire', type: t.type, defaultHireUnit: t.type === 'PropertyLease' ? 'Month' : 'Day', meterType: t.meter || null, inspectionRequirementsJson: JSON.stringify({ tracksMeter: Boolean(t.meter), tracksFuel: Boolean(t.meter) }) }
   const c = newCategory(t.code + suffix, t.label); c.category.defaultMeterType = t.meter || null; c.category.defaultAssetType = t.assetType
   c.attributes = t.fields.map((name, i) => ({ code: name.toUpperCase().replaceAll(' ', '_'), name, dataType: /area|rooms|quantity|capacity|height|output|weight|voltage/i.test(name) ? 'Number' : /date/i.test(name) ? 'Date' : 'Text', unit: null, isRequired: i === 0, isSearchable: true, isCustomerVisible: false, isReportable: true, displayOrder: i, optionsJson: '[]' }))
   c.templates = [newTemplate('PreHire', t.checks), newTemplate('PostHire', t.checks.map(check => 'Return: ' + check))]
   result.categories = [c]; return result
+}
+
+// Flags are serialized by the API as enum names; older clients also used numbers.
+export function capabilityValue(value: string | number): number {
+  if (typeof value === 'number') return value
+  if (/^\d+$/.test(value)) return Number(value)
+  const names = ['Rental', 'Maintenance', 'PropertyLeasing', 'Logistics', 'Retail', 'PersonnelSupportedHire']
+  return value.split(',').reduce((flags, name) => { const index = names.indexOf(name.trim()); return index < 0 ? flags : flags | 2 ** index }, 0)
+}
+export function serviceTracking(service: Pick<ServiceSettings, 'meterType' | 'inspectionRequirementsJson'>) {
+  const requirements = readJson<Record<string, boolean>>(service.inspectionRequirementsJson, {})
+  return { meter: requirements.tracksMeter ?? Boolean(service.meterType), fuel: requirements.tracksFuel ?? false }
+}
+export function setServiceTracking(service: Pick<ServiceSettings, 'meterType' | 'inspectionRequirementsJson' | 'maintenanceRulesJson'>, meter: boolean, fuel: boolean): Partial<Pick<ServiceSettings, 'meterType' | 'inspectionRequirementsJson' | 'maintenanceRulesJson'>> {
+  const rules = readJson<Record<string, unknown>>(service.maintenanceRulesJson, {})
+  if (!meter) delete rules.meterInterval
+  return { meterType: meter ? service.meterType : null, maintenanceRulesJson: JSON.stringify(rules),
+    inspectionRequirementsJson: patchJson(service.inspectionRequirementsJson, { tracksMeter: meter, tracksFuel: fuel }) }
+}
+
+export function brandingError(json: string): string {
+  const value = readJson<Record<string, unknown>>(json, {})
+  if (typeof value.displayName === 'string' && value.displayName.trim().length > 150) return 'Customer display name must be at most 150 characters.'
+  if (value.accentColor && (typeof value.accentColor !== 'string' || !/^#[0-9a-f]{6}$/i.test(value.accentColor.trim()))) return 'Enter a six-digit accent colour, for example #FFF000.'
+  if (typeof value.logoUrl === 'string' && value.logoUrl.trim()) {
+    try { const url = new URL(value.logoUrl.trim()); if (url.protocol !== 'https:' || url.username || url.password || value.logoUrl.length > 2000) return 'Use a valid HTTPS logo URL without sign-in details.' } catch { return 'Use a valid HTTPS logo URL.' }
+  }
+  return ''
 }

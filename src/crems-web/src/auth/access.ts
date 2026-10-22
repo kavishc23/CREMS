@@ -40,7 +40,7 @@ const pageRoles: Record<AppPage, readonly string[]> = {
   users: [roles.superAdministrator, roles.administrator],
   customerAccounts: [roles.superAdministrator, roles.administrator],
   branches: [roles.superAdministrator, roles.administrator],
-  divisions: Object.values(roles),
+  divisions: [roles.superAdministrator, roles.administrator],
   configuration: [roles.superAdministrator],
   systemHealth: [roles.superAdministrator],
 }

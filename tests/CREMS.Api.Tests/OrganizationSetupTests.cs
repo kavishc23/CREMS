@@ -206,6 +206,87 @@ public sealed class OrganizationSetupTests
         Assert.False(link.IsBookable);
     }
 
+    [Fact]
+    public async Task Shared_categories_are_editable_without_changing_their_scope()
+    {
+        await using var f = await Fixture.Create();
+        await f.Controller.Save(f.NewSetup(), Token);
+        var division = await f.Db.Divisions.SingleAsync(Token);
+        var category = await f.Db.AssetCategories.SingleAsync(Token);
+        category.ServiceOfferingId = null;
+        using (f.Db.SuppressNotifications()) await f.Db.SaveChangesAsync(Token);
+        var saved = Assert.IsType<DivisionSetupDocument>(Assert.IsType<OkObjectResult>(await f.Controller.Get(division.Id, Token)).Value);
+        Assert.Equal(category.Id, Assert.Single(saved.Services[0].Categories).Id);
+        Assert.IsType<OkObjectResult>(await f.Controller.Save(saved, Token));
+        Assert.Null((await f.Db.AssetCategories.SingleAsync(Token)).ServiceOfferingId);
+    }
+
+    [Fact]
+    public async Task Custom_resources_and_properties_have_no_implicit_usage_or_fuel_readings()
+    {
+        await using var f = await Fixture.Create();
+        foreach (var type in new[] { AssetType.Equipment, AssetType.LightEquipment, AssetType.PropertyUnit, AssetType.Scaffolding, AssetType.WasteContainer })
+        {
+            var asset = new Asset { AssetNumber = type.ToString(), Name = "Configured resource", Type = type };
+            var snapshot = await ConfiguredHireRules.Capture(f.Db, asset, null, Token);
+            Assert.False(snapshot.TracksMeter);
+            Assert.False(snapshot.TracksFuel);
+        }
+        var service = new ServiceOffering { Code = "CUSTOM", Name = "Custom resource", MeterType = "Cycles", InspectionRequirementsJson = "{\"tracksMeter\":true,\"tracksFuel\":false}" };
+        var custom = new Asset { AssetNumber = "CUSTOM", Name = "Custom resource", Type = AssetType.Equipment, ServiceOffering = service };
+        var configured = await ConfiguredHireRules.Capture(f.Db, custom, null, Token);
+        Assert.True(configured.TracksMeter);
+        Assert.False(configured.TracksFuel);
+        Assert.Equal("Cycles", configured.MeterUnit);
+    }
+
+    [Fact]
+    public async Task Category_hours_override_legacy_asset_unit_without_requiring_fuel()
+    {
+        await using var f = await Fixture.Create();
+        var category = new AssetCategory { Code = "PROJECTOR", Name = "Projectors", DefaultMeterType = "Hours" };
+        var service = new ServiceOffering { Code = "PRESENTATION", Name = "Presentation hire", InspectionRequirementsJson = "{\"tracksMeter\":false,\"tracksFuel\":false}" };
+        var asset = new Asset { AssetNumber = "EVT-PROJ-001", Name = "Room projector", Type = AssetType.Equipment,
+            MeterUnit = "Meter", AssetCategory = category, ServiceOffering = service };
+        var snapshot = await ConfiguredHireRules.Capture(f.Db, asset, null, Token);
+        Assert.True(snapshot.TracksMeter);
+        Assert.False(snapshot.TracksFuel);
+        Assert.Equal("Hours", snapshot.MeterUnit);
+        Assert.True(AssetCategoryPolicy.TracksMeter(asset));
+        Assert.False(AssetCategoryPolicy.TracksFuel(asset));
+    }
+
+    [Fact]
+    public async Task Calendar_property_setup_preserves_branding_and_needs_no_counter()
+    {
+        await using var f = await Fixture.Create();
+        var request = f.NewSetup();
+        var service = request.Services[0];
+        request = request with { Division = request.Division with { BrandingJson = "{\"displayName\":\"Spaces\",\"accentColor\":\"#123456\",\"logoUrl\":\"https://example.test/logo.png\",\"legacyKey\":true}" },
+            Services = [service with { Service = service.Service with { Type = ServiceOfferingType.PropertyLease, MeterType = null, MaintenanceRulesJson = "{\"serviceIntervalDays\":90}", InspectionRequirementsJson = "{\"tracksMeter\":false,\"tracksFuel\":false}" } }] };
+        Assert.IsType<OkObjectResult>(await f.Controller.Save(request, Token));
+        var division = await f.Db.Divisions.SingleAsync(Token);
+        Assert.Contains("legacyKey", division.BrandingJson);
+        Assert.Equal("Spaces", DivisionPresentation.Read(division.BrandingJson).DisplayName);
+        var saved = await f.Db.ServiceOfferings.SingleAsync(Token);
+        Assert.Null(saved.MeterType);
+        Assert.Null(MaintenanceRules.ReadMeterRule(saved.MaintenanceRulesJson).Interval);
+        Assert.Equal(90, MaintenanceRules.ReadDayInterval(saved.MaintenanceRulesJson));
+        Assert.IsType<BadRequestObjectResult>(await f.Controller.Save(f.NewSetup() with { Services = [service with { Service = service.Service with { MaintenanceRulesJson = "{\"meterInterval\":250}", MeterType = null }, Categories = [service.Categories[0] with { Category = service.Categories[0].Category with { DefaultMeterType = null } }] }] }, Token));
+    }
+
+    [Theory]
+    [InlineData("{\"logoUrl\":\"javascript:alert(1)\"}")]
+    [InlineData("{\"accentColor\":\"red;display:none\"}")]
+    [InlineData("{\"displayName\":true}")]
+    public void Invalid_public_branding_is_rejected_and_not_rendered(string json)
+    {
+        Assert.False(DivisionPresentation.IsValid(json));
+        var publicBranding = DivisionPresentation.Read(json);
+        Assert.Null(publicBranding.LogoUrl);
+        Assert.Null(publicBranding.AccentColor);
+    }
+
     private static string Checklist(string check) => JsonSerializer.Serialize(new[] { new { section = "Condition", items = new[] { new { label = check } } } });
     private static ControllerContext Context(ApplicationUser user, string role) => new() { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), new Claim(ClaimTypes.Role, role)], "test")) } };
     private sealed class AllowAuthorization : Microsoft.AspNetCore.Authorization.IAuthorizationService

@@ -238,6 +238,15 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
                     preferences => preferences.Aggregate(0, (hash, preference) => HashCode.Combine(hash, preference)),
                     preferences => preferences.ToList()));
             entity.Property(x => x.HirePreferences).HasMaxLength(128);
+            entity.Property(x => x.PreferredServiceIds)
+                .HasConversion(
+                    ids => JsonSerializer.Serialize(ids, (JsonSerializerOptions?)null),
+                    stored => JsonSerializer.Deserialize<List<Guid>>(stored, (JsonSerializerOptions?)null) ?? new List<Guid>())
+                .Metadata.SetValueComparer(new ValueComparer<List<Guid>>(
+                    (left, right) => left != null && right != null && left.SequenceEqual(right),
+                    ids => ids.Aggregate(0, (hash, id) => HashCode.Combine(hash, id)),
+                    ids => ids.ToList()));
+            entity.Property(x => x.PreferredServiceIds).HasMaxLength(4000);
             entity.Property(x => x.Email).HasMaxLength(254);
         });
         builder.Entity<CustomerLicence>(entity =>

@@ -22,9 +22,24 @@ public static class ConfiguredHireRules
             .OrderBy(x => x.Name).ThenBy(x => x.Id).Select(x => new InspectionTemplateSnapshot(x.Id, x.Name, x.Stage, x.ChecklistJson)).ToListAsync(token);
         return new(OrganizationConfiguration.Questions(DivisionBookingFlow.For(division), service, category),
             answers?.ToDictionary(x => x.Key, x => x.Value.Trim()) ?? new Dictionary<string, string>(), templates,
-            OrganizationConfiguration.Flag(service?.InspectionRequirementsJson, "tracksMeter") ?? AssetCategoryPolicy.TracksMeter(asset),
+            !string.IsNullOrWhiteSpace(category?.DefaultMeterType) || (OrganizationConfiguration.Flag(service?.InspectionRequirementsJson, "tracksMeter") ?? (!string.IsNullOrWhiteSpace(service?.MeterType) || AssetCategoryPolicy.TracksMeter(asset))),
             OrganizationConfiguration.Flag(service?.InspectionRequirementsJson, "tracksFuel") ?? AssetCategoryPolicy.TracksFuel(asset),
-            asset.MeterUnit ?? service?.MeterType ?? category?.DefaultMeterType, DateTimeOffset.UtcNow);
+            category?.DefaultMeterType ?? service?.MeterType ?? asset.MeterUnit, DateTimeOffset.UtcNow);
+    }
+
+    public static async Task<string?> EffectiveMeterUnit(ApplicationDbContext db, Asset asset, CancellationToken token)
+    {
+        if (asset.AssetCategoryId is { } categoryId)
+        {
+            var categoryUnit = await db.AssetCategories.AsNoTracking().Where(x => x.Id == categoryId).Select(x => x.DefaultMeterType).FirstOrDefaultAsync(token);
+            if (!string.IsNullOrWhiteSpace(categoryUnit)) return categoryUnit.Trim();
+        }
+        if (asset.ServiceOfferingId is { } serviceId)
+        {
+            var serviceUnit = await db.ServiceOfferings.AsNoTracking().Where(x => x.Id == serviceId).Select(x => x.MeterType).FirstOrDefaultAsync(token);
+            if (!string.IsNullOrWhiteSpace(serviceUnit)) return serviceUnit.Trim();
+        }
+        return asset.MeterUnit;
     }
 
     public static async Task<BookingConfigurationSnapshot?> Resolve(ApplicationDbContext db, Booking booking, CancellationToken token)

@@ -132,7 +132,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         {
             var asset = item.Asset!; var fromStatus = asset.Status; asset.Status = CREMS.Api.Domain.Assets.AssetStatus.Rented;
             db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = asset.Id, BookingId = booking.Id, Type = AssetLifecycleEventType.CheckedOut, FromStatus = fromStatus, ToStatus = asset.Status, MeterReading = request.MeterReading, Notes = $"Checked out on {agreement.AgreementNumber}", RecordedByUserId = scope.UserId, RecordedByName = scope.UserName });
-            if (request.MeterReading.HasValue) asset.CurrentMeterReading = request.MeterReading;
+            if (request.MeterReading.HasValue) { asset.MeterUnit = await ConfiguredHireRules.EffectiveMeterUnit(db, asset, cancellationToken); asset.CurrentMeterReading = request.MeterReading; }
             if (request.MeterReading.HasValue) db.AssetMeterReadings.Add(new AssetMeterReading { AssetId = asset.Id, BookingId = booking.Id, Type = asset.MeterUnit?.Contains("hour", StringComparison.OrdinalIgnoreCase) == true ? MeterType.EngineHours : MeterType.Odometer, Unit = asset.MeterUnit ?? "unit", Reading = request.MeterReading.Value, FuelPercent = request.FuelLevelPercent, Source = MeterReadingSource.PreHireInspection, RecordedByUserId = scope.UserId });
         }
         AuditWriter.Record(db, scope, "Rental pickup completed", "Booking", booking.Id,

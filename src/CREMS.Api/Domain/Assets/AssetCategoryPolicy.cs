@@ -21,10 +21,15 @@ public static class AssetCategoryPolicy
     public static bool RequiresPersonnel(Asset asset) => Personnel(asset) == PersonnelRequirement.Required;
     public static bool RequiresDrivingLicence(Asset asset, bool professionalPersonnelProvided) =>
         IsVehicle(asset.Type) && !professionalPersonnelProvided;
-    public static bool TracksFuel(Asset asset) => asset.Type != AssetType.PropertyUnit && Code(asset) is
-        "RENTAL_VEHICLE" or "FORKLIFT" or "GENSET" or "HEAVY_MACHINE" or "GENERAL_EQUIPMENT";
-    public static bool TracksMeter(Asset asset) => asset.Type != AssetType.PropertyUnit && Code(asset) is not
-        ("PORTABLE_TOILET" or "SCAFFOLD" or "BIG_BIN");
+    // Explicit service requirements win; unknown/custom resources do not inherit vehicle readings.
+    public static bool TracksFuel(Asset asset) => OrganizationConfiguration.Flag(asset.ServiceOffering?.InspectionRequirementsJson, "tracksFuel") ??
+        (asset.Type != AssetType.PropertyUnit && (IsVehicle(asset.Type) || asset.Type is AssetType.HeavyEquipment or AssetType.MaterialHandlingEquipment or AssetType.PowerEquipment ||
+         asset.AssetCategory?.Code?.ToUpperInvariant() is "RENTAL_VEHICLE" or "FORKLIFT" or "GENSET" or "HEAVY_MACHINE" or "GENERAL_EQUIPMENT"));
+    public static bool TracksMeter(Asset asset) => !string.IsNullOrWhiteSpace(asset.AssetCategory?.DefaultMeterType) ||
+        (OrganizationConfiguration.Flag(asset.ServiceOffering?.InspectionRequirementsJson, "tracksMeter") ??
+        (!string.IsNullOrWhiteSpace(asset.ServiceOffering?.MeterType) ||
+         asset.Type != AssetType.PropertyUnit && (IsVehicle(asset.Type) || asset.Type is AssetType.HeavyEquipment or AssetType.MaterialHandlingEquipment or AssetType.PowerEquipment ||
+         asset.AssetCategory?.Code?.ToUpperInvariant() is "RENTAL_VEHICLE" or "FORKLIFT" or "GENSET" or "HEAVY_MACHINE" or "GENERAL_EQUIPMENT")));
 
     public static string InspectionGuidance(Asset asset) => Code(asset) switch
     {

@@ -7,6 +7,7 @@ using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
+using CREMS.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -121,9 +122,10 @@ public sealed class OrganizationSetupController(ApplicationDbContext db, Current
         var templates = await db.InspectionTemplates.AsNoTracking().Where(x => categoryIds.Contains(x.AssetCategoryId) && (x.Stage == InspectionStage.PreHire || x.Stage == InspectionStage.PostHire)).OrderBy(x => x.Id).ToListAsync(token);
         var branches = await db.BranchDivisionServices.AsNoTracking().Where(x => x.DivisionId == id && x.IsActive).OrderBy(x => x.BranchId).ToListAsync(token);
         var document = new DivisionSetupDocument(id, null, new SaveDivisionRequest(d.Code, d.Name, d.Description, d.ContactEmail, d.ContactPhone, d.Capabilities, d.IsPublic, d.IsActive, d.BrandingJson, d.DefaultCurrency, d.DefaultTaxRate, d.DefaultRentalTerms, d.DefaultApprovalWorkflowId, d.CustomerBookingConfigurationJson, d.DefaultBondAmount), DivisionBookingFlow.For(d),
-            services.Select(s => new SetupService(s.Id, new SaveServiceRequest(s.Code, s.Name, s.Description, s.Type, s.PersonnelRequirement, s.IsBookableOnline, s.RequiresQuote, s.IsActive, s.DefaultHireUnit, s.RequiresDelivery, s.RequiredDocumentsJson, s.DefaultDepositAmount, s.InspectionRequirementsJson, s.MeterType, s.MaintenanceRulesJson, s.InheritBond),
+            services.Select(s => new SetupService(s.Id, new SaveServiceRequest(s.Code, s.Name, s.Description, s.Type, s.PersonnelRequirement, s.IsBookableOnline, s.RequiresQuote, s.IsActive, s.DefaultHireUnit, s.RequiresDelivery, s.RequiredDocumentsJson, s.DefaultDepositAmount, s.InspectionRequirementsJson, s.MeterType, s.MaintenanceRulesJson, s.InheritBond, s.AllowsQuoteRequests),
                 branches.Where(b => b.ServiceOfferingId == s.Id).Select(b => b.BranchId).ToArray(),
-                categories.Where(c => c.ServiceOfferingId == s.Id).Select(c => new SetupCategory(c.Id, new CategoryRequest(c.DivisionId, c.ServiceOfferingId, c.Code, c.Name, c.Description, c.DefaultMeterType, c.PersonnelRequirement, c.IsActive, c.DefaultAssetType),
+                // Shared division categories remain shared; expose them once in the first service editor.
+                categories.Where(c => c.ServiceOfferingId == s.Id || c.ServiceOfferingId == null && s.Id == services[0].Id).Select(c => new SetupCategory(c.Id, new CategoryRequest(c.DivisionId, c.ServiceOfferingId, c.Code, c.Name, c.Description, c.DefaultMeterType, c.PersonnelRequirement, c.IsActive, c.DefaultAssetType),
                     c.AttributeDefinitions.OrderBy(a => a.DisplayOrder).ThenBy(a => a.Code).Select(a => new AttributeRequest(a.Code, a.Name, a.DataType, a.Unit, a.IsRequired, a.IsSearchable, a.IsCustomerVisible, a.IsReportable, a.DisplayOrder, a.OptionsJson)).ToArray(),
                     templates.Where(t => t.AssetCategoryId == c.Id).Select(t => new SetupTemplate(t.Id, t.Name, t.Stage, t.ChecklistJson, t.RequiresCustomerSignature, t.RequiresStaffSignature, t.IsActive)).ToArray())).ToArray())).ToArray());
         return document with { Revision = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { document,
@@ -134,7 +136,7 @@ public sealed class OrganizationSetupController(ApplicationDbContext db, Current
     {
         if (request.Flow is null || !request.Flow.IsValid) return OrganizationConfiguration.ValidateQuestions(request.Flow?.CustomerFields) ?? "Check the division booking policy and hire limits.";
         if (!string.Equals(request.Division.DefaultCurrency, "FJD", StringComparison.OrdinalIgnoreCase)) return "CREMS supports FJD transactions only.";
-        if (!DivisionsController.ValidObject(request.Division.BrandingJson)) return "Branding must be a JSON object.";
+        if (!DivisionPresentation.IsValid(request.Division.BrandingJson)) return "Check the customer display name, HTTPS logo URL and six-digit accent colour.";
         if (request.Services.Count is < 1 or > 50 || request.Services.GroupBy(x => x.Service.Code.Trim(), StringComparer.OrdinalIgnoreCase).Any(x => x.Count() > 1) || request.Services.Where(x => x.Id.HasValue).GroupBy(x => x.Id).Any(x => x.Count() > 1)) return "Add 1–50 services with unique codes.";
         var categoryCodes = request.Services.SelectMany(x => x.Categories).Select(x => x.Category.Code.Trim()).ToArray();
         if (categoryCodes.Distinct(StringComparer.OrdinalIgnoreCase).Count() != categoryCodes.Length) return "Category codes must be unique in the division.";
@@ -143,6 +145,7 @@ public sealed class OrganizationSetupController(ApplicationDbContext db, Current
         {
             var s = input.Service;
             if (!Enum.IsDefined(s.Type) || !Enum.IsDefined(s.DefaultHireUnit) || !Enum.IsDefined(s.PersonnelRequirement) || !DivisionsController.ValidDocuments(s.RequiredDocumentsJson) || !DivisionsController.ValidObject(s.InspectionRequirementsJson) || !DivisionsController.ValidMaintenance(s.MaintenanceRulesJson)) return "Check the service documents, maintenance and inspection settings.";
+            if (MaintenanceRules.ReadMeterRule(s.MaintenanceRulesJson).Interval.HasValue && string.IsNullOrWhiteSpace(s.MeterType) && !input.Categories.Any(c => !string.IsNullOrWhiteSpace(c.Category.DefaultMeterType))) return "Usage-based maintenance needs a usage unit.";
             foreach (var c in input.Categories)
             {
                 if (c.Category.DefaultAssetType.HasValue && !Enum.IsDefined(c.Category.DefaultAssetType.Value)) return "Choose a supported default asset type.";
@@ -178,7 +181,7 @@ public sealed class OrganizationSetupController(ApplicationDbContext db, Current
     private static void ApplyService(ServiceOffering s, SaveServiceRequest v)
     {
         s.Code = v.Code.Trim().ToUpperInvariant(); s.Name = v.Name.Trim(); s.Description = v.Description; s.Type = v.Type; s.PersonnelRequirement = v.PersonnelRequirement;
-        s.IsActive = v.IsActive; s.IsBookableOnline = v.IsBookableOnline; s.RequiresQuote = v.RequiresQuote; s.DefaultHireUnit = v.DefaultHireUnit; s.RequiresDelivery = v.RequiresDelivery;
+        s.IsActive = v.IsActive; s.IsBookableOnline = v.IsBookableOnline; s.RequiresQuote = v.RequiresQuote; s.AllowsQuoteRequests = v.AllowsQuoteRequests; s.DefaultHireUnit = v.DefaultHireUnit; s.RequiresDelivery = v.RequiresDelivery;
         s.RequiredDocumentsJson = v.RequiredDocumentsJson ?? "[]"; s.DefaultDepositAmount = v.DefaultDepositAmount; s.InheritBond = v.InheritBond; s.MeterType = v.MeterType;
         s.InspectionRequirementsJson = v.InspectionRequirementsJson ?? "{}"; s.MaintenanceRulesJson = v.MaintenanceRulesJson ?? "{}"; s.UpdatedAt = DateTimeOffset.UtcNow;
     }

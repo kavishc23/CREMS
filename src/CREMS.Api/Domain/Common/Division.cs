@@ -43,6 +43,7 @@ public sealed class ServiceOffering : Entity
     public PersonnelRequirement PersonnelRequirement { get; set; }
     public bool IsBookableOnline { get; set; }
     public bool RequiresQuote { get; set; }
+    public bool AllowsQuoteRequests { get; set; } = true;
     public bool IsActive { get; set; } = true;
     public ChargeUnit DefaultHireUnit { get; set; } = ChargeUnit.Day;
     public bool RequiresDelivery { get; set; }

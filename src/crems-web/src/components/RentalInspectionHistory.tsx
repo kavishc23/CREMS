@@ -59,7 +59,6 @@ export function InspectionRecord({ record, onPhoto }: { record: Inspection; onPh
   const checklistResults = Array.isArray(evidence.checklistResults)
     ? evidence.checklistResults.filter((item): item is {label:string;passed:boolean|null} => Boolean(item) && typeof item === 'object' && typeof item.label === 'string' && (typeof item.passed === 'boolean' || item.passed === null))
     : checklist.map(label => ({label,passed:true}))
-  const zones = strings(evidence.damageZones)
   const fields = [
     ['Recorded by', record.completedByName || 'Not recorded'],
     ['Recorded at', new Date(record.completedAt).toLocaleString('en-FJ')],
@@ -68,7 +67,6 @@ export function InspectionRecord({ record, onPhoto }: { record: Inspection; onPh
     ['Meter reading', record.meterReading == null ? 'Not recorded' : String(record.meterReading)],
     ['Fuel / battery', record.fuelLevelPercent == null ? 'Not recorded' : `${record.fuelLevelPercent}%`],
     ['Accessories / quantities', typeof evidence.accessories === 'string' && evidence.accessories || 'Not recorded'],
-    ['Damage locations', zones.join(', ') || 'None recorded'],
     ['Customer acknowledgement', record.signatureName || 'Not recorded'],
     ...(record.identificationVerified === undefined ? [] : [['Identity verified', record.identificationVerified ? 'Yes' : 'No']]),
     ...(record.driverLicenceVerified === undefined ? [] : [['Driver licence verified', record.driverLicenceVerified ? 'Yes' : 'No']]),

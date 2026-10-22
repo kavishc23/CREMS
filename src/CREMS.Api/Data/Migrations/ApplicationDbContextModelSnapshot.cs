@@ -1169,6 +1169,9 @@ namespace CREMS.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("AllowsQuoteRequests")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -2173,6 +2176,11 @@ namespace CREMS.Api.Data.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)")
                         .HasColumnName("HirePreference");
+
+                    b.Property<string>("PreferredServiceIds")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<string>("IdentificationNumber")
                         .HasColumnType("nvarchar(max)");

@@ -102,7 +102,7 @@ public sealed class CustomerAccountController(
             .OrderByDescending(x => x.ConfirmedAt).Select(x => x.LicenceNumber).FirstOrDefaultAsync();
         return Ok(new { user.Id, user.Email, user.FullName, user.CustomerId, customer.CustomerNumber,
             CustomerName = customer.Name, customer.Phone, customer.Address, customer.IdentificationNumber,
-            DriverLicenceNumber = licenceNumber, customer.Type, customer.HirePreferences, user.EmailConfirmed });
+            DriverLicenceNumber = licenceNumber, customer.Type, customer.HirePreferences, customer.PreferredServiceIds, user.EmailConfirmed });
     }
 
     [HttpGet("bookings")]
@@ -458,8 +458,15 @@ public sealed class CustomerAccountController(
         customer.Phone = request.Phone.Trim();
         customer.Address = Clean(request.Address);
         customer.HirePreferences = request.HirePreferences.Distinct().ToList();
+        if (request.PreferredServiceIds is not null)
+        {
+            var requestedServiceIds = request.PreferredServiceIds.Distinct().ToArray();
+            customer.PreferredServiceIds = await db.ServiceOfferings.AsNoTracking()
+                .Where(service => requestedServiceIds.Contains(service.Id) && service.IsActive && service.Division!.IsActive && service.Division.IsPublic)
+                .Select(service => service.Id).ToListAsync(token);
+        }
         await db.SaveChangesAsync(token);
-        return Ok(new { user.FullName, customer.Phone, customer.Address, customer.IdentificationNumber, customer.HirePreferences });
+        return Ok(new { user.FullName, customer.Phone, customer.Address, customer.IdentificationNumber, customer.HirePreferences, customer.PreferredServiceIds });
     }
 
     [HttpPut("bookings/{bookingId:guid}/dates")]
@@ -697,7 +704,7 @@ public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset O
 public sealed record CustomerQuoteDecisionRequest(bool Accepted, [MaxLength(1000)] string? Note, int? ExpectedVersion);
 public sealed record CustomerQuoteLine(string Description, decimal Quantity, decimal Rate, string Unit);
 public sealed record CustomerProfileRequest([Required, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,
-    [Required, MaxLength(3)] CustomerHirePreference[] HirePreferences);
+    [Required, MaxLength(3)] CustomerHirePreference[] HirePreferences, [MaxLength(50)] Guid[]? PreferredServiceIds = null);
 public sealed record CustomerBookingDatesRequest(DateTimeOffset StartAt, DateTimeOffset EndAt);
 public sealed record ActivateCustomerAccountRequest([Required, EmailAddress] string Email,
     [Required, RegularExpression("^[0-9]{6}$")] string Code, [Required, MinLength(10)] string Password);

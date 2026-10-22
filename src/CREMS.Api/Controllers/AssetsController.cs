@@ -121,7 +121,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             RegistrationNumber = Normalize(request.RegistrationNumber),
             SerialNumber = Normalize(request.SerialNumber),
             Category = Normalize(request.Category), Manufacturer = Normalize(request.Manufacturer), Model = Normalize(request.Model), ModelYear = request.ModelYear,
-            VinOrChassisNumber = Normalize(request.VinOrChassisNumber), EngineNumber = Normalize(request.EngineNumber), MeterUnit = Normalize(request.MeterUnit), CurrentMeterReading = request.CurrentMeterReading,
+            VinOrChassisNumber = Normalize(request.VinOrChassisNumber), EngineNumber = Normalize(request.EngineNumber), MeterUnit = await ConfiguredMeterUnit(request, cancellationToken), CurrentMeterReading = request.CurrentMeterReading,
             AcquisitionDate = request.AcquisitionDate, AcquisitionCost = request.AcquisitionCost, CurrentBookValue = request.CurrentBookValue,
             OwnershipType = Normalize(request.OwnershipType), InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber), InsuranceExpiry = request.InsuranceExpiry, WarrantyExpiry = request.WarrantyExpiry,
             DailyRate = request.DailyRate, HireUnit = request.HireUnit, UseServiceHireRate = request.UseServiceHireRate,
@@ -192,7 +192,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.RegistrationNumber = Normalize(request.RegistrationNumber);
         asset.SerialNumber = Normalize(request.SerialNumber);
         asset.Category = Normalize(request.Category); asset.Manufacturer = Normalize(request.Manufacturer); asset.Model = Normalize(request.Model); asset.ModelYear = request.ModelYear;
-        asset.VinOrChassisNumber = Normalize(request.VinOrChassisNumber); asset.EngineNumber = Normalize(request.EngineNumber); asset.MeterUnit = Normalize(request.MeterUnit); asset.CurrentMeterReading = request.CurrentMeterReading;
+        asset.VinOrChassisNumber = Normalize(request.VinOrChassisNumber); asset.EngineNumber = Normalize(request.EngineNumber); asset.MeterUnit = await ConfiguredMeterUnit(request, cancellationToken); asset.CurrentMeterReading = request.CurrentMeterReading;
         asset.AcquisitionDate = request.AcquisitionDate; asset.AcquisitionCost = request.AcquisitionCost; asset.CurrentBookValue = request.CurrentBookValue; asset.OwnershipType = Normalize(request.OwnershipType);
         asset.InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber); asset.InsuranceExpiry = request.InsuranceExpiry; asset.WarrantyExpiry = request.WarrantyExpiry;
         asset.DailyRate = request.DailyRate; asset.HireUnit = request.HireUnit; asset.UseServiceHireRate = request.UseServiceHireRate;
@@ -346,6 +346,21 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         ".webp" => bytes.Length >= 12 && bytes.AsSpan(0, 4).SequenceEqual("RIFF"u8) && bytes.AsSpan(8, 4).SequenceEqual("WEBP"u8),
         _ => false,
     };
+
+    private async Task<string?> ConfiguredMeterUnit(SaveAssetRequest request, CancellationToken token)
+    {
+        if (request.AssetCategoryId is { } categoryId)
+        {
+            var unit = await db.AssetCategories.AsNoTracking().Where(x => x.Id == categoryId).Select(x => x.DefaultMeterType).FirstOrDefaultAsync(token);
+            if (!string.IsNullOrWhiteSpace(unit)) return unit.Trim();
+        }
+        if (request.ServiceOfferingId is { } serviceId)
+        {
+            var unit = await db.ServiceOfferings.AsNoTracking().Where(x => x.Id == serviceId).Select(x => x.MeterType).FirstOrDefaultAsync(token);
+            if (!string.IsNullOrWhiteSpace(unit)) return unit.Trim();
+        }
+        return Normalize(request.MeterUnit);
+    }
 
     private async Task<bool> ValidClassification(SaveAssetRequest request, CancellationToken token)
     {

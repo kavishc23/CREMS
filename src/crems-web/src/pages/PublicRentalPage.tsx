@@ -34,12 +34,12 @@ type PublicAsset = {
   divisionId: string | null; divisionName: string | null; category: string | null; categoryCode: string | null
   bondAmount: number
   personnelRequirement: 'None' | 'Optional' | 'Required'
-  serviceName: string | null; requiresQuote: boolean; quoteMode: 'Automatic'|'Always'|'DirectWhenPriced'; requiresDelivery: boolean
+  serviceName: string | null; serviceOfferingId?: string | null; isBookableOnline?: boolean; allowsQuoteRequests?: boolean; requiresQuote: boolean; quoteMode: 'Automatic'|'Always'|'DirectWhenPriced'; requiresDelivery: boolean
   photoUrlsJson: string
   attributes: { code: string; name: string; value: string; unit: string | null }[]
 }
 type CustomerPreference = 'Vehicles' | 'Equipment' | 'WasteAndSiteHire'
-type CustomerPreferenceSession = { hirePreferences?: CustomerPreference[]; hirePreference?: CustomerPreference | 'NoPreference' }
+type CustomerPreferenceSession = { preferredServiceIds?: string[]; hirePreferences?: CustomerPreference[]; hirePreference?: CustomerPreference | 'NoPreference' }
 type CatalogueSort = 'recommended' | 'price-low' | 'price-high'
 type CheckoutDetail = {
   customerQuestions?: CustomerQuestion[]
@@ -50,7 +50,7 @@ type CheckoutDetail = {
   charges: { id: string; name: string; category: string; unit: string; defaultSellingRate: number; isRequired: boolean; isTaxable: boolean }[]
 }
 type Branch = { id: string; name: string; address: string | null; phone: string | null }
-type PublicDivision = { id: string; code: string; name: string; description: string | null; capabilities: number }
+type PublicDivision = { id: string; code: string; name: string; description: string | null; capabilities: number; branding?: { displayName: string | null; logoUrl: string | null; accentColor: string | null } }
 type BookingForm = {
   fullName: string; customerType: 'Individual' | 'Business'; companyName: string
   email: string; phone: string; address: string; identificationNumber: string
@@ -114,7 +114,6 @@ function readCatalogueState(): CatalogueState | null {
 
 type PublicCatalogueBootstrap = { branches: Branch[]; divisions: PublicDivision[]; assets: PublicAsset[] }
 let publicCatalogueCache: { expiresAt: number; promise: Promise<PublicCatalogueBootstrap> } | null = null
-let lastPublicCatalogue: PublicCatalogueBootstrap | null = null
 
 async function loadPublicResource<T>(url: string) {
   try {
@@ -135,11 +134,7 @@ function loadPublicCatalogueBootstrap() {
     loadPublicResource<PublicAsset[]>('/public/assets'),
   ]).then(([branches, divisions, assets]) => {
     const catalogue = { branches, divisions, assets }
-    lastPublicCatalogue = catalogue
     return catalogue
-  }).catch(error => {
-    if (lastPublicCatalogue) return lastPublicCatalogue
-    throw error
   })
   publicCatalogueCache = { expiresAt: now + 30_000, promise }
   promise.catch(() => { publicCatalogueCache = null })
@@ -184,7 +179,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [photoIndexes, setPhotoIndexes] = useState<Record<string, number>>({})
   const [galleryOffsets, setGalleryOffsets] = useState<Record<string, number>>({})
-  const [hirePreferences, setHirePreferences] = useState<CustomerPreference[]>([])
+  const [hirePreferences, setHirePreferences] = useState<string[]>([])
   const [showModifySearch, setShowModifySearch] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [requestBaseline, setRequestBaseline] = useState('')
@@ -202,7 +197,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     window.addEventListener('crems:data-changed', refreshPricing)
     document.addEventListener('visibilitychange', refreshPricing)
     return () => { cancelled = true; window.removeEventListener('focus', refreshPricing); window.removeEventListener('crems:data-changed', refreshPricing); document.removeEventListener('visibilitychange', refreshPricing) }
-  }, [selected?.id, startDate, endDate])
+  }, [selected, startDate, endDate])
 
   function changeStartDate(value: string) {
     setStartDate(value)
@@ -241,7 +236,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
 
   useEffect(() => {
     let active = true
-    setError(''); setLoading(true)
+    void Promise.resolve().then(() => { if (active) { setError(''); setLoading(true) } })
     void loadPublicCatalogueBootstrap()
       .then(data => {
         if (!active) return
@@ -255,6 +250,18 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     return () => { active = false }
   }, [catalogueRetry])
 
+  useEffect(() => {
+    function refresh() {
+      if (document.visibilityState === 'hidden' || selected) return
+      publicCatalogueCache = null
+      if (searched) void checkAvailability()
+      else setCatalogueRetry(value => value + 1)
+    }
+    window.addEventListener('focus', refresh)
+    window.addEventListener('crems:configuration-changed', refresh)
+    return () => { window.removeEventListener('focus', refresh); window.removeEventListener('crems:configuration-changed', refresh) }
+  }, [searched, selected, checkAvailability])
+
   const displayedAssets = useMemo(() => (searched ? assets : catalogueAssets).filter((asset) => {
     if (divisionId && asset.divisionId !== divisionId) return false
     if (branchId && asset.branchId !== branchId) return false
@@ -266,37 +273,33 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     if (priceFilter === '200-500' && (asset.dailyRate < 200 || asset.dailyRate > 500)) return false
     if (priceFilter === 'over-500' && asset.dailyRate <= 500) return false
     if (category === 'All') return true
-    const value = `${asset.name} ${asset.category}`.toLowerCase()
-    if (category === 'Cars & SUVs') return isVehicleAsset(asset) && !/truck|van|urvan|staria|coach|seater/.test(value)
-    if (category === 'Vans & trucks') return isVehicleAsset(asset) && /truck|van|urvan|staria|coach|seater|cargo/.test(value)
-    if (category === 'Earthmoving') return /excavator|backhoe|loader/.test(value)
-    if (category === 'Lifting') return /crane|forklift|telehandler|scissor/.test(value)
-    if (category === 'Power & site') return /generator|compressor|compactor|mixer|scaffold|toilet|portaloo|bin/.test(value)
-    return true
+    return category === (asset.category || asset.serviceName || asset.type)
   }), [assets, availableOnly, branchId, catalogueAssets, category, divisionId, priceFilter, searched, seatFilter, transmissionFilter, type])
+  const categoryOptions = useMemo(() => [...new Set(catalogueAssets.filter(asset => !divisionId || asset.divisionId === divisionId).map(asset => asset.category || asset.serviceName || asset.type))].sort(), [catalogueAssets, divisionId])
   const seatOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'SEATS')).filter(Boolean).map(Number))].sort((a, b) => a - b), [catalogueAssets])
   const transmissionOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'TRANSMISSION')).filter(Boolean))].sort(), [catalogueAssets])
-  const preferenceScore = (asset: PublicAsset) => {
+  const preferenceScore = useCallback((asset: PublicAsset) => {
     if (hirePreferences.length === 0) return 0
+    if (asset.serviceOfferingId && hirePreferences.includes(asset.serviceOfferingId)) return 4
     if (hirePreferences.includes('Vehicles') && /carpenters motors/i.test(asset.divisionName ?? '')) return 3
     if (hirePreferences.includes('Equipment') && /carptrac/i.test(asset.divisionName ?? '')) return 2
     if (hirePreferences.includes('WasteAndSiteHire') && /carpenters shipping/i.test(asset.divisionName ?? '')) return 1
     return 0
-  }
+  }, [hirePreferences])
   const sortedAssets = useMemo(() => [...displayedAssets].sort((left, right) => {
     if (sort === 'price-low') return left.dailyRate - right.dailyRate
     if (sort === 'price-high') return right.dailyRate - left.dailyRate
     return (searched ? 0 : preferenceScore(right) - preferenceScore(left)) || Number(right.isAvailable) - Number(left.isAvailable) || left.dailyRate - right.dailyRate
-  }), [displayedAssets, hirePreferences, searched, sort])
+  }), [displayedAssets, preferenceScore, searched, sort])
   const rentalDays = Math.max(1, Math.ceil((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86400000))
   const checkoutCharges = useMemo(() => (checkoutDetail?.charges ?? []).filter(charge => !['Operator', 'Driver'].includes(charge.category) || booking.personnelRequested).filter(charge => charge.isRequired ||
     (selectedExtras[charge.id] ?? 0) > 0 || booking.fulfilment === 'Delivery' && charge.category === 'Transport' ||
     booking.personnelRequested && ['Operator', 'Driver'].includes(charge.category)).map(charge => ({ ...charge,
       quantity: charge.unit==='Hour'&&['Operator','Driver'].includes(charge.category)?booking.personnelHours:hireQuantity(charge.unit,startDate,endDate,selectedExtras[charge.id]??1) })),
-  [booking.fulfilment, booking.personnelHours, booking.personnelRequested, checkoutDetail, rentalDays, selected, selectedExtras,startDate,endDate])
+  [booking.fulfilment, booking.personnelHours, booking.personnelRequested, checkoutDetail, selectedExtras,startDate,endDate])
   const baseUnit=checkoutDetail?.hireRate?.unit??selected?.hireUnit??'Day'
   const baseRate=checkoutDetail?.hireRate?.rate??selected?.dailyRate??0
-  const baseQuantity=hireQuantity(baseUnit,startDate,endDate,booking.hireQuantity)
+  const baseQuantity=baseUnit==='Hour' ? booking.hireQuantity : hireQuantity(baseUnit,startDate,endDate,booking.hireQuantity)
   const baseHire = baseRate*baseQuantity
   const extrasTotal = checkoutCharges.reduce((sum, charge) => sum + charge.defaultSellingRate * charge.quantity, 0)
   const taxRate = checkoutDetail?.taxRate ?? 12.5
@@ -306,9 +309,9 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const flow=checkoutDetail?.bookingFlow
   const personnelUnpriced=booking.personnelRequested&&!checkoutDetail?.charges.some(charge=>['Driver','Operator'].includes(charge.category)&&charge.defaultSellingRate>0)
   const deliveryUnpriced=booking.fulfilment==='Delivery'&&!checkoutDetail?.charges.some(charge=>charge.category==='Transport'&&charge.defaultSellingRate>0&&charge.unit!=='Hour')
-  const quotationFlow=Boolean(requestQuotation||selected?.requiresQuote||flow?.quoteMode==='Always'||baseRate<=0||
+  const quotationFlow=Boolean(selected?.requiresQuote || selected?.allowsQuoteRequests!==false && (requestQuotation||flow?.quoteMode==='Always'||baseRate<=0||
     flow?.quoteMode==='DirectWhenPriced'&&(personnelUnpriced||deliveryUnpriced)||
-    flow?.quoteMode==='Automatic'&&(flow.businessCustomersRequireQuote&&booking.customerType==='Business'||selected?.personnelRequirement==='Required'||flow.unpricedPersonnelRequiresQuote&&personnelUnpriced||flow.unpricedDeliveryRequiresQuote&&deliveryUnpriced))
+    flow?.quoteMode==='Automatic'&&(flow.businessCustomersRequireQuote&&booking.customerType==='Business'||selected?.personnelRequirement==='Required'||flow.unpricedPersonnelRequiresQuote&&personnelUnpriced||flow.unpricedDeliveryRequiresQuote&&deliveryUnpriced)))
   const isCarptracQuote = quotationFlow && !isVehicleAsset(selected)
   function advanceBooking(event: FormEvent) {
     event.preventDefault()
@@ -325,9 +328,10 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   }
   function openRequest(asset: PublicAsset, details: CheckoutDetail, customerDetails: BookingForm = emptyBooking, quote = false) {
     const extras: Record<string, number> = {}
-    const initial = { ...customerDetails, fulfilment: asset.requiresDelivery || details.service?.requiresDelivery ? 'Delivery' as const : customerDetails.fulfilment, personnelRequested: requiresProfessionalPersonnel(asset) || customerDetails.personnelRequested }
-    setConfigurationAnswers({}); setRequestQuotation(quote); setSelected(asset); setCheckoutDetail(details); setSelectedExtras(extras); setBooking(initial)
-    setRequestBaseline(JSON.stringify({ startDate, endDate, booking: initial, extras, terms: false, configurationAnswers: {} }))
+    const initial = { ...customerDetails, hireQuantity: details.hireRate?.unit === 'Hour' ? Math.max(1, rentalDays * 24) : customerDetails.hireQuantity, fulfilment: asset.requiresDelivery ? 'Delivery' as const : 'Pickup' as const, personnelRequested: requiresProfessionalPersonnel(asset) || customerDetails.personnelRequested }
+    const hoursQuestion = details.customerQuestions?.find(question => ['Number','Integer'].includes(question.type) && /^enter hours?$/i.test(question.label.trim()))
+    setConfigurationAnswers(hoursQuestion && details.hireRate?.unit === 'Hour' ? { [hoursQuestion.code]: String(initial.hireQuantity) } : {}); setRequestQuotation(quote); setSelected(asset); setCheckoutDetail(details); setSelectedExtras(extras); setBooking(initial)
+    setRequestBaseline(JSON.stringify({ startDate, endDate, booking: initial, extras, terms: false, configurationAnswers: hoursQuestion && details.hireRate?.unit === 'Hour' ? { [hoursQuestion.code]: String(initial.hireQuantity) } : {} }))
     setBookingStep(0); setTermsAccepted(false); setReference(''); setError('')
   }
   async function submitRequest(event: FormEvent) {
@@ -399,14 +403,13 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   }, [])
 
   useEffect(() => {
-    if (!customerAuthenticated) {
-      setHirePreferences([])
-      return
-    }
-    void api.get<CustomerPreferenceSession>('/customer-account/session').then(({ data }) => {
+    let active = true
+    const request = customerAuthenticated ? api.get<CustomerPreferenceSession>('/customer-account/session').then(({data}) => data) : Promise.resolve<CustomerPreferenceSession>({})
+    void request.then(data => {
       const preferences = Array.isArray(data.hirePreferences) ? data.hirePreferences : data.hirePreference && data.hirePreference !== 'NoPreference' ? [data.hirePreference] : []
-      setHirePreferences(preferences.filter(value => ['Vehicles', 'Equipment', 'WasteAndSiteHire'].includes(value)))
-    }).catch(() => setHirePreferences([]))
+      if (active) setHirePreferences(data.preferredServiceIds?.length ? data.preferredServiceIds : preferences.filter(value => ['Vehicles', 'Equipment', 'WasteAndSiteHire'].includes(value)))
+    }).catch(() => { if (active) setHirePreferences([]) })
+    return () => { active = false }
   }, [customerAuthenticated])
 
   function renderSearchForm(compact = false) {
@@ -429,14 +432,16 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       : /carptrac/i.test(division.name) ? 'Equipment' as CustomerPreference
       : /carpenters shipping/i.test(division.name) ? 'WasteAndSiteHire' as CustomerPreference
       : undefined,
-    title: division.name,
+    title: division.branding?.displayName || division.name,
+    branding: division.branding,
     matches: (asset: PublicAsset) => asset.divisionId === division.id,
   })), [divisions])
   const preferredDivisionGalleries = useMemo(() => {
     if (hirePreferences.length === 0 || hirePreferences.length === allDivisionGalleries.length) return allDivisionGalleries
+    if (hirePreferences.some(value => !['Vehicles','Equipment','WasteAndSiteHire'].includes(value))) return [...allDivisionGalleries].sort((a,b) => Number(sortedAssets.some(asset => b.matches(asset) && asset.serviceOfferingId && hirePreferences.includes(asset.serviceOfferingId))) - Number(sortedAssets.some(asset => a.matches(asset) && asset.serviceOfferingId && hirePreferences.includes(asset.serviceOfferingId))))
     return allDivisionGalleries.filter(gallery => !gallery.preference || hirePreferences.includes(gallery.preference))
       .sort((left, right) => (left.preference ? hirePreferences.indexOf(left.preference) : Number.MAX_SAFE_INTEGER) - (right.preference ? hirePreferences.indexOf(right.preference) : Number.MAX_SAFE_INTEGER))
-  }, [allDivisionGalleries, hirePreferences])
+  }, [allDivisionGalleries, hirePreferences, sortedAssets])
 
   function moveGallery(key: string, total: number, direction: number) {
     setGalleryOffsets(current => ({ ...current, [key]: Math.max(0, Math.min((current[key] ?? 0) + direction, Math.max(0, total - 4))) }))
@@ -460,9 +465,9 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     const photos = assetPhotoUrls(asset)
     const photoIndex = Math.min(photoIndexes[asset.id] ?? 0, Math.max(photos.length - 1, 0))
     return <Card key={asset.id} variant="outlined" sx={{ width: '100%', minWidth: 0, overflow: 'hidden', borderRadius: 3, bgcolor: '#fff', borderColor: '#deddd6', borderTop: '4px solid', borderTopColor: 'secondary.main' }}>
-      <CardContent sx={{ p: 2, pb: 1 }}><Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}><Box><Typography fontWeight={850} lineHeight={1.2}>{asset.name}</Typography><Typography variant="caption" fontWeight={700} color="text.secondary">{asset.category ?? asset.serviceName ?? asset.type} · {asset.assetNumber}</Typography></Box><Chip label={!searched ? 'Preview' : asset.isAvailable ? 'Available' : 'Unavailable'} color={searched && asset.isAvailable ? 'success' : 'default'} size="small" /></Stack></CardContent>
+      <CardContent sx={{ p: 2, pb: 1 }}><Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}><Box><Typography fontWeight={850} lineHeight={1.2}>{asset.name}</Typography><Typography variant="caption" fontWeight={700} color="text.secondary">{asset.category ?? asset.serviceName ?? asset.type} · {asset.assetNumber}</Typography></Box><Chip label={!searched ? 'Preview' : asset.status === 'Rented' ? 'On hire' : asset.isAvailable ? 'Available for dates' : 'Unavailable for dates'} color={searched && asset.isAvailable ? 'success' : 'default'} size="small" /></Stack></CardContent>
       <Box sx={{ height: 150, position: 'relative', overflow: 'hidden', mx: 1.25, borderRadius: 2, bgcolor: '#f7f6ef' }}>{photos[photoIndex] ? <Box component="img" src={photos[photoIndex]} alt={`${asset.name}, photo ${photoIndex + 1} of ${photos.length}`} loading="lazy" sx={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', p: 1 }} /> : <Stack sx={{ height: '100%' }} alignItems="center" justifyContent="center"><ImageOutlined sx={{ fontSize: 40, color: 'grey.400' }} /><Typography variant="caption" color="text.secondary">Photo coming soon</Typography></Stack>}{photos.length > 1 && <><IconButton aria-label="Previous photo" onClick={() => changeCataloguePhoto(asset.id, photos.length, -1)} sx={{ position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)', bgcolor: 'rgba(255,255,255,.92)' }}><ChevronLeftOutlined /></IconButton><IconButton aria-label="Next photo" onClick={() => changeCataloguePhoto(asset.id, photos.length, 1)} sx={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', bgcolor: 'rgba(255,255,255,.92)' }}><ChevronRightOutlined /></IconButton></>}</Box>
-      <CardContent sx={{ p: 2 }}><Typography variant="caption" color="text.secondary">{asset.branchName}</Typography><Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mt={.5}><Box><Typography fontWeight={900}>FJD {asset.useServiceHireRate?'See configured rate':asset.dailyRate.toFixed(2)} <Typography component="span" variant="caption" color="text.secondary">/ {asset.hireUnit?.toLowerCase()??'day'}</Typography></Typography>{searched && !asset.useServiceHireRate && !measuredUnit(asset.hireUnit??'Day') && <Typography variant="caption" color="text.secondary">FJD {(asset.dailyRate * hireQuantity(asset.hireUnit??'Day',startDate,endDate)).toFixed(2)} for {rentalDays} {rentalDays === 1 ? 'day' : 'days'}</Typography>}</Box><Stack direction="row" gap={.75}>{!searched ? <Button size="small" variant="contained" onClick={() => scrollTo('search')}>Choose dates</Button> : <>{!asset.requiresQuote&&asset.personnelRequirement!=='Required'&&<Button size="small" variant="contained" disabled={!asset.isAvailable} onClick={()=>void requestBooking(asset,false)}>Book now</Button>}<Button size="small" variant={isVehicleAsset(asset)?'outlined':'contained'} disabled={!asset.isAvailable} onClick={()=>void requestBooking(asset,true)}>Get quote</Button></>}</Stack></Stack><Button size="small" sx={{ mt: .75, px: 0 }} onClick={() => setDetailAsset(asset)}>View details</Button></CardContent>
+      <CardContent sx={{ p: 2 }}><Typography variant="caption" color="text.secondary">{asset.branchName}</Typography><Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mt={.5}><Box><Typography fontWeight={900}>FJD {asset.useServiceHireRate?'See configured rate':asset.dailyRate.toFixed(2)} <Typography component="span" variant="caption" color="text.secondary">/ {asset.hireUnit?.toLowerCase()??'day'}</Typography></Typography>{searched && !asset.useServiceHireRate && !measuredUnit(asset.hireUnit??'Day') && asset.hireUnit !== 'Hour' && <Typography variant="caption" color="text.secondary">FJD {(asset.dailyRate * hireQuantity(asset.hireUnit??'Day',startDate,endDate)).toFixed(2)} for {rentalDays} {rentalDays === 1 ? 'day' : 'days'}</Typography>}</Box><Stack direction="row" gap={.75}>{!searched ? <Button size="small" variant="contained" onClick={() => scrollTo('search')}>Choose dates</Button> : <>{asset.isBookableOnline!==false&&!asset.requiresQuote&&asset.personnelRequirement!=='Required'&&<Button size="small" variant="contained" disabled={!asset.isAvailable} onClick={()=>void requestBooking(asset,false)}>Book now</Button>}{asset.allowsQuoteRequests!==false&&<Button size="small" variant={isVehicleAsset(asset)?'outlined':'contained'} disabled={!asset.isAvailable} onClick={()=>void requestBooking(asset,true)}>Get quote</Button>}</>}</Stack></Stack><Button size="small" sx={{ mt: .75, px: 0 }} onClick={() => setDetailAsset(asset)}>View details</Button></CardContent>
     </Card>
   }
 
@@ -473,7 +478,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       <Box sx={{ position: 'absolute', width: 650, height: 650, borderRadius: '50%', bgcolor: 'secondary.main', opacity: .09, right: -160, top: -250 }} />
       <Container id="search" maxWidth="xl" sx={{ position: 'relative', px: { md: 5 } }}><Grid container spacing={{ xs: 4, md: 5 }} alignItems="center">
         <Grid size={{ xs: 12, md: 8 }}><Card elevation={10} sx={{ borderRadius: 3 }}><CardContent sx={{ p: { xs: 3, md: 5 } }}><Typography variant="h4" fontWeight={850} mb={1}>Find your rental</Typography><Typography variant="body1" color="text.secondary" mb={3.5}>Choose a location and hire dates to see live availability.</Typography>{renderSearchForm()}</CardContent></Card></Grid>
-        <Grid size={{ xs: 12, md: 4 }}><Typography color="secondary.main" fontWeight={800} letterSpacing={1.5}>CARPENTERS FIJI RENTALS</Typography><Typography variant="h2" fontWeight={900} mt={1} sx={{ fontSize: { xs: '2.6rem', md: '3.7rem' } }}>Hire with confidence.</Typography><Typography variant="h6" color="rgba(255,255,255,.72)" mt={2}>Vehicles, heavy equipment and site-hire services with local branch support across Fiji.</Typography><Button sx={{ mt: 3 }} size="large" variant="outlined" color="inherit" onClick={() => onCustomerAccount(customerAuthenticated ? 'bookings' : undefined)}>{customerAuthenticated ? 'Manage my bookings' : 'Sign in to book'}</Button></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><Typography color="secondary.main" fontWeight={800} letterSpacing={1.5}>CARPENTERS FIJI RENTALS</Typography><Typography variant="h2" fontWeight={900} mt={1} sx={{ fontSize: { xs: '2.6rem', md: '3.7rem' } }}>Hire with confidence.</Typography><Typography variant="h6" color="rgba(255,255,255,.72)" mt={2}>Explore assets, spaces and hire services from participating Carpenters divisions across Fiji.</Typography><Button sx={{ mt: 3 }} size="large" variant="outlined" color="inherit" onClick={() => onCustomerAccount(customerAuthenticated ? 'bookings' : undefined)}>{customerAuthenticated ? 'Manage my bookings' : 'Sign in to book'}</Button></Grid>
       </Grid></Container>
     </Box> : <Box id="top" sx={{ bgcolor: 'white', borderBottom: 1, borderColor: 'divider', py: 2 }}><Container maxWidth="lg">
       <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ md: 'center' }} justifyContent="space-between" gap={2}><Box><Typography variant="caption" color="text.secondary">YOUR RENTAL SEARCH</Typography><Typography fontWeight={800}>{branches.find(branch => branch.id === branchId)?.name ?? 'All participating locations'}{differentReturnLocation && returnBranchId ? ` → ${branches.find(branch => branch.id === returnBranchId)?.name}` : ''}</Typography><Typography variant="body2" color="text.secondary">{startDate} to {endDate} · {rentalDays} {rentalDays === 1 ? 'day' : 'days'}</Typography></Box><Button variant="outlined" startIcon={<EditOutlined />} onClick={() => setShowModifySearch(true)}>Modify search</Button></Stack>
@@ -481,10 +486,12 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     </Container></Box>}
 
     <Container id="rentals" maxWidth={false} sx={{ py: { xs: 5, md: 6 }, px: { xs: 2, md: 5, lg: 7 } }}>
-      {error && !selected && <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => setCatalogueRetry(value => value + 1)}>Try again</Button>}>{error}</Alert>}
+      {error && !selected && <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => { publicCatalogueCache = null; setCatalogueRetry(value => value + 1) }}>Try again</Button>}>{error}</Alert>}
+      {!searched && loading && <Box sx={{py:5,display:'grid',placeItems:'center'}}><CircularProgress aria-label="Loading available assets" /></Box>}
+      {!searched && !loading && !error && sortedAssets.length === 0 && <Alert severity="info">There are no published assets available to browse at the moment. Contact a branch for assistance or check again shortly.</Alert>}
       {searched && <Card variant="outlined" sx={{ mb: 3, bgcolor: 'white', borderRadius: 3 }}><CardContent sx={{ p: 2.5 }}><Stack direction="row" gap={1.25} alignItems="center" flexWrap="wrap" sx={{ '& > .MuiFormControl-root': { flex: '1 1 145px' } }}>
         <FormControl size="small" sx={{ minWidth: 175 }}><InputLabel>Division</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Division" value={divisionId} onChange={event => { setDivisionId(event.target.value); setType(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter(''); setBranchId(''); setSearched(false) }}><MenuItem value="">All divisions</MenuItem>{divisions.map(division => <MenuItem key={division.id} value={division.id}>{division.name}</MenuItem>)}</Select></FormControl>
-        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Rental category</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Rental category" value={category} onChange={event => setCategory(event.target.value)}>{['All', 'Cars & SUVs', 'Vans & trucks', 'Earthmoving', 'Lifting', 'Power & site'].map(item => <MenuItem key={item} value={item}>{item === 'All' ? 'All categories' : item}</MenuItem>)}</Select></FormControl>
+        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Rental category</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Rental category" value={category} onChange={event => setCategory(event.target.value)}>{['All', ...categoryOptions].map(item => <MenuItem key={item} value={item}>{item === 'All' ? 'All categories' : item}</MenuItem>)}</Select></FormControl>
         {seatOptions.length > 0 && <FormControl size="small" sx={{ minWidth: 125 }}><InputLabel>Seats</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Seats" value={seatFilter} onChange={event => setSeatFilter(event.target.value)}><MenuItem value="">Any seats</MenuItem>{seatOptions.map(seats => <MenuItem key={seats} value={String(seats)}>{seats}+ seats</MenuItem>)}</Select></FormControl>}
         {transmissionOptions.length > 0 && <FormControl size="small" sx={{ minWidth: 150 }}><InputLabel>Transmission</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Transmission" value={transmissionFilter} onChange={event => setTransmissionFilter(event.target.value)}><MenuItem value="">Any</MenuItem>{transmissionOptions.map(option => <MenuItem key={option} value={option}>{option}</MenuItem>)}</Select></FormControl>}
         <FormControl size="small" sx={{ minWidth: 145 }}><InputLabel>Daily price</InputLabel><Select MenuProps={{ disableScrollLock: true }} label="Daily price" value={priceFilter} onChange={event => setPriceFilter(event.target.value)}><MenuItem value="">Any price</MenuItem><MenuItem value="under-200">Under FJD 200</MenuItem><MenuItem value="200-500">FJD 200–500</MenuItem><MenuItem value="over-500">Over FJD 500</MenuItem></Select></FormControl>
@@ -497,10 +504,10 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
         {allDivisionGalleries.map(gallery => {
           const divisionAssets = sortedAssets.filter(gallery.matches)
           if (divisionAssets.length === 0) return null
-          if (divisionId) return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length} matching rental{divisionAssets.length === 1 ? '' : 's'}</Typography></Stack><Grid container spacing={2}>{divisionAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 3 }}>{renderRentalCard(asset)}</Grid>)}</Grid></Box>
+          if (divisionId) return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length} matching rental{divisionAssets.length === 1 ? '' : 's'}</Typography></Stack><Grid container spacing={2}>{divisionAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 3 }}>{renderRentalCard(asset)}</Grid>)}</Grid></Box>
           const offset = Math.min(galleryOffsets[gallery.key] ?? 0, Math.max(0, divisionAssets.length - 4))
           const visibleAssets = divisionAssets.slice(offset, offset + 4)
-          return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length} matching rental{divisionAssets.length === 1 ? '' : 's'}</Typography></Stack><Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}><IconButton aria-label={`Previous ${gallery.title} results`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, divisionAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Box sx={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 2 }}>{visibleAssets.map(asset => <Box key={asset.id} sx={{ minWidth: 0 }}>{renderRentalCard(asset)}</Box>)}</Box><IconButton aria-label={`Next ${gallery.title} results`} disabled={offset >= Math.max(0, divisionAssets.length - 4)} onClick={() => moveGallery(gallery.key, divisionAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack></Box>
+          return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length} matching rental{divisionAssets.length === 1 ? '' : 's'}</Typography></Stack><Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}><IconButton aria-label={`Previous ${gallery.title} results`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, divisionAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Box sx={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 2 }}>{visibleAssets.map(asset => <Box key={asset.id} sx={{ minWidth: 0 }}>{renderRentalCard(asset)}</Box>)}</Box><IconButton aria-label={`Next ${gallery.title} results`} disabled={offset >= Math.max(0, divisionAssets.length - 4)} onClick={() => moveGallery(gallery.key, divisionAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack></Box>
         })}
       </>)}
       {!searched && !loading && preferredDivisionGalleries.map(gallery => {
@@ -508,8 +515,8 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
         const offset = Math.min(galleryOffsets[gallery.key] ?? 0, Math.max(0, galleryAssets.length - 4))
         const visibleAssets = galleryAssets.slice(offset, offset + 4)
         if (galleryAssets.length === 0) return null
-        if (hirePreferences.length === 1) return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length} rental{galleryAssets.length === 1 ? '' : 's'} to explore</Typography></Stack><Grid container spacing={2}>{galleryAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 3 }}>{renderRentalCard(asset)}</Grid>)}</Grid></Box>
-        return <Box key={gallery.key} sx={{ mb: 5 }}><Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}><Box><Typography variant="h5" fontWeight={850}>{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length ? `${galleryAssets.length} rental${galleryAssets.length === 1 ? '' : 's'} to explore` : 'Rental preview'}</Typography></Box></Stack>{visibleAssets.length ? <Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}><IconButton aria-label={`Previous ${gallery.title} rentals`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, galleryAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>{visibleAssets.map(asset => <Box key={asset.id} sx={{ width: { xs: '100%', sm: 'calc((100% - 48px) / 4)' }, minWidth: 0, flex: { sm: '0 0 calc((100% - 48px) / 4)' } }}>{renderRentalCard(asset)}</Box>)}</Stack><IconButton aria-label={`Next ${gallery.title} rentals`} disabled={offset >= Math.max(0, galleryAssets.length - 4)} onClick={() => moveGallery(gallery.key, galleryAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals are currently listed for this division.</Typography></CardContent></Card>}</Box>
+        if (hirePreferences.length === 1) return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length} rental{galleryAssets.length === 1 ? '' : 's'} to explore</Typography></Stack><Grid container spacing={2}>{galleryAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 3 }}>{renderRentalCard(asset)}</Grid>)}</Grid></Box>
+        return <Box key={gallery.key} sx={{ mb: 5 }}><Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}><Box><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length ? `${galleryAssets.length} rental${galleryAssets.length === 1 ? '' : 's'} to explore` : 'Rental preview'}</Typography></Box></Stack>{visibleAssets.length ? <Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}><IconButton aria-label={`Previous ${gallery.title} rentals`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, galleryAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>{visibleAssets.map(asset => <Box key={asset.id} sx={{ width: { xs: '100%', sm: 'calc((100% - 48px) / 4)' }, minWidth: 0, flex: { sm: '0 0 calc((100% - 48px) / 4)' } }}>{renderRentalCard(asset)}</Box>)}</Stack><IconButton aria-label={`Next ${gallery.title} rentals`} disabled={offset >= Math.max(0, galleryAssets.length - 4)} onClick={() => moveGallery(gallery.key, galleryAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals are currently listed for this division.</Typography></CardContent></Card>}</Box>
       })}
     </Container>
 
@@ -528,9 +535,9 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     </Box></Container></Box>
     <Box sx={{ bgcolor: '#080808', color: 'rgba(255,255,255,.65)', py: 3 }}><Container maxWidth="lg"><Typography variant="body2">© {new Date().getFullYear()} Carpenters Fiji — Vehicle & Equipment Rentals</Typography></Container></Box>
 
-    <PublicAssetDetailDialog asset={detailAsset} imageUrls={detailAsset ? assetPhotoUrls(detailAsset) : []} startDate={startDate} endDate={endDate} open={Boolean(detailAsset)} onClose={() => setDetailAsset(null)} onContinue={(asset) => { setDetailAsset(null); void requestBooking(asset as PublicAsset) }} />
+    <PublicAssetDetailDialog asset={detailAsset} imageUrls={detailAsset ? assetPhotoUrls(detailAsset) : []} startDate={startDate} endDate={endDate} open={Boolean(detailAsset)} onClose={() => setDetailAsset(null)} onContinue={(asset) => { setDetailAsset(null); void requestBooking(asset as PublicAsset, (asset as PublicAsset).requiresQuote || (asset as PublicAsset).isBookableOnline === false) }} />
 
-    <Dialog disableScrollLock open={Boolean(selected)} onClose={() => !submitting && closeRequest()} fullWidth maxWidth="xl" slotProps={{ paper: { sx: { height: 'min(820px, calc(100dvh - 32px))', m: { xs: 1, md: 2 }, overflow: 'hidden' } } }}><DialogTitle sx={{ pr: 7, position: 'relative', py: 1.25 }}>{reference ? 'Request received' : quotationFlow ? 'Request a quotation' : 'Book your vehicle'}{!reference && <IconButton aria-label="Cancel request" onClick={closeRequest} sx={{ position: 'absolute', top: 5, right: 12 }}><CloseOutlined /></IconButton>}</DialogTitle><DialogContent dividers sx={{ p: { xs: 1.5, md: 2.5 }, overflowY: 'auto', overflowX: 'hidden' }}>
+    <Dialog disableScrollLock open={Boolean(selected)} onClose={() => !submitting && closeRequest()} fullWidth maxWidth="xl" slotProps={{ paper: { sx: { height: 'min(820px, calc(100dvh - 32px))', m: { xs: 1, md: 2 }, overflow: 'hidden' } } }}><DialogTitle sx={{ pr: 7, position: 'relative', py: 1.25 }}>{reference ? 'Request received' : quotationFlow ? 'Request a quotation' : 'Request a booking'}{!reference && <IconButton aria-label="Cancel request" onClick={closeRequest} sx={{ position: 'absolute', top: 5, right: 12 }}><CloseOutlined /></IconButton>}</DialogTitle><DialogContent dividers sx={{ p: { xs: 1.5, md: 2.5 }, overflowY: 'auto', overflowX: 'hidden' }}>
       {reference ? <Stack alignItems="center" textAlign="center" py={4}><CheckCircleOutlined color="success" sx={{ fontSize: 70 }} /><Typography variant="h5" fontWeight={750} mt={2}>{responseKind === 'Quotation' ? 'Quotation request submitted' : 'Booking request submitted'}</Typography><Typography color="text.secondary" mt={1}>{responseKind === 'Quotation' ? 'A rental specialist will review transport, personnel and final pricing, normally within one business day.' : 'The branch will verify your details and confirm pickup requirements.'}</Typography><Chip label={`Reference: ${reference}`} sx={{ mt: 3, fontWeight: 700, fontSize: '1rem', py: 2.25 }} /><Button sx={{ mt: 2 }} onClick={() => onCustomerAccount('bookings')}>{responseKind === 'Quotation' ? 'View my quotations' : 'View my bookings'}</Button></Stack> :
       <Box component="form" id="public-booking-form" onSubmit={bookingStep === 3 ? submitRequest : advanceBooking}>
         <Stepper activeStep={bookingStep} alternativeLabel sx={{ py: { xs: .5, md: 1 } }}>{['Dates & branch', 'Rental & extras', 'Your details', 'Price & submit'].map(label => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}</Stepper>
@@ -542,7 +549,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
             {selected?.type==='PropertyUnit'?<Alert severity="info">Property handover takes place at the premises. Delivery and driver services do not apply.</Alert>:selected?.requiresDelivery ? <Alert severity="info"><Typography fontWeight={750}>Carpenters will deliver this rental</Typography>Enter your delivery location on the next step. The rental team will confirm the delivery charge in your quotation.</Alert> : <FormControl fullWidth><InputLabel>{isCarptracQuote ? 'Equipment transport' : 'Pickup or delivery'}</InputLabel><Select label={isCarptracQuote ? 'Equipment transport' : 'Pickup or delivery'} value={booking.fulfilment} onChange={e => setBooking({ ...booking, fulfilment: e.target.value as 'Pickup' | 'Delivery' })}><MenuItem value="Pickup">{isCarptracQuote ? `Branch pickup — ${selected?.branchName}` : `Pickup from ${selected?.branchName}`}</MenuItem><MenuItem value="Delivery">{isCarptracQuote ? 'Delivery to site' : 'Deliver to my address or worksite'}</MenuItem></Select></FormControl>}
             {requiresProfessionalPersonnel(selected) && <Alert severity="info"><Typography fontWeight={750}>Qualified operator included</Typography>A Carpenters operator is required. Enter the hours needed on the next step.</Alert>}
             {!requiresProfessionalPersonnel(selected) && allowsProfessionalPersonnel(selected) && <FormControlLabel control={<Checkbox checked={booking.personnelRequested} onChange={e => setBooking({ ...booking, personnelRequested: e.target.checked })} />} label={isVehicleAsset(selected) ? 'Add a professional driver' : 'Include a trained operator'} />}
-            {measuredUnit(baseUnit)&&<TextField required type="number" label={`Hire quantity (${baseUnit})`} inputProps={{min:0.001,max:1000000,step:'any'}} value={booking.hireQuantity} onChange={e=>setBooking({...booking,hireQuantity:Number(e.target.value)})}/>}
+            {(measuredUnit(baseUnit)||baseUnit==='Hour')&&<TextField required type="number" label={baseUnit==='Hour'?'Hours needed within selected dates':`Hire quantity (${baseUnit})`} inputProps={{min:baseUnit==='Hour'?1:0.001,max:baseUnit==='Hour'?rentalDays*24:1000000,step:baseUnit==='Hour'?1:'any'}} value={booking.hireQuantity} onChange={e=>{const hours=Number(e.target.value);setBooking({...booking,hireQuantity:hours});const question=checkoutDetail?.customerQuestions?.find(q=>['Number','Integer'].includes(q.type)&&/^enter hours?$/i.test(q.label.trim()));if(baseUnit==='Hour'&&question)setConfigurationAnswers({...configurationAnswers,[question.code]:e.target.value})}}/>}
             {checkoutCharges.filter(x=>measuredUnit(x.unit)).map(charge=><TextField key={`quantity-${charge.id}`} required type="number" label={`${charge.name} quantity (${charge.unit})`} inputProps={{min:0.001,max:1000,step:'any'}} value={selectedExtras[charge.id]??1} onChange={e=>setSelectedExtras({...selectedExtras,[charge.id]:Number(e.target.value)})}/>)}
             {checkoutDetail?.charges.filter(x => !x.isRequired && !['Operator', 'Driver', 'Transport'].includes(x.category)).map(charge => <Card variant="outlined" key={charge.id}><CardContent sx={{ py: 1.5 }}><Stack direction="row" justifyContent="space-between" alignItems="center" gap={2}><FormControlLabel control={<Checkbox checked={(selectedExtras[charge.id] ?? 0) > 0} onChange={e => setSelectedExtras({ ...selectedExtras, [charge.id]: e.target.checked ? 1 : 0 })} />} label={charge.name} /><Typography fontWeight={700}>${charge.defaultSellingRate.toFixed(2)} / {charge.unit.toLowerCase()}</Typography></Stack></CardContent></Card>)}
           </>}
@@ -554,16 +561,16 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
               <TextField fullWidth required label="Phone" value={booking.phone} onChange={e => setBooking({ ...booking, phone: e.target.value })} />
               {flow?.requireVerifiedLicenceForVehicles && isVehicleAsset(selected) && !booking.personnelRequested && <TextField fullWidth required label="Verified driver licence" value={booking.driverLicence} InputProps={{ readOnly: true }} helperText={!booking.driverLicence ? 'Verify your licence in My account before continuing.' : undefined} />}
               {booking.personnelRequested && <TextField fullWidth required type="number" label="Estimated driver/operator hours" inputProps={{ min: 1, max: 1000 }} value={booking.personnelHours} onChange={e => setBooking({ ...booking, personnelHours: Number(e.target.value) })} />}
-              {(booking.fulfilment === 'Delivery' || selected?.requiresDelivery) && <TextField fullWidth required label="Delivery / worksite address" value={booking.deliveryAddress} onChange={e => setBooking({ ...booking, deliveryAddress: e.target.value })} />}
+              {booking.fulfilment === 'Delivery' && <TextField fullWidth required label="Delivery / worksite address" value={booking.deliveryAddress} onChange={e => setBooking({ ...booking, deliveryAddress: e.target.value })} />}
               {booking.fulfilment === 'Delivery' && <TextField fullWidth label="Site contact and access instructions" value={booking.siteContact} onChange={e => setBooking({ ...booking, siteContact: e.target.value })} />}
               {booking.customerType === 'Business' && <TextField fullWidth label="Purchase order number" value={booking.purchaseOrderNumber} onChange={e => setBooking({ ...booking, purchaseOrderNumber: e.target.value })} />}
               <TextField fullWidth label="Rental purpose" value={booking.purpose} onChange={e => setBooking({ ...booking, purpose: e.target.value })} />
               <TextField fullWidth label="Additional requirements" value={booking.message} onChange={e => setBooking({ ...booking, message: e.target.value })} />
             </Box>
-            {Boolean(checkoutDetail?.customerQuestions?.length) && <Box mt={2}><Typography fontWeight={750} mb={2}>Service requirements</Typography><ConfiguredCustomerFields questions={checkoutDetail!.customerQuestions!} answers={configurationAnswers} onChange={setConfigurationAnswers}/></Box>}
+            {Boolean(checkoutDetail?.customerQuestions?.length) && <Box mt={2}><Typography fontWeight={750} mb={2}>Service requirements</Typography><ConfiguredCustomerFields questions={checkoutDetail!.customerQuestions!} answers={configurationAnswers} onChange={answers=>{setConfigurationAnswers(answers);const question=checkoutDetail?.customerQuestions?.find(q=>['Number','Integer'].includes(q.type)&&/^enter hours?$/i.test(q.label.trim()));if(baseUnit==='Hour'&&question&&answers[question.code]!==undefined)setBooking(current=>({...current,hireQuantity:Number(answers[question.code])}))}}/></Box>}
           </>}
-          {bookingStep === 3 && <><Typography variant="h6" fontWeight={750}>Review and submit</Typography><Alert severity={quotationFlow ? 'info' : 'success'}><Typography fontWeight={700}>{quotationFlow ? 'Quotation workflow' : 'Simple vehicle booking'}</Typography><Typography variant="body2">{quotationFlow ? 'A specialist will confirm availability, delivery, operator requirements and negotiated rates before you accept anything.' : 'The branch will verify your licence, refundable bond and pickup requirements before final confirmation.'}</Typography></Alert><Card variant="outlined"><CardContent><Typography fontWeight={750}>{booking.fullName}</Typography><Typography color="text.secondary">{booking.phone} · {booking.email}</Typography><Divider sx={{ my: 2 }} /><Typography>{booking.fulfilment === 'Delivery' ? `Delivery to ${booking.deliveryAddress}` : `Pickup from ${selected?.branchName}`}</Typography>{booking.personnelRequested && <Typography>Trained personnel · approximately {booking.personnelHours} hours</Typography>}{booking.purchaseOrderNumber && <Typography>Purchase order {booking.purchaseOrderNumber}</Typography>}</CardContent></Card><FormControlLabel control={<Checkbox checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} />} label={quotationFlow ? 'I understand this submits a quotation request and I can review the final quotation before accepting it.' : 'I understand the booking is confirmed only after Carpenters verifies availability, eligibility, documents and any required refundable bond.'} /></>}
-        </Stack></Grid><Grid size={{ xs: 12, md: 4 }}><Card variant="outlined" sx={{ position: { md: 'sticky' }, top: 16 }}><CardContent><Typography variant="overline" color="text.secondary">{quotationFlow ? 'Quotation estimate' : 'Booking summary'}</Typography><Typography variant="h6" fontWeight={800}>{selected?.name}</Typography><Typography variant="body2" color="text.secondary">{baseQuantity} × {baseUnit.toLowerCase()} · {selected?.branchName}</Typography><Divider sx={{ my: 2 }} /><Stack spacing={1}><Stack direction="row" justifyContent="space-between"><Typography>Base hire</Typography><Typography>{baseHire.toFixed(2)}</Typography></Stack>{checkoutCharges.map(charge => <Stack key={charge.id} direction="row" justifyContent="space-between" gap={1}><Typography variant="body2">{charge.name} × {charge.quantity}</Typography><Typography variant="body2">{(charge.defaultSellingRate * charge.quantity).toFixed(2)}</Typography></Stack>)}<Stack direction="row" justifyContent="space-between"><Typography>VAT ({taxRate}%)</Typography><Typography>{estimatedTax.toFixed(2)}</Typography></Stack><Divider /><Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>Estimated hire total</Typography><Typography fontWeight={800}>FJD {estimatedTotal.toFixed(2)}</Typography></Stack><Stack direction="row" justifyContent="space-between"><Typography>Refundable bond</Typography><Typography>FJD {bondAmount.toFixed(2)}</Typography></Stack><Divider /><Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>Total including bond</Typography><Typography fontWeight={800}>FJD {(estimatedTotal + bondAmount).toFixed(2)}</Typography></Stack><Typography variant="caption" color="text.secondary">Bond is held separately, not a rental charge. Refund is subject to the return inspection and agreed deductions.</Typography></Stack><Typography variant="caption" color="text.secondary" display="block" mt={2}>Late return, excess usage, fuel, cleaning or damage charges apply only when relevant and are assessed after return.</Typography></CardContent></Card></Grid></Grid>
+          {bookingStep === 3 && <><Typography variant="h6" fontWeight={750}>Review and submit</Typography><Alert severity={quotationFlow ? 'info' : 'success'}><Typography fontWeight={700}>{quotationFlow ? 'Quotation request' : 'Booking request'}</Typography><Typography variant="body2">{quotationFlow ? 'A specialist will confirm availability, delivery, operator requirements and negotiated rates before you accept anything.' : 'The branch will verify availability, any required documents, payment and fulfilment before final confirmation.'}</Typography></Alert><Card variant="outlined"><CardContent><Typography fontWeight={750}>{booking.fullName}</Typography><Typography color="text.secondary">{booking.phone} · {booking.email}</Typography><Divider sx={{ my: 2 }} /><Typography>{booking.fulfilment === 'Delivery' ? `Delivery to ${booking.deliveryAddress}` : `Pickup from ${selected?.branchName}`}</Typography>{booking.personnelRequested && <Typography>Trained personnel · approximately {booking.personnelHours} hours</Typography>}{booking.purchaseOrderNumber && <Typography>Purchase order {booking.purchaseOrderNumber}</Typography>}</CardContent></Card><FormControlLabel control={<Checkbox checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} />} label={quotationFlow ? 'I understand this submits a quotation request and I can review the final quotation before accepting it.' : 'I understand the booking is confirmed only after Carpenters verifies availability, eligibility, documents and any required refundable bond.'} /></>}
+        </Stack></Grid><Grid size={{ xs: 12, md: 4 }}><Card variant="outlined" sx={{ position: { md: 'sticky' }, top: 16 }}><CardContent><Typography variant="overline" color="text.secondary">{quotationFlow ? 'Quotation estimate' : 'Booking summary'}</Typography><Typography variant="h6" fontWeight={800}>{selected?.name}</Typography><Typography variant="body2" color="text.secondary">{baseQuantity} × {baseUnit.toLowerCase()} · {selected?.branchName}</Typography><Divider sx={{ my: 2 }} /><Stack spacing={1}><Stack direction="row" justifyContent="space-between"><Typography>Base hire</Typography><Typography>{baseHire.toFixed(2)}</Typography></Stack>{checkoutCharges.map(charge => <Stack key={charge.id} direction="row" justifyContent="space-between" gap={1}><Typography variant="body2">{charge.name} × {charge.quantity}</Typography><Typography variant="body2">{(charge.defaultSellingRate * charge.quantity).toFixed(2)}</Typography></Stack>)}<Stack direction="row" justifyContent="space-between"><Typography>VAT ({taxRate}%)</Typography><Typography>{estimatedTax.toFixed(2)}</Typography></Stack><Divider /><Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>Estimated hire total</Typography><Typography fontWeight={800}>FJD {estimatedTotal.toFixed(2)}</Typography></Stack><Stack direction="row" justifyContent="space-between"><Typography>Refundable bond</Typography><Typography>FJD {bondAmount.toFixed(2)}</Typography></Stack><Divider /><Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>Total including bond</Typography><Typography fontWeight={800}>FJD {(estimatedTotal + bondAmount).toFixed(2)}</Typography></Stack><Typography variant="caption" color="text.secondary">Bond is held separately, not a rental charge. Refund is subject to the return inspection and agreed deductions.</Typography></Stack><Typography variant="caption" color="text.secondary" display="block" mt={2}>Late return, excess usage, cleaning or damage charges apply only when relevant and are assessed after return.</Typography></CardContent></Card></Grid></Grid>
       </Box>}
     </DialogContent><DialogActions sx={{ px: { xs: 2, md: 3 }, py: 1.5 }}>{reference ? <Button onClick={() => setSelected(null)}>Close</Button> : <><Button onClick={() => bookingStep === 0 ? closeRequest() : setBookingStep(step => step - 1)} disabled={submitting}>{bookingStep === 0 ? 'Cancel' : 'Back'}</Button><Box sx={{ flex: 1 }} /><Button form="public-booking-form" type="submit" variant="contained" disabled={submitting || (bookingStep === 3 && !termsAccepted)}>{submitting ? 'Sending…' : bookingStep === 3 ? quotationFlow ? 'Request quotation' : 'Submit booking' : 'Continue'}</Button></>}</DialogActions></Dialog>
     <Dialog disableScrollLock open={cancelConfirmOpen} onClose={() => setCancelConfirmOpen(false)} maxWidth="xs" fullWidth><DialogTitle>Cancel this request?</DialogTitle><DialogContent><Typography color="text.secondary">Your entered details will be deleted.</Typography></DialogContent><DialogActions><Button onClick={() => setCancelConfirmOpen(false)}>Keep editing</Button><Button color="error" variant="contained" onClick={cancelBooking}>Cancel request</Button></DialogActions></Dialog>

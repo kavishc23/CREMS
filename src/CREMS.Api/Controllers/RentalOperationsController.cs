@@ -107,6 +107,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PreHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, true, cancellationToken);
         if (configuredError is not null) return BadRequest(new { message = configuredError });
         await ConfiguredHireRules.CaptureIfMissing(db, booking, cancellationToken);
+        if (request.MeterReading.HasValue) asset.MeterUnit = await ConfiguredHireRules.EffectiveMeterUnit(db, asset, cancellationToken);
         var inspection = RentalInspectionPersistence.GetOrCreatePreparation(db, booking, scope.UserName);
         inspection.MeterReading = request.MeterReading;
         inspection.FuelLevelPercent = request.FuelLevelPercent;
@@ -149,10 +150,11 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             .OrderBy(x => x.Name).Select(x => new { x.Id, x.Name, x.Stage, x.ChecklistJson }).ToListAsync(cancellationToken);
         var preHire = booking.Inspections.Where(x => x.Type == InspectionType.Handover).OrderByDescending(x => x.CompletedAt).FirstOrDefault();
         var configuration = await ConfiguredHireRules.Resolve(db, booking, cancellationToken);
+        var categoryUnit = categoryId.HasValue ? await db.AssetCategories.AsNoTracking().Where(x => x.Id == categoryId).Select(x => x.DefaultMeterType).FirstOrDefaultAsync(cancellationToken) : null;
         return Ok(new
         {
             templates = configuration?.Templates ?? templates.Select(t => new InspectionTemplateSnapshot(t.Id, t.Name, t.Stage, t.ChecklistJson)).ToArray(),
-            tracksMeter = configuration?.TracksMeter, tracksFuel = configuration?.TracksFuel, meterUnit = configuration?.MeterUnit,
+            tracksMeter = configuration?.TracksMeter, tracksFuel = configuration?.TracksFuel, meterUnit = categoryUnit ?? configuration?.MeterUnit,
             assetCurrentMeterReading = booking.Items.FirstOrDefault()?.Asset?.CurrentMeterReading,
             preHire = preHire is null ? null : new { preHire.ConditionNotes, preHire.DamageNotes, preHire.EvidenceJson, preHire.MeterReading, preHire.FuelLevelPercent }
         });
@@ -183,7 +185,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         db.RentalInspections.Add(CreateInspection(booking.Id, InspectionType.Handover, request, scope));
         booking.Status = BookingStatus.ConvertedToRental;
         booking.UpdatedAt = DateTimeOffset.UtcNow;
-        foreach (var item in booking.Items.Where(item => item.Asset is not null)) { var asset=item.Asset!;var from=asset.Status;asset.Status=AssetStatus.Rented;db.AssetLifecycleEvents.Add(new AssetLifecycleEvent{AssetId=asset.Id,BookingId=booking.Id,Type=AssetLifecycleEventType.CheckedOut,FromStatus=from,ToStatus=asset.Status,MeterReading=request.MeterReading,Notes=$"Checked out on {booking.BookingNumber}",RecordedByUserId=scope.UserId,RecordedByName=scope.UserName});if(request.MeterReading.HasValue)db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=asset.MeterUnit?.Contains("hour",StringComparison.OrdinalIgnoreCase)==true?MeterType.EngineHours:MeterType.Odometer,Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PreHireInspection,RecordedByUserId=scope.UserId});}
+        foreach (var item in booking.Items.Where(item => item.Asset is not null)) { var asset=item.Asset!;if(request.MeterReading.HasValue)asset.MeterUnit=await ConfiguredHireRules.EffectiveMeterUnit(db,asset,cancellationToken);var from=asset.Status;asset.Status=AssetStatus.Rented;db.AssetLifecycleEvents.Add(new AssetLifecycleEvent{AssetId=asset.Id,BookingId=booking.Id,Type=AssetLifecycleEventType.CheckedOut,FromStatus=from,ToStatus=asset.Status,MeterReading=request.MeterReading,Notes=$"Checked out on {booking.BookingNumber}",RecordedByUserId=scope.UserId,RecordedByName=scope.UserName});if(request.MeterReading.HasValue)db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=asset.MeterUnit?.Contains("hour",StringComparison.OrdinalIgnoreCase)==true?MeterType.EngineHours:MeterType.Odometer,Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PreHireInspection,RecordedByUserId=scope.UserId});}
         AuditWriter.Record(db, scope, "Rental handed over", "Booking", booking.Id,
             $"{booking.BookingNumber} was handed over to the customer.", booking.BranchId);
         await db.SaveChangesAsync(cancellationToken);
@@ -276,7 +278,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var hasDamage = !string.IsNullOrWhiteSpace(request.DamageNotes);
         foreach (var item in booking.Items.Where(item => item.Asset is not null))
         {
-            var asset=item.Asset!;var from=asset.Status;asset.Status=hasDamage || await db.MaintenanceJobs.AnyAsync(x => x.AssetId == asset.Id && x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled, cancellationToken)?AssetStatus.Maintenance:AssetStatus.Available;
+            var asset=item.Asset!;if(request.MeterReading.HasValue)asset.MeterUnit=await ConfiguredHireRules.EffectiveMeterUnit(db,asset,cancellationToken);var from=asset.Status;asset.Status=hasDamage || await db.MaintenanceJobs.AnyAsync(x => x.AssetId == asset.Id && x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled, cancellationToken)?AssetStatus.Maintenance:AssetStatus.Available;
             db.AssetLifecycleEvents.Add(new AssetLifecycleEvent{AssetId=asset.Id,BookingId=booking.Id,Type=hasDamage?AssetLifecycleEventType.DamageReported:AssetLifecycleEventType.PostHireInspection,FromStatus=from,ToStatus=asset.Status,MeterReading=request.MeterReading,Notes=Normalize(request.DamageNotes)??$"Returned on {booking.BookingNumber}",RecordedByUserId=scope.UserId,RecordedByName=scope.UserName});
             if(request.MeterReading.HasValue){asset.CurrentMeterReading=request.MeterReading;db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=asset.MeterUnit?.Contains("hour",StringComparison.OrdinalIgnoreCase)==true?MeterType.EngineHours:MeterType.Odometer,Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PostHireInspection,RecordedByUserId=scope.UserId});}
             // Preserve a separate traceable job for each newly reported return fault.
