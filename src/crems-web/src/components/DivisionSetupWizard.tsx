@@ -4,6 +4,7 @@ import AddOutlined from '@mui/icons-material/AddOutlined'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import { Accordion, AccordionSummary, AccordionDetails, Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Grid, IconButton, MenuItem, Stack, Tab, Tabs, TextField, Typography, useMediaQuery, useTheme } from '@mui/material'
 import { api } from '../api/client'
+import { normalizeSetupDivision } from '../config/organizationSetup'
 import { apiErrorMessage } from '../api/errors'
 import { DivisionBranding, DivisionControls, SettingSwitch } from './DivisionControls'
 import { InspectionReadings, MaintenanceSchedule } from './ServiceRequirements'
@@ -56,7 +57,7 @@ export function DivisionSetupWizard({ open, divisionId, onClose, onSaved }: { op
     const message = validation(document, 5); if (message) { report(message); return }
     setSaving(true); setError('')
     try {
-      const normalized = { ...document, division: { ...document.division, capabilities: capabilityValue(document.division.capabilities), defaultCurrency: 'FJD' }, flow: { ...document.flow, customerFields: (document.flow.customerFields ?? []).map(q => ({ ...q, options: q.options?.map(x => x.trim()).filter(Boolean) })) },
+      const normalized = { ...document, division: { ...normalizeSetupDivision(document.division), capabilities: capabilityValue(document.division.capabilities), defaultCurrency: 'FJD' }, flow: { ...document.flow, customerFields: (document.flow.customerFields ?? []).map(q => ({ ...q, options: q.options?.map(x => x.trim()).filter(Boolean) })) },
         services: document.services.map(s => ({ ...s, categories: s.categories.map(c => ({ ...c, attributes: c.attributes.map((a, i) => ({ ...a, displayOrder: i })), templates: c.templates.map(t => ({ ...t, checklistJson: JSON.stringify(readJson<ChecklistSection[]>(t.checklistJson, []).map(section => ({ ...section, section: section.section.trim(), items: section.items.map(item => ({ ...item, label: item.label.trim() })).filter(item => item.label) }))) })) })) })) }
       await api.post('/organization/setup', normalized, { timeout: 60000 })
       setDirty(false); window.dispatchEvent(new Event('crems:configuration-changed')); onSaved()

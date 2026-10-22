@@ -53,7 +53,7 @@ export function templateService(index: number, suffix = ''): SetupService {
 // Flags are serialized by the API as enum names; older clients also used numbers.
 export function capabilityValue(value: string | number): number {
   if (typeof value === 'number') return value
-  if (/^\d+$/.test(value)) return Number(value)
+  if (/^\d+$/.test(value.trim())) return Number(value)
   const names = ['Rental', 'Maintenance', 'PropertyLeasing', 'Logistics', 'Retail', 'PersonnelSupportedHire']
   return value.split(',').reduce((flags, name) => { const index = names.indexOf(name.trim()); return index < 0 ? flags : flags | 2 ** index }, 0)
 }
@@ -76,4 +76,8 @@ export function brandingError(json: string): string {
     try { const url = new URL(value.logoUrl.trim()); if (url.protocol !== 'https:' || url.username || url.password || value.logoUrl.length > 2000) return 'Use a valid HTTPS logo URL without sign-in details.' } catch { return 'Use a valid HTTPS logo URL.' }
   }
   return ''
+}
+
+export function normalizeSetupDivision(division: DivisionSettings): DivisionSettings {
+  return { ...division, contactEmail: division.contactEmail?.trim() || null }
 }

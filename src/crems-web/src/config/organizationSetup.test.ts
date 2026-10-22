@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { brandingError, capabilityValue, newService, readJson, serviceTracking, setServiceTracking, setupTemplates, templateService } from './organizationSetup'
+import { newDocument, normalizeSetupDivision, brandingError, capabilityValue, newService, readJson, serviceTracking, setServiceTracking, setupTemplates, templateService } from './organizationSetup'
 
 describe('division settings compatibility', () => {
   it('reads API enum flags and legacy numbers without erasing selected scope', () => {
@@ -29,5 +29,31 @@ describe('division settings compatibility', () => {
     expect(brandingError('{"accentColor":"#fff000","logoUrl":"https://example.test/logo.png"}')).toBe('')
     expect(brandingError('{"accentColor":"yellow"}')).not.toBe('')
     expect(brandingError('{"logoUrl":"javascript:alert(1)"}')).not.toBe('')
+  })
+})
+
+describe('division setup optional contact email', () => {
+  it.each(['', '   ', null])('omits blank email %s from API validation', email => {
+    const division = { ...newDocument().division, contactEmail: email }
+    const normalized = normalizeSetupDivision(division)
+    expect(JSON.parse(JSON.stringify(normalized)).contactEmail).toBeNull()
+    expect(division.contactEmail).toBe(email)
+    expect(normalized).toEqual({ ...division, contactEmail: null })
+  })
+  it('trims a supplied email without hiding invalid input', () => {
+    const division = newDocument().division
+    expect(normalizeSetupDivision({ ...division, contactEmail: ' test@example.com ' }).contactEmail).toBe('test@example.com')
+    expect(normalizeSetupDivision({ ...division, contactEmail: 'invalid-email' }).contactEmail).toBe('invalid-email')
+  })
+})
+
+describe('division capabilities returned by the API', () => {
+  it.each([[3, 3], ['3', 3], ['None', 0], ['Rental, Maintenance', 3], ['PropertyLeasing, Logistics, Retail, PersonnelSupportedHire', 60]])('decodes %s as %s', (value, expected) => {
+    expect(capabilityValue(value)).toBe(expected)
+  })
+  it('preserves existing capabilities when toggling another checkbox', () => {
+    const saved = capabilityValue('Rental, Maintenance')
+    expect(saved | 8).toBe(11)
+    expect(saved & ~1).toBe(2)
   })
 })
