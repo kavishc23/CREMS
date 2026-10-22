@@ -1,3 +1,5 @@
+import { ConfiguredCustomerFields } from '../components/ConfiguredCustomerFields'
+import { readJson, type Attribute } from '../config/organizationSetup'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import AddOutlined from '@mui/icons-material/AddOutlined'
@@ -41,7 +43,7 @@ type Asset = {
 }
 type Branch = { id: string; name: string; isActive: boolean; divisionIds: string[] }
 type Division = { id: string; name: string; isActive: boolean; services: { id: string; name: string; isActive: boolean }[] }
-type AssetCategory = { id:string; code:string; name:string; divisionId:string; serviceOfferingId:string|null; defaultMeterType:string|null; personnelRequirement:'None'|'Optional'|'Required' }
+type AssetCategory = { defaultAssetType?: AssetType | null; attributeDefinitions: Attribute[]; id:string; code:string; name:string; divisionId:string; serviceOfferingId:string|null; defaultMeterType:string|null; personnelRequirement:'None'|'Optional'|'Required' }
 type AssetForm = {
   inheritBond: boolean; personnelOverride: string; currentLocation: string
   assetNumber: string; name: string; type: AssetType; status: AssetStatus; divisionId: string; branchId: string
@@ -67,6 +69,8 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
   const [branches, setBranches] = useState<Branch[]>([])
   const [divisions, setDivisions] = useState<Division[]>([])
   const [assetCategories,setAssetCategories]=useState<AssetCategory[]>([])
+  const [categoryAttributes,setCategoryAttributes]=useState<Record<string,string>>({})
+  const [attributesReady,setAttributesReady]=useState(false)
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -145,10 +149,20 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
     setEditTab(0); setError(''); setOpen(true)
   }
 
+  useEffect(()=>{
+    if(!open)return
+    let active=true
+    void Promise.resolve().then(()=>{if(active){setCategoryAttributes({});setAttributesReady(!editing)}})
+    if(editing)void api.get<{asset:{attributeValues:{value:string;attributeDefinition:{code:string}|null}[]}}>(`/assets/${editing.id}/profile`)
+      .then(({data})=>{if(active){setCategoryAttributes(Object.fromEntries(data.asset.attributeValues.filter(x=>x.attributeDefinition).map(x=>[x.attributeDefinition!.code,x.value??''])));setAttributesReady(true)}})
+      .catch(()=>{if(active)setError('Asset specifications could not be loaded. Close and reopen this asset before saving.')})
+    return()=>{active=false}
+  },[open,editing])
+
   async function save(event: FormEvent) {
     event.preventDefault(); setSaving(true); setError('')
     try {
-      const payload = { ...form, personnelRequirement: undefined, divisionId: form.divisionId || null, serviceOfferingId: form.serviceOfferingId || null, assetCategoryId: form.assetCategoryId || null, personnelOverride: form.personnelOverride || null, dailyRate: Number(form.dailyRate), defaultBondAmount: Number(form.defaultBondAmount || 0), nextServiceDate: form.nextServiceDate || null, modelYear:form.modelYear?Number(form.modelYear):null,currentMeterReading:form.currentMeterReading?Number(form.currentMeterReading):null,acquisitionDate:form.acquisitionDate||null,acquisitionCost:Number(form.acquisitionCost||0),currentBookValue:form.currentBookValue?Number(form.currentBookValue):null,insuranceExpiry:form.insuranceExpiry||null,warrantyExpiry:form.warrantyExpiry||null }
+      const payload = { ...form, categoryAttributes:Object.fromEntries((assetCategories.find(c=>c.id===form.assetCategoryId)?.attributeDefinitions??[]).map(a=>[a.code,categoryAttributes[a.code]??''])), personnelRequirement: undefined, divisionId: form.divisionId || null, serviceOfferingId: form.serviceOfferingId || null, assetCategoryId: form.assetCategoryId || null, personnelOverride: form.personnelOverride || null, dailyRate: Number(form.dailyRate), defaultBondAmount: Number(form.defaultBondAmount || 0), nextServiceDate: form.nextServiceDate || null, modelYear:form.modelYear?Number(form.modelYear):null,currentMeterReading:form.currentMeterReading?Number(form.currentMeterReading):null,acquisitionDate:form.acquisitionDate||null,acquisitionCost:Number(form.acquisitionCost||0),currentBookValue:form.currentBookValue?Number(form.currentBookValue):null,insuranceExpiry:form.insuranceExpiry||null,warrantyExpiry:form.warrantyExpiry||null }
       if (editing) await api.put(`/assets/${editing.id}`, payload)
       else await api.post('/assets', payload)
       setOpen(false); await Promise.all([loadData(), loadSummary()])
@@ -228,7 +242,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
             <FormControl fullWidth required><InputLabel>Division</InputLabel><Select label="Division" value={form.divisionId} onChange={(e) => { const divisionId = e.target.value; setForm({ ...form, divisionId, branchId: branches.find(x => x.divisionIds.includes(divisionId))?.id ?? '', assetCategoryId:'', serviceOfferingId:'', category:'' }) }}>{divisions.map(value => <MenuItem key={value.id} value={value.id}>{value.name}</MenuItem>)}</Select></FormControl>
             <TextField select fullWidth label="Asset kind" value={form.type} onChange={e=>setForm({...form,type:e.target.value as AssetType,...(e.target.value==='PropertyUnit'?{hireUnit:'Month',requiresDelivery:false,meterUnit:'',currentMeterReading:'',personnelOverride:'None'}:{})})}>{assetTypes.map(type=><MenuItem key={type} value={type}>{type==='PropertyUnit'?'Property / housing unit':type.replace(/([a-z])([A-Z])/g,'$1 $2')}</MenuItem>)}</TextField>
             <TextField select fullWidth label="Service offering" value={form.serviceOfferingId} onChange={e => setForm({ ...form, serviceOfferingId: e.target.value, assetCategoryId: '', category: '' })}><MenuItem value="">No service</MenuItem>{divisions.find(x => x.id === form.divisionId)?.services.filter(x => x.isActive).map(x => <MenuItem key={x.id} value={x.id}>{x.name}</MenuItem>)}</TextField>
-            <FormControl fullWidth><InputLabel>Asset category</InputLabel><Select label="Asset category" value={form.assetCategoryId} onChange={(e)=>{const selected=assetCategories.find(x=>x.id===e.target.value);setForm({...form,assetCategoryId:e.target.value,serviceOfferingId:selected?.serviceOfferingId??form.serviceOfferingId,category:selected?.name??'',meterUnit:selected?.defaultMeterType??form.meterUnit,requiresDelivery:form.type==='PropertyUnit'?false:selected?.code!=='RENTAL_VEHICLE',type:form.type==='PropertyUnit'?'PropertyUnit':selected?.code==='RENTAL_VEHICLE'?'PassengerVehicle':selected?.code==='HEAVY_MACHINE'?'HeavyEquipment':selected?.code==='FORKLIFT'?'MaterialHandlingEquipment':selected?.code==='GENSET'?'PowerEquipment':selected?.code==='SCAFFOLD'?'Scaffolding':selected?.code==='PORTABLE_TOILET'?'PortableSanitation':selected?.code==='BIG_BIN'?'WasteContainer':form.type})}}>{assetCategories.filter(x=>x.divisionId===form.divisionId&&(!form.serviceOfferingId||!x.serviceOfferingId||x.serviceOfferingId===form.serviceOfferingId)).map(value=><MenuItem key={value.id} value={value.id}>{value.name} ({value.personnelRequirement==='Required'?'operator required':value.personnelRequirement==='Optional'?'operator optional':'no operator'})</MenuItem>)}</Select></FormControl>
+            <FormControl fullWidth><InputLabel>Asset category</InputLabel><Select label="Asset category" value={form.assetCategoryId} onChange={(e)=>{const selected=assetCategories.find(x=>x.id===e.target.value);setForm({...form,assetCategoryId:e.target.value,serviceOfferingId:selected?.serviceOfferingId??form.serviceOfferingId,category:selected?.name??'',meterUnit:selected?.defaultMeterType??form.meterUnit,requiresDelivery:(selected?.defaultAssetType??form.type)==='PropertyUnit'?false:form.requiresDelivery,type:selected?.defaultAssetType??(form.type==='PropertyUnit'?'PropertyUnit':selected?.code==='RENTAL_VEHICLE'?'PassengerVehicle':selected?.code==='HEAVY_MACHINE'?'HeavyEquipment':selected?.code==='FORKLIFT'?'MaterialHandlingEquipment':selected?.code==='GENSET'?'PowerEquipment':selected?.code==='SCAFFOLD'?'Scaffolding':selected?.code==='PORTABLE_TOILET'?'PortableSanitation':selected?.code==='BIG_BIN'?'WasteContainer':form.type)})}}>{assetCategories.filter(x=>x.divisionId===form.divisionId&&(!form.serviceOfferingId||!x.serviceOfferingId||x.serviceOfferingId===form.serviceOfferingId)).map(value=><MenuItem key={value.id} value={value.id}>{value.name} ({value.personnelRequirement==='Required'?'operator required':value.personnelRequirement==='Optional'?'operator optional':'no operator'})</MenuItem>)}</Select></FormControl>
             <FormControl fullWidth required><InputLabel>Customer fulfilment</InputLabel><Select label="Customer fulfilment" disabled={form.type==='PropertyUnit'} value={form.requiresDelivery?'DeliveryOnly':'PickupOrDelivery'} onChange={e=>setForm({...form,requiresDelivery:e.target.value==='DeliveryOnly'})}><MenuItem value="PickupOrDelivery">{form.type==='PropertyUnit'?'At the property':'Pickup or delivery'}</MenuItem><MenuItem value="DeliveryOnly">Delivery only</MenuItem></Select></FormControl>
             <FormControl fullWidth><InputLabel>Status</InputLabel><Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as AssetStatus })}>{assetStatuses.map((value) => <MenuItem key={value} value={value}>{value.replace(/([a-z])([A-Z])/g, '$1 $2')}</MenuItem>)}</Select></FormControl>
             <FormControl fullWidth required><InputLabel>Branch</InputLabel><Select label="Branch" value={form.branchId} onChange={(e) => setForm({ ...form, branchId: e.target.value })}>{branches.filter(branch => branch.divisionIds.includes(form.divisionId)).map((branch) => <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>)}</Select></FormControl>
@@ -249,7 +263,8 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
             <TextField fullWidth type="date" label="Next service date" InputLabelProps={{ shrink: true }} value={form.nextServiceDate} onChange={(e) => setForm({ ...form, nextServiceDate: e.target.value })} />
           </Stack>
         </Stack>
-      </DialogContent><DialogActions sx={{ p: 3, pt: 1 }}><Button onClick={() => setOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" variant="contained" disabled={saving || !form.divisionId || !form.branchId}>{saving ? 'Saving…' : 'Save asset'}</Button></DialogActions></Box>
+        {Boolean(assetCategories.find(c=>c.id===form.assetCategoryId)?.attributeDefinitions?.length)&&<Box sx={{mt:3}}><Typography variant="h6" mb={2}>Category specifications</Typography>{!attributesReady?<CircularProgress size={24}/>:<ConfiguredCustomerFields questions={(assetCategories.find(c=>c.id===form.assetCategoryId)?.attributeDefinitions??[]).map(a=>({code:a.code,label:a.name+(a.unit?' ('+a.unit+')':''),type:a.dataType,required:a.isRequired,options:readJson<string[]>(a.optionsJson,[])}))} answers={categoryAttributes} onChange={setCategoryAttributes}/>}</Box>}
+      </DialogContent><DialogActions sx={{ p: 3, pt: 1 }}><Button onClick={() => setOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" variant="contained" disabled={saving || !attributesReady || !form.divisionId || !form.branchId}>{saving ? 'Saving…' : 'Save asset'}</Button></DialogActions></Box>
     </Dialog>
     <AssetQrLabelDialog asset={qrAsset} open={Boolean(qrAsset)} onClose={() => setQrAsset(null)} />
     <AssetProfileDialog assetId={profileAssetId} onClose={() => setProfileAssetId(null)} onEdit={assetId => { const asset = assets.find(item => item.id === assetId); if (asset) { setProfileAssetId(null); openEdit(asset) } }} onPreview={assetId => { const asset = assets.find(item => item.id === assetId); if (asset) setCustomerPreviewAsset(asset) }} />

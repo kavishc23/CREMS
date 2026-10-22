@@ -95,6 +95,7 @@ public enum PersonnelRequirement
 
 public sealed class AssetCategory : Entity
 {
+    public CREMS.Api.Domain.Assets.AssetType? DefaultAssetType { get; set; }
     public Guid DivisionId { get; set; }
     public Division? Division { get; set; }
     public Guid? ServiceOfferingId { get; set; }

@@ -1,0 +1,48 @@
+export type CustomerQuestion = { code: string; label: string; type: string; required: boolean; help?: string | null; options?: string[] | null; serviceCode?: string | null; categoryCode?: string | null }
+export type BookingFlow = { personnelRequirement: string; quoteMode: string; onlineRequestsEnabled: boolean; businessCustomersRequireQuote: boolean; unpricedPersonnelRequiresQuote: boolean; unpricedDeliveryRequiresQuote: boolean; requireVerifiedLicenceForVehicles: boolean; minimumHireDays: number; maximumHireDays: number; quoteValidityDays: number; customerFields?: CustomerQuestion[] | null }
+export type DivisionSettings = { code: string; name: string; description: string | null; contactEmail: string | null; contactPhone: string | null; capabilities: number | string; isPublic: boolean; isActive: boolean; brandingJson: string; defaultCurrency: string; defaultTaxRate: number; defaultBondAmount: number; defaultRentalTerms: string | null; defaultApprovalWorkflowId: string | null; customerBookingConfigurationJson: string }
+export type ServiceSettings = { code: string; name: string; description: string | null; type: string; personnelRequirement: string; isBookableOnline: boolean; requiresQuote: boolean; isActive: boolean; defaultHireUnit: string; requiresDelivery: boolean; requiredDocumentsJson: string; defaultDepositAmount: number; inspectionRequirementsJson: string; meterType: string | null; maintenanceRulesJson: string; inheritBond: boolean }
+export type Attribute = { code: string; name: string; dataType: string; unit: string | null; isRequired: boolean; isSearchable: boolean; isCustomerVisible: boolean; isReportable: boolean; displayOrder: number; optionsJson: string }
+export type CategorySettings = { defaultAssetType?: string | null; divisionId: string; serviceOfferingId: string | null; code: string; name: string; description: string | null; defaultMeterType: string | null; personnelRequirement: string; isActive: boolean }
+export type ChecklistSection = { section: string; items: { label: string }[] }
+export type SetupTemplate = { id: string | null; name: string; stage: 'PreHire' | 'PostHire'; checklistJson: string; requiresCustomerSignature: boolean; requiresStaffSignature: boolean; isActive: boolean }
+export type SetupCategory = { id: string | null; category: CategorySettings; attributes: Attribute[]; templates: SetupTemplate[] }
+export type SetupService = { id: string | null; service: ServiceSettings; branchIds: string[]; categories: SetupCategory[] }
+export type SetupDocument = { id: string | null; revision: string | null; division: DivisionSettings; flow: BookingFlow; services: SetupService[] }
+export type BranchOption = { id: string; name: string; code: string; isActive: boolean; divisionIds: string[] }
+export const fieldTypes = ['Text', 'LongText', 'Number', 'Integer', 'Date', 'Choice', 'Boolean']
+export const capabilityOptions = [['Rental', 1], ['Maintenance', 2], ['Property leasing', 4], ['Logistics', 8], ['Retail', 16], ['Personnel supported hire', 32]] as const
+export function readJson<T>(json: string | null | undefined, fallback: T): T { try { const value:unknown=JSON.parse(json || '{}'); if(Array.isArray(fallback))return (Array.isArray(value)?value:fallback) as T; if(fallback&&typeof fallback==='object')return (value&&typeof value==='object'&&!Array.isArray(value)?value:fallback) as T;return (value??fallback) as T } catch { return fallback } }
+export function patchJson(json: string, patch: Record<string, unknown>) { const value = readJson<Record<string, unknown>>(json, {}); return JSON.stringify({ ...value, ...patch }) }
+export function pretty(value: string) { return value.replace(/([a-z])([A-Z])/g, '$1 $2') }
+export function newTemplate(stage: 'PreHire' | 'PostHire', checks: string[]): SetupTemplate {
+  return { id: null, name: stage === 'PreHire' ? 'Handover checks' : 'Return checks', stage, checklistJson: JSON.stringify([{ section: 'Condition', items: checks.map(label => ({ label })) }]), requiresCustomerSignature: true, requiresStaffSignature: true, isActive: true }
+}
+export function newCategory(code = 'GENERAL', name = 'General assets'): SetupCategory {
+  return { id: null, category: { divisionId: '00000000-0000-0000-0000-000000000000', serviceOfferingId: null, code, name, defaultAssetType: null, description: '', defaultMeterType: null, personnelRequirement: 'None', isActive: true }, attributes: [], templates: [newTemplate('PreHire', ['Identity and quantity match', 'Condition and safety checked', 'Accessories recorded']), newTemplate('PostHire', ['Returned identity and quantity match', 'Condition compared with handover', 'Damage and missing items recorded'])] }
+}
+export function newService(): SetupService {
+  return { id: null, service: { code: '', name: '', description: '', type: 'Other', personnelRequirement: 'None', isBookableOnline: true, requiresQuote: false, isActive: true, defaultHireUnit: 'Day', requiresDelivery: false, requiredDocumentsJson: '[]', defaultDepositAmount: 0, inspectionRequirementsJson: '{}', meterType: null, maintenanceRulesJson: '{}', inheritBond: true }, branchIds: [], categories: [] }
+}
+export function newDocument(): SetupDocument {
+  return { id: null, revision: null, division: { code: '', name: '', description: '', contactEmail: '', contactPhone: '', capabilities: 3, isPublic: false, isActive: true, brandingJson: '{}', defaultCurrency: 'FJD', defaultTaxRate: 12.5, defaultBondAmount: 0, defaultRentalTerms: '', defaultApprovalWorkflowId: null, customerBookingConfigurationJson: '{}' }, flow: { personnelRequirement: 'None', quoteMode: 'Automatic', onlineRequestsEnabled: true, businessCustomersRequireQuote: true, unpricedPersonnelRequiresQuote: true, unpricedDeliveryRequiresQuote: true, requireVerifiedLicenceForVehicles: true, minimumHireDays: 1, maximumHireDays: 366, quoteValidityDays: 14, customerFields: [] }, services: [newService()] }
+}
+export const setupTemplates = [
+  { label: 'Vehicles', assetType: 'PassengerVehicle', type: 'VehicleRental', code: 'VEHICLES', meter: 'Kilometres', fields: ['Chassis number', 'Engine number', 'Registration number'], checks: ['Body, glass and tyres checked', 'Lights and safety equipment checked', 'Odometer and fuel recorded'] },
+  { label: 'Heavy machinery', assetType: 'HeavyEquipment', type: 'EquipmentHire', code: 'HEAVY_MACHINERY', meter: 'Engine hours', fields: ['Serial number', 'Operating weight', 'Attachment type'], checks: ['Hydraulics, hoses and leaks checked', 'Tracks and attachments checked', 'Cab, alarms and safety equipment checked'] },
+  { label: 'Generators', assetType: 'PowerEquipment', type: 'EquipmentHire', code: 'GENERATORS', meter: 'Operating hours', fields: ['Serial number', 'Power output', 'Voltage'], checks: ['Fuel, oil, cooling and leaks checked', 'Cables, breakers and earthing checked', 'Control panel and operation checked'] },
+  { label: 'Forklifts', assetType: 'MaterialHandlingEquipment', type: 'EquipmentHire', code: 'FORKLIFTS', meter: 'Operating hours', fields: ['Serial number', 'Rated capacity', 'Lift height'], checks: ['Forks, mast and chains checked', 'Brakes, horn and alarms checked', 'Tyres and rated-capacity plate checked'] },
+  { label: 'Scaffolding', assetType: 'Scaffolding', type: 'EquipmentHire', code: 'SCAFFOLDING', meter: '', fields: ['Set reference', 'Component quantity', 'Working height'], checks: ['Frames, braces and platforms counted', 'Pins, guardrails and base plates counted', 'Corrosion and distortion checked'] },
+  { label: 'Waste bins', assetType: 'WasteContainer', type: 'EquipmentHire', code: 'SITE_ASSETS', meter: '', fields: ['Unit reference', 'Capacity', 'Sanitation date'], checks: ['Structure, doors and locks checked', 'Tank or container condition checked', 'Cleanliness and safe placement checked'] },
+  { label: 'Portable toilets', assetType: 'PortableSanitation', type: 'EquipmentHire', code: 'PORTABLE_TOILET', meter: '', fields: ['Unit reference', 'Tank capacity', 'Sanitation date'], checks: ['Tank, door, locks and vents checked', 'Cleanliness and consumables checked', 'Safe placement checked'] },
+  { label: 'Property spaces', assetType: 'PropertyUnit', type: 'PropertyLease', code: 'PROPERTY', meter: '', fields: ['Property reference', 'Floor area', 'Number of rooms'], checks: ['Rooms, fixtures and utilities checked', 'Safety systems checked', 'Keys and access devices counted'] },
+  { label: 'ICT / engineering', assetType: 'LightEquipment', type: 'MaintenanceService', code: 'TECHNICAL', meter: '', fields: ['Equipment reference', 'Technical specification'], checks: ['Identity and accessories recorded', 'Condition and safety checked', 'Function test recorded'] },
+]
+export function templateService(index: number, suffix = ''): SetupService {
+  const t = setupTemplates[index], result = newService()
+  result.service = { ...result.service, code: t.code + suffix, name: t.label + ' hire', type: t.type, meterType: t.meter || null, inspectionRequirementsJson: JSON.stringify({ tracksMeter: Boolean(t.meter), tracksFuel: Boolean(t.meter) }) }
+  const c = newCategory(t.code + suffix, t.label); c.category.defaultMeterType = t.meter || null; c.category.defaultAssetType = t.assetType
+  c.attributes = t.fields.map((name, i) => ({ code: name.toUpperCase().replaceAll(' ', '_'), name, dataType: /area|rooms|quantity|capacity|height|output|weight|voltage/i.test(name) ? 'Number' : /date/i.test(name) ? 'Date' : 'Text', unit: null, isRequired: i === 0, isSearchable: true, isCustomerVisible: false, isReportable: true, displayOrder: i, optionsJson: '[]' }))
+  c.templates = [newTemplate('PreHire', t.checks), newTemplate('PostHire', t.checks.map(check => 'Return: ' + check))]
+  result.categories = [c]; return result
+}

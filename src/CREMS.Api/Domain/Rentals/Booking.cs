@@ -13,6 +13,7 @@ public sealed class Booking : Entity
     public Branch? Branch { get; set; }
     public BookingStatus Status { get; set; } = BookingStatus.Draft;
     public string? Notes { get; set; }
+    public string ConfigurationSnapshotJson { get; set; } = "{}";
     public decimal DiscountAmount { get; set; }
     public decimal TaxRate { get; set; } = FijiRentalDefaults.VatRate;
     public decimal DepositRequired { get; set; }

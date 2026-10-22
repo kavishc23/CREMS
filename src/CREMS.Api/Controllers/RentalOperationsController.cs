@@ -104,6 +104,9 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             return BadRequest(new { message = "Complete the checklist, condition notes and at least one inspection photo." });
         if (request.MeterReading < 0 || request.FuelLevelPercent is < 0 or > 100 || request.MeterReading.HasValue && asset.CurrentMeterReading.HasValue && request.MeterReading < asset.CurrentMeterReading)
             return BadRequest(new { message = "Check the meter and fuel readings. The meter cannot decrease and fuel must be between 0 and 100 percent." });
+        var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PreHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, true, cancellationToken);
+        if (configuredError is not null) return BadRequest(new { message = configuredError });
+        await ConfiguredHireRules.CaptureIfMissing(db, booking, cancellationToken);
         var inspection = RentalInspectionPersistence.GetOrCreatePreparation(db, booking, scope.UserName);
         inspection.MeterReading = request.MeterReading;
         inspection.FuelLevelPercent = request.FuelLevelPercent;
@@ -145,9 +148,11 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             .Where(x => x.IsActive && x.AssetCategoryId == categoryId && (x.Stage == InspectionStage.PreHire || x.Stage == InspectionStage.PostHire))
             .OrderBy(x => x.Name).Select(x => new { x.Id, x.Name, x.Stage, x.ChecklistJson }).ToListAsync(cancellationToken);
         var preHire = booking.Inspections.Where(x => x.Type == InspectionType.Handover).OrderByDescending(x => x.CompletedAt).FirstOrDefault();
+        var configuration = await ConfiguredHireRules.Resolve(db, booking, cancellationToken);
         return Ok(new
         {
-            templates,
+            templates = configuration?.Templates ?? templates.Select(t => new InspectionTemplateSnapshot(t.Id, t.Name, t.Stage, t.ChecklistJson)).ToArray(),
+            tracksMeter = configuration?.TracksMeter, tracksFuel = configuration?.TracksFuel, meterUnit = configuration?.MeterUnit,
             assetCurrentMeterReading = booking.Items.FirstOrDefault()?.Asset?.CurrentMeterReading,
             preHire = preHire is null ? null : new { preHire.ConditionNotes, preHire.DamageNotes, preHire.EvidenceJson, preHire.MeterReading, preHire.FuelLevelPercent }
         });
@@ -172,6 +177,9 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (!request.IdentificationVerified || customerWillDrive && !request.DriverLicenceVerified || string.IsNullOrWhiteSpace(request.SignatureName))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Identification, driver licence and customer signature are required."] }));
 
+        var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PreHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, false, cancellationToken);
+        if (configuredError is not null) return BadRequest(new { message = configuredError });
+        await ConfiguredHireRules.CaptureIfMissing(db, booking, cancellationToken);
         db.RentalInspections.Add(CreateInspection(booking.Id, InspectionType.Handover, request, scope));
         booking.Status = BookingStatus.ConvertedToRental;
         booking.UpdatedAt = DateTimeOffset.UtcNow;
@@ -239,6 +247,8 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             return BadRequest(new { message = "The return time must be after hire starts and no later than now." });
         var calculatedLateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt, await LateFeeMultiplier(cancellationToken));
         var lateFee = request.LateFee ?? calculatedLateFee;
+        var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PostHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, false, cancellationToken);
+        if (configuredError is not null) return BadRequest(new { message = configuredError });
         var returnInspection = CreateInspection(booking.Id, InspectionType.Return, request, scope);
         returnInspection.CompletedAt = returnedAt;
         db.RentalInspections.Add(returnInspection);

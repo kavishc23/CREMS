@@ -134,7 +134,56 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
     [HttpGet("{id:guid}/configuration")]
     [Authorize(Policy = SystemPermissions.BranchesConfigure)]
     public async Task<ActionResult> Configuration(Guid id, CancellationToken token)
-    { var scope = await staffScope.GetAsync(User); if (scope is null || !scope.HasBranchAccess(id)) return Forbid(); return Ok(new { periods = await db.BranchOperatingPeriods.AsNoTracking().Where(x => x.BranchId == id).OrderBy(x => x.DayOfWeek).ToListAsync(token), exceptions = await db.BranchCalendarExceptions.AsNoTracking().Where(x => x.BranchId == id && x.Date >= DateOnly.FromDateTime(DateTime.UtcNow)).OrderBy(x => x.Date).ToListAsync(token), services = await db.BranchDivisionServices.AsNoTracking().Where(x => x.BranchId == id).ToListAsync(token), divisions = await db.BranchDivisions.AsNoTracking().Where(x => x.BranchId == id).ToListAsync(token) }); }
+    {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasBranchAccess(id)) return Forbid();
+        return Ok(await ReadOperatingConfiguration(id, token));
+    }
+
+    private async Task<BranchOperatingDocument> ReadOperatingConfiguration(Guid id, CancellationToken token)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var document = new BranchOperatingDocument(null,
+            await db.BranchOperatingPeriods.AsNoTracking().Where(x => x.BranchId == id).OrderBy(x => x.DayOfWeek).ToListAsync(token),
+            await db.BranchCalendarExceptions.AsNoTracking().Where(x => x.BranchId == id && x.Date >= today).OrderBy(x => x.Date).ToListAsync(token),
+            await db.BranchDivisionServices.AsNoTracking().Where(x => x.BranchId == id).OrderBy(x => x.ServiceOfferingId).ToListAsync(token),
+            await db.BranchDivisions.AsNoTracking().Where(x => x.BranchId == id).OrderBy(x => x.DivisionId).ToListAsync(token));
+        return document with { Revision = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(document, OrganizationConfiguration.Json))) };
+    }
+
+    [HttpPut("{id:guid}/operating-configuration")]
+    [Authorize(Policy = SystemPermissions.BranchesConfigure)]
+    public async Task<ActionResult> SaveOperatingConfiguration(Guid id, SaveBranchOperatingConfiguration request, CancellationToken token)
+    {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasBranchAccess(id)) return Forbid();
+        if (!await db.Branches.AnyAsync(x => x.Id == id && x.IsActive, token)) return NotFound();
+        if (request.Periods.Count != 7 || request.Periods.Select(x => x.DayOfWeek).Distinct().Count() != 7 || request.Periods.Any(x => !Enum.IsDefined(x.DayOfWeek) || x.AfterHoursCharge < 0 || !x.IsClosed && (x.ClosesAt <= x.OpensAt || x.PickupCutoff < x.OpensAt || x.PickupCutoff > x.ClosesAt || x.ReturnCutoff < x.OpensAt || x.ReturnCutoff > x.ClosesAt))) return BadRequest(new { message = "Provide seven valid operating days with closing time after opening time and cutoffs within operating hours." });
+        if (request.Exceptions.Select(x => x.Date).Distinct().Count() != request.Exceptions.Count || request.Exceptions.Any(x => string.IsNullOrWhiteSpace(x.Name) || x.AfterHoursCharge < 0 || !x.IsClosed && (!x.OpensAt.HasValue || !x.ClosesAt.HasValue || x.ClosesAt <= x.OpensAt))) return BadRequest(new { message = "Check the holiday and temporary closure dates, names and hours." });
+        if (request.Services.GroupBy(x => x.ServiceOfferingId).Any(x => x.Count() > 1)) return BadRequest(new { message = "A service may only be assigned once at a branch." });
+        foreach (var item in request.Services)
+        {
+            if (!scope.HasAssetAccess(id, item.DivisionId)) return Forbid();
+            if (!await db.BranchDivisions.AnyAsync(x => x.BranchId == id && x.DivisionId == item.DivisionId && x.IsActive, token) || !await db.ServiceOfferings.AnyAsync(x => x.Id == item.ServiceOfferingId && x.DivisionId == item.DivisionId && x.IsActive, token)) return BadRequest(new { message = "Services must belong to an active division at this branch." });
+        }
+        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token) : null;
+        if (request.ExpectedRevision is not null && request.ExpectedRevision != (await ReadOperatingConfiguration(id, token)).Revision) return Conflict(new { message = "Branch settings changed since they were loaded. Reload this branch before saving." });
+        var rows = await db.BranchDivisionServices.Where(x => x.BranchId == id).ToListAsync(token);
+        foreach (var row in rows.Where(x => scope.HasDivisionAccess(x.DivisionId)))
+        {
+            var input = request.Services.FirstOrDefault(x => x.DivisionId == row.DivisionId && x.ServiceOfferingId == row.ServiceOfferingId);
+            row.IsActive = input?.IsActive ?? false; row.IsBookable = input?.IsBookable ?? false; row.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+        foreach (var input in request.Services.Where(x => rows.All(r => r.ServiceOfferingId != x.ServiceOfferingId))) db.BranchDivisionServices.Add(new BranchDivisionService { BranchId = id, DivisionId = input.DivisionId, ServiceOfferingId = input.ServiceOfferingId, IsActive = input.IsActive, IsBookable = input.IsBookable });
+        db.BranchOperatingPeriods.RemoveRange(await db.BranchOperatingPeriods.Where(x => x.BranchId == id).ToListAsync(token));
+        db.BranchCalendarExceptions.RemoveRange(await db.BranchCalendarExceptions.Where(x => x.BranchId == id && x.Date >= DateOnly.FromDateTime(DateTime.UtcNow)).ToListAsync(token));
+        foreach (var x in request.Periods) db.BranchOperatingPeriods.Add(new BranchOperatingPeriod { BranchId = id, DayOfWeek = x.DayOfWeek, OpensAt = x.OpensAt, ClosesAt = x.ClosesAt, PickupCutoff = x.PickupCutoff, ReturnCutoff = x.ReturnCutoff, IsClosed = x.IsClosed, AfterHoursCharge = x.AfterHoursCharge });
+        foreach (var x in request.Exceptions) db.BranchCalendarExceptions.Add(new BranchCalendarException { BranchId = id, Date = x.Date, Name = x.Name.Trim(), IsClosed = x.IsClosed, OpensAt = x.OpensAt, ClosesAt = x.ClosesAt, AfterHoursCharge = x.AfterHoursCharge });
+        AuditWriter.Record(db, scope, "Branch operations configured", nameof(Branch), id, "Services, operating hours and closures updated together.", id);
+        await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return NoContent();
+    }
 
     [HttpPut("{id:guid}/calendar")]
     [Authorize(Policy = SystemPermissions.BranchesConfigure)]
@@ -213,3 +262,7 @@ public sealed record BranchServiceRequest(Guid DivisionId, Guid ServiceOfferingI
 public sealed record BranchDivisionConfigurationRequest(bool IsActive, DateOnly? OpenedOn, string? LocalContactEmail,
     string? LocalContactPhone, Guid? DivisionManagerUserId, bool AcceptsBookings, bool HasMaintenanceCapability,
     Guid? DefaultApprovalWorkflowId, string? LocalTermsJson, string? PricingOverridesJson);
+
+public sealed record SaveBranchOperatingConfiguration(IReadOnlyList<OperatingPeriodRequest> Periods, IReadOnlyList<CalendarExceptionRequest> Exceptions, IReadOnlyList<BranchServiceRequest> Services, string? ExpectedRevision = null);
+
+public sealed record BranchOperatingDocument(string? Revision, IReadOnlyList<BranchOperatingPeriod> Periods, IReadOnlyList<BranchCalendarException> Exceptions, IReadOnlyList<BranchDivisionService> Services, IReadOnlyList<BranchDivision> Divisions);

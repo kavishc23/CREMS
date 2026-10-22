@@ -14,7 +14,8 @@ public sealed record DivisionBookingFlow(
     bool RequireVerifiedLicenceForVehicles = true,
     int MinimumHireDays = 1,
     int MaximumHireDays = 366,
-    int QuoteValidityDays = 14)
+    int QuoteValidityDays = 14,
+    IReadOnlyList<CustomerQuestion>? CustomerFields = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -33,7 +34,8 @@ public sealed record DivisionBookingFlow(
     public bool IsValid => Enum.IsDefined(PersonnelRequirement) &&
         QuoteMode is "Automatic" or "Always" or "DirectWhenPriced" &&
         MinimumHireDays is >= 1 and <= 366 && MaximumHireDays is >= 1 and <= 366 &&
-        MaximumHireDays >= MinimumHireDays && QuoteValidityDays is >= 1 and <= 90;
+        MaximumHireDays >= MinimumHireDays && QuoteValidityDays is >= 1 and <= 90 &&
+        OrganizationConfiguration.ValidateQuestions(CustomerFields) is null;
 
     public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
 

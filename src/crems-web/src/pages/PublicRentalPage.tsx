@@ -19,6 +19,8 @@ import {
   FormControl, FormControlLabel, Grid, IconButton, InputLabel, Link,
   MenuItem, Select, Stack, Step, StepLabel, Stepper, Switch, TextField, Typography,
 } from '@mui/material'
+import { ConfiguredCustomerFields } from '../components/ConfiguredCustomerFields'
+import type { CustomerQuestion } from '../config/organizationSetup'
 import { api } from '../api/client'
 import { apiErrorMessage } from '../api/errors'
 import { submitPublicBookingRequest } from '../api/publicBooking'
@@ -40,6 +42,7 @@ type CustomerPreference = 'Vehicles' | 'Equipment' | 'WasteAndSiteHire'
 type CustomerPreferenceSession = { hirePreferences?: CustomerPreference[]; hirePreference?: CustomerPreference | 'NoPreference' }
 type CatalogueSort = 'recommended' | 'price-low' | 'price-high'
 type CheckoutDetail = {
+  customerQuestions?: CustomerQuestion[]
   hireRate?:{rate:number;unit:string;isTaxable:boolean;source:string}
   bondAmount: number; taxRate: number; isAvailable: boolean
   bookingFlow: {quoteMode:'Automatic'|'Always'|'DirectWhenPriced';businessCustomersRequireQuote:boolean;unpricedPersonnelRequiresQuote:boolean;unpricedDeliveryRequiresQuote:boolean;requireVerifiedLicenceForVehicles:boolean;minimumHireDays:number;maximumHireDays:number}
@@ -170,6 +173,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [checkoutDetail, setCheckoutDetail] = useState<CheckoutDetail | null>(null)
   const [selectedExtras, setSelectedExtras] = useState<Record<string, number>>({})
   const [booking, setBooking] = useState<BookingForm>(emptyBooking)
+  const [configurationAnswers, setConfigurationAnswers] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [catalogueRetry, setCatalogueRetry] = useState(0)
@@ -317,13 +321,13 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   }
   function scrollTo(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }) }
   function requestState(value = booking, extras = selectedExtras, terms = termsAccepted) {
-    return JSON.stringify({ startDate, endDate, booking: value, extras, terms })
+    return JSON.stringify({ startDate, endDate, booking: value, extras, terms, configurationAnswers })
   }
   function openRequest(asset: PublicAsset, details: CheckoutDetail, customerDetails: BookingForm = emptyBooking, quote = false) {
     const extras: Record<string, number> = {}
     const initial = { ...customerDetails, fulfilment: asset.requiresDelivery || details.service?.requiresDelivery ? 'Delivery' as const : customerDetails.fulfilment, personnelRequested: requiresProfessionalPersonnel(asset) || customerDetails.personnelRequested }
-    setRequestQuotation(quote); setSelected(asset); setCheckoutDetail(details); setSelectedExtras(extras); setBooking(initial)
-    setRequestBaseline(JSON.stringify({ startDate, endDate, booking: initial, extras, terms: false }))
+    setConfigurationAnswers({}); setRequestQuotation(quote); setSelected(asset); setCheckoutDetail(details); setSelectedExtras(extras); setBooking(initial)
+    setRequestBaseline(JSON.stringify({ startDate, endDate, booking: initial, extras, terms: false, configurationAnswers: {} }))
     setBookingStep(0); setTermsAccepted(false); setReference(''); setError('')
   }
   async function submitRequest(event: FormEvent) {
@@ -332,7 +336,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     try {
       const response = await submitPublicBookingRequest({
         assetId: selected.id, startDate, endDate, ...booking,
-        requestQuotation: quotationFlow, extras: checkoutCharges.map(charge => ({ chargeDefinitionId: charge.id, quantity: charge.quantity })),
+        requestQuotation: quotationFlow, configurationAnswers, extras: checkoutCharges.map(charge => ({ chargeDefinitionId: charge.id, quantity: charge.quantity })),
       })
       setReference(response.reference); setResponseKind(response.requestType)
     } catch (requestError: unknown) { setError(apiErrorMessage(requestError, 'Your request could not be submitted. Please contact a branch.')) }
@@ -556,6 +560,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
               <TextField fullWidth label="Rental purpose" value={booking.purpose} onChange={e => setBooking({ ...booking, purpose: e.target.value })} />
               <TextField fullWidth label="Additional requirements" value={booking.message} onChange={e => setBooking({ ...booking, message: e.target.value })} />
             </Box>
+            {Boolean(checkoutDetail?.customerQuestions?.length) && <Box mt={2}><Typography fontWeight={750} mb={2}>Service requirements</Typography><ConfiguredCustomerFields questions={checkoutDetail!.customerQuestions!} answers={configurationAnswers} onChange={setConfigurationAnswers}/></Box>}
           </>}
           {bookingStep === 3 && <><Typography variant="h6" fontWeight={750}>Review and submit</Typography><Alert severity={quotationFlow ? 'info' : 'success'}><Typography fontWeight={700}>{quotationFlow ? 'Quotation workflow' : 'Simple vehicle booking'}</Typography><Typography variant="body2">{quotationFlow ? 'A specialist will confirm availability, delivery, operator requirements and negotiated rates before you accept anything.' : 'The branch will verify your licence, refundable bond and pickup requirements before final confirmation.'}</Typography></Alert><Card variant="outlined"><CardContent><Typography fontWeight={750}>{booking.fullName}</Typography><Typography color="text.secondary">{booking.phone} · {booking.email}</Typography><Divider sx={{ my: 2 }} /><Typography>{booking.fulfilment === 'Delivery' ? `Delivery to ${booking.deliveryAddress}` : `Pickup from ${selected?.branchName}`}</Typography>{booking.personnelRequested && <Typography>Trained personnel · approximately {booking.personnelHours} hours</Typography>}{booking.purchaseOrderNumber && <Typography>Purchase order {booking.purchaseOrderNumber}</Typography>}</CardContent></Card><FormControlLabel control={<Checkbox checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} />} label={quotationFlow ? 'I understand this submits a quotation request and I can review the final quotation before accepting it.' : 'I understand the booking is confirmed only after Carpenters verifies availability, eligibility, documents and any required refundable bond.'} /></>}
         </Stack></Grid><Grid size={{ xs: 12, md: 4 }}><Card variant="outlined" sx={{ position: { md: 'sticky' }, top: 16 }}><CardContent><Typography variant="overline" color="text.secondary">{quotationFlow ? 'Quotation estimate' : 'Booking summary'}</Typography><Typography variant="h6" fontWeight={800}>{selected?.name}</Typography><Typography variant="body2" color="text.secondary">{baseQuantity} × {baseUnit.toLowerCase()} · {selected?.branchName}</Typography><Divider sx={{ my: 2 }} /><Stack spacing={1}><Stack direction="row" justifyContent="space-between"><Typography>Base hire</Typography><Typography>{baseHire.toFixed(2)}</Typography></Stack>{checkoutCharges.map(charge => <Stack key={charge.id} direction="row" justifyContent="space-between" gap={1}><Typography variant="body2">{charge.name} × {charge.quantity}</Typography><Typography variant="body2">{(charge.defaultSellingRate * charge.quantity).toFixed(2)}</Typography></Stack>)}<Stack direction="row" justifyContent="space-between"><Typography>VAT ({taxRate}%)</Typography><Typography>{estimatedTax.toFixed(2)}</Typography></Stack><Divider /><Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>Estimated hire total</Typography><Typography fontWeight={800}>FJD {estimatedTotal.toFixed(2)}</Typography></Stack><Stack direction="row" justifyContent="space-between"><Typography>Refundable bond</Typography><Typography>FJD {bondAmount.toFixed(2)}</Typography></Stack><Divider /><Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>Total including bond</Typography><Typography fontWeight={800}>FJD {(estimatedTotal + bondAmount).toFixed(2)}</Typography></Stack><Typography variant="caption" color="text.secondary">Bond is held separately, not a rental charge. Refund is subject to the return inspection and agreed deductions.</Typography></Stack><Typography variant="caption" color="text.secondary" display="block" mt={2}>Late return, excess usage, fuel, cleaning or damage charges apply only when relevant and are assessed after return.</Typography></CardContent></Card></Grid></Grid>

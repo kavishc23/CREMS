@@ -658,6 +658,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<int?>("DefaultAssetType")
+                        .HasColumnType("int");
+
                     b.Property<string>("DefaultMeterType")
                         .HasColumnType("nvarchar(max)");
 
@@ -1340,18 +1343,17 @@ namespace CREMS.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<int?>("AssetTypeCondition")
-                        .HasColumnType("int");
-
                     b.Property<bool>("AppliesToBooking")
-                        .HasDefaultValue(true)
-                        .HasColumnType("bit");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
 
                     b.Property<bool>("AppliesToQuotation")
                         .HasColumnType("bit");
 
                     b.Property<int?>("AssetTypeCondition")
                         .HasColumnType("int");
+
                     b.Property<Guid?>("BranchId")
                         .HasColumnType("uniqueidentifier");
 
@@ -3806,6 +3808,10 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ConfigurationSnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");

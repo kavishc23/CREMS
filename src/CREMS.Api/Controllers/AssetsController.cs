@@ -138,6 +138,8 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             try { await ConfiguredHirePricing.Resolve(db, asset, cancellationToken); }
             catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
         }
+        var attributeError = await ConfiguredAssetFields.Apply(db, asset, request.CategoryAttributes, cancellationToken);
+        if (attributeError is not null) return BadRequest(new { message = attributeError });
         db.Assets.Add(asset);
         AuditWriter.Record(db, scope, "Asset created", "Asset", asset.Id,
             $"{asset.AssetNumber} was added to {branch.Name}.", asset.BranchId);
@@ -198,6 +200,8 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.InheritBond = request.InheritBond; asset.PersonnelOverride = request.PersonnelOverride;
         asset.UpdatedAt = DateTimeOffset.UtcNow;
         asset.NextServiceDate = request.NextServiceDate;
+        var attributeError = await ConfiguredAssetFields.Apply(db, asset, request.CategoryAttributes, cancellationToken);
+        if (attributeError is not null) return BadRequest(new { message = attributeError });
         asset.CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name;
         asset.PhotoUrlsJson = request.PhotoUrlsJson ?? "[]";
         if (asset.UseServiceHireRate)
@@ -394,7 +398,7 @@ public sealed record SaveAssetRequest(
     PersonnelRequirement? PersonnelRequirement = null,
     bool RequiresDelivery = false, bool InheritBond = false,
     [EnumDataType(typeof(PersonnelRequirement))] PersonnelRequirement? PersonnelOverride = null,
-    [EnumDataType(typeof(ChargeUnit))] ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false);
+    [EnumDataType(typeof(ChargeUnit))] ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, IReadOnlyDictionary<string, string>? CategoryAttributes = null);
 
 public sealed record SetAssetStatusRequest(AssetStatus Status, bool IsActive);
 public sealed record AssetResponse(

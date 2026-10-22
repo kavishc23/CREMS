@@ -39,7 +39,7 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
             return BadRequest(new { message = "Check the booking flow, hire limits, bond and tax rate. CREMS currently supports FJD transactions only." });
         var division = await db.Divisions.FirstOrDefaultAsync(x => x.Id == id, token);
         if (division is null) return NotFound();
-        division.CustomerBookingConfigurationJson = request.Flow.ToJson();
+        division.CustomerBookingConfigurationJson = OrganizationConfiguration.Merge(division.CustomerBookingConfigurationJson, request.Flow);
         division.DefaultBondAmount = request.DefaultBondAmount;
         division.DefaultTaxRate = request.DefaultTaxRate;
         division.DefaultCurrency = request.DefaultCurrency.Trim().ToUpperInvariant();
@@ -172,22 +172,23 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
     private static DivisionResponse ToResponse(Division x) => new(x.Id, x.Code, x.Name, x.Description, x.ContactEmail,
         x.ContactPhone, x.Capabilities, x.IsPublic, x.IsActive, [], x.BrandingJson, x.DefaultCurrency, x.DefaultTaxRate, x.DefaultRentalTerms, x.DefaultApprovalWorkflowId, x.CustomerBookingConfigurationJson, x.DefaultBondAmount);
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    private static bool ValidObject(string? json)
+    internal static bool ValidObject(string? json)
     {
         try { using var doc = JsonDocument.Parse(json ?? "{}"); return doc.RootElement.ValueKind == JsonValueKind.Object; }
         catch (JsonException) { return false; }
     }
-    private static bool ValidDocuments(string? json)
+    internal static bool ValidDocuments(string? json)
     {
         try { using var doc = JsonDocument.Parse(json ?? "[]"); return doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.EnumerateArray().All(x => x.ValueKind == JsonValueKind.String); }
         catch (JsonException) { return false; }
     }
-    private static bool ValidMaintenance(string? json)
+    internal static bool ValidMaintenance(string? json)
     {
         if (!ValidObject(json)) return false;
         using var doc = JsonDocument.Parse(json ?? "{}");
-        return !doc.RootElement.TryGetProperty("meterInterval", out var interval) ||
-            interval.ValueKind == JsonValueKind.Number && interval.TryGetDecimal(out var value) && value > 0 && value <= 100000000;
+        var meterValid = !doc.RootElement.TryGetProperty("meterInterval", out var interval) || interval.ValueKind == JsonValueKind.Number && interval.TryGetDecimal(out var value) && value > 0 && value <= 100000000;
+        var daysValid = !doc.RootElement.TryGetProperty("serviceIntervalDays", out var days) || days.ValueKind == JsonValueKind.Number && days.TryGetInt32(out var count) && count is > 0 and <= 3650;
+        return meterValid && daysValid;
     }
 }
 

@@ -23,6 +23,7 @@ export type AppPage =
   | 'branches'
   | 'divisions'
   | 'configuration'
+  | 'systemHealth'
 
 const pageRoles: Record<AppPage, readonly string[]> = {
   dashboard: Object.values(roles),
@@ -39,8 +40,9 @@ const pageRoles: Record<AppPage, readonly string[]> = {
   users: [roles.superAdministrator, roles.administrator],
   customerAccounts: [roles.superAdministrator, roles.administrator],
   branches: [roles.superAdministrator, roles.administrator],
-  divisions: [roles.superAdministrator],
+  divisions: Object.values(roles),
   configuration: [roles.superAdministrator],
+  systemHealth: [roles.superAdministrator],
 }
 
 export function canAccessPage(userRoles: string[], page: AppPage) {

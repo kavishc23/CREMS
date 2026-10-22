@@ -274,6 +274,10 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         var componentLines = quoteLines.Where(x => x.Category != ChargeCategory.BaseHire).ToList();
         var bond = request.DepositRequired ?? AssetCategoryPolicy.Bond(asset);
         var booking = new Booking { BookingNumber = await RentalSettings.Reference(db, false, token), CustomerId = quote.CustomerId, BranchId = quote.BranchId, Status = BookingStatus.Confirmed, Notes = $"Created from accepted quote {quote.QuoteNumber}. Job site: {quote.JobSite ?? "Not recorded"}. PO: {quote.PurchaseOrderNumber ?? "Not recorded"}. {Clean(request.Note)}", DiscountAmount = quote.Discount, TaxRate = taxRate, DepositRequired = bond, BondStatus = bond > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired, AdditionalCharges = componentLines.Sum(x => x.Quantity * x.Rate), AdditionalChargesDescription = componentLines.Count == 0 ? null : string.Join(", ", componentLines.Select(x => x.Description)), ApprovedByUserId = scope.UserId, ApprovedAt = DateTimeOffset.UtcNow, Items = [new BookingItem { AssetId = asset.Id, StartAt = request.StartAt, EndAt = request.EndAt, DailyRate = baseLine?.Rate ?? request.DailyRate, HireUnit = baseLine?.Unit ?? ChargeUnit.Day, HireQuantity = baseLine?.Quantity ?? days, HireIsTaxable = baseLine?.IsTaxable ?? true }], Charges = componentLines.Select(x => new BookingCharge { AssetId = asset.Id, ChargeDefinitionId = x.ChargeDefinitionId, Description = x.Description.Trim(), Category = x.Category, Unit = x.Unit, Quantity = x.Quantity, UnitRate = x.Rate, UnitCost = x.CostRate, IsTaxable = x.IsTaxable }).ToList() };
+        var configuration = await ConfiguredHireRules.Capture(db, asset, request.ConfigurationAnswers, token);
+        var answerError = OrganizationConfiguration.ValidateAnswers(configuration.Questions, request.ConfigurationAnswers);
+        if (answerError is not null) return BadRequest(new { message = answerError });
+        booking.ConfigurationSnapshotJson = JsonSerializer.Serialize(configuration, OrganizationConfiguration.Json);
         db.Bookings.Add(booking); quote.Status = QuoteStatus.Converted; quote.ConvertedBookingId = booking.Id; quote.UpdatedAt = DateTimeOffset.UtcNow;
         AuditWriter.Record(db, scope, "Quote converted to booking", "SalesQuote", quote.Id, $"{quote.QuoteNumber} created {booking.BookingNumber}.", quote.BranchId);
         await db.SaveChangesAsync(token); return Ok(new { quote.Id, quote.QuoteNumber, quote.Status, bookingId = booking.Id, booking.BookingNumber });
@@ -407,7 +411,7 @@ public sealed record CaseRequest(Guid CustomerId, Guid BranchId, CaseType Type, 
 public sealed record TaskRequest(Guid? BranchId, TaskCategory Category, TaskPriority Priority, string Title, string? Description, DateTimeOffset DueAt, Guid? AssignedUserId);
 public sealed record TelematicsRequest(Guid AssetId, string Provider, DateTimeOffset RecordedAt, decimal? Latitude, decimal? Longitude, decimal? Odometer, decimal? EngineHours, decimal? FuelPercent, IReadOnlyList<string>? FaultCodes, bool UnauthorizedMovement);
 public sealed record QuoteStatusRequest(QuoteStatus Status, string? Note);
-public sealed record ConvertQuoteRequest(Guid AssetId, DateTimeOffset StartAt, DateTimeOffset EndAt, decimal DailyRate, decimal? DepositRequired, string? Note);
+public sealed record ConvertQuoteRequest(Guid AssetId, DateTimeOffset StartAt, DateTimeOffset EndAt, decimal DailyRate, decimal? DepositRequired, string? Note, IReadOnlyDictionary<string, string>? ConfigurationAnswers = null);
 public sealed record DispatchStatusRequest(DispatchStatus Status, string? SignatureName, string? Notes, IReadOnlyList<string>? EvidenceDataUrls);
 public sealed record CaseStatusRequest(CaseStatus Status, string? Resolution);
 public sealed record TransferStatusRequest(TransferStatus Status, decimal? MeterReading, string? ConditionNotes, string? DamageNotes, IReadOnlyList<string>? EvidenceDataUrls);
