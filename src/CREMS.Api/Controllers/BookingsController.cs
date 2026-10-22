@@ -130,6 +130,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var approvalRule = await ApprovalWorkflowService.MatchBookingAsync(db, approvalContext, cancellationToken, forQuotation);
         return Ok(new {
             booking.Id, booking.BookingNumber, status = booking.Status.ToString(), booking.CreatedAt, booking.Notes,
+            configuration = OrganizationConfiguration.Read<BookingConfigurationSnapshot>(booking.ConfigurationSnapshotJson),
             customer = new { booking.CustomerId, booking.Customer!.CustomerNumber, booking.Customer.Name, type = booking.Customer.Type.ToString(), booking.Customer.Email, booking.Customer.Phone, booking.Customer.Address, booking.Customer.IdentificationNumber, booking.Customer.IsBlocked },
             branch = new { booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone },
             item = item is null ? null : new { item.Id, item.AssetId, item.Asset!.AssetNumber, item.Asset.Name, item.Asset.Category, assetStatus = item.Asset.Status.ToString(), personnelRequirement = AssetCategoryPolicy.Personnel(item.Asset).ToString(), item.Asset.DivisionId, division = item.Asset.Division?.Name, item.Asset.ServiceOfferingId, service = item.Asset.ServiceOffering?.Name, item.StartAt, item.EndAt, item.DailyRate, item.HireUnit, item.HireQuantity, item.HireIsTaxable, item.Asset.CurrentMeterReading, item.Asset.MeterUnit },
@@ -359,6 +360,16 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["availability"] = ["This asset is already held or booked for part of the selected period."] }));
 
         if (request.DepositRequired < booking.BondAmountHeld) return BadRequest(new { message = "The required bond cannot be reduced below the amount already held." });
+        var oldAsset = booking.Items.FirstOrDefault()?.Asset;
+        if (oldAsset is not null && (oldAsset.ServiceOfferingId != asset.ServiceOfferingId || oldAsset.AssetCategoryId != asset.AssetCategoryId || oldAsset.Type != asset.Type))
+        {
+            var oldSnapshot = OrganizationConfiguration.Read<BookingConfigurationSnapshot>(booking.ConfigurationSnapshotJson);
+            var newSnapshot = await ConfiguredHireRules.Capture(db, asset, null, cancellationToken);
+            var answers = request.ConfigurationAnswers ?? oldSnapshot?.Answers?.Where(x => newSnapshot.Questions.Any(q => q.Code == x.Key)).ToDictionary(x => x.Key, x => x.Value);
+            var answerError = OrganizationConfiguration.ValidateAnswers(newSnapshot.Questions, answers);
+            if (answerError is not null) return BadRequest(new { message = $"The new asset has different customer requirements. {answerError}" });
+            booking.ConfigurationSnapshotJson = System.Text.Json.JsonSerializer.Serialize(newSnapshot with { Answers = answers ?? new Dictionary<string, string>() }, OrganizationConfiguration.Json);
+        }
         var previous = $"Branch: {booking.BranchId}; Customer: {booking.CustomerId}; Asset: {booking.Items.FirstOrDefault()?.AssetId}";
         booking.BranchId = branch.Id; booking.Branch = branch; booking.CustomerId = customer.Id; booking.Customer = customer;
         booking.Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
@@ -551,7 +562,7 @@ public sealed record SetBookingStatusRequest(BookingStatus Status, string? Note)
 public sealed record UpdateBookingRequest(Guid BranchId, Guid CustomerId, Guid AssetId,
     DateTimeOffset StartAt, DateTimeOffset EndAt, decimal DailyRate, string? Notes,
     decimal DiscountAmount, decimal TaxRate, decimal DepositRequired, decimal AdditionalCharges,
-    string? AdditionalChargesDescription);
+    string? AdditionalChargesDescription, IReadOnlyDictionary<string, string>? ConfigurationAnswers = null);
 public sealed record BookingItemResponse(
     Guid Id, Guid AssetId, string AssetNumber, string AssetName,
     DateTimeOffset StartAt, DateTimeOffset EndAt, decimal DailyRate);

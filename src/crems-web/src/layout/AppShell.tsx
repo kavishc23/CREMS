@@ -1,3 +1,4 @@
+import MonitorHeartOutlined from '@mui/icons-material/MonitorHeartOutlined'
 import { lazy, Suspense, type ReactNode, useState } from 'react'
 import DashboardOutlined from '@mui/icons-material/DashboardOutlined'
 import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined'
@@ -62,6 +63,7 @@ const navigation = [
   { label: 'Staff & access', id: 'users', icon: <ManageAccountsOutlined />, section: 'Administration' },
   { label: 'Customer accounts', id: 'customerAccounts', icon: <PeopleAltOutlined />, section: 'Administration' },
   { label: 'Organization & settings', id: 'divisions', icon: <AccountTreeOutlined />, section: 'Administration' },
+  { label: 'System health & audit', id: 'systemHealth', icon: <MonitorHeartOutlined />, section: 'Administration' },
 ] satisfies { label: string; id: AppPage; icon: ReactNode; section?: string }[]
 const sections = ['Rental operations', 'Asset operations', 'Management', 'Administration']
 const pageHelp: Record<string, { purpose: string; steps: string[] }> = {

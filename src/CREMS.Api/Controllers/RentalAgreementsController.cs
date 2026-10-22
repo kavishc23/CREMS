@@ -60,6 +60,9 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["checklist"] = ["Resolve every failed or pending pre-hire check before pickup."] }));
         if (request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["photos"] = ["Attach at least one pre-hire inspection photograph."] }));
+        var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PreHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, false, cancellationToken);
+        if (configuredError is not null) return BadRequest(new { message = configuredError });
+        await ConfiguredHireRules.CaptureIfMissing(db, booking, cancellationToken);
         if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || !request.LicenceExpiry.HasValue || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["licence"] = ["A valid, unexpired driver licence is required."] }));
         if (await db.RentalAgreements.AnyAsync(item => item.BookingId == bookingId, cancellationToken))

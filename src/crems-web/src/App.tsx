@@ -22,6 +22,7 @@ const staffRoutes: Record<AppPage, string> = {
   branches: '/staff/branches',
   divisions: '/staff/organization',
   configuration: '/staff/organization',
+  systemHealth: '/staff/system-health',
 }
 
 function staffPageFromPath(pathname: string): AppPage | null {
@@ -54,6 +55,7 @@ const PlanningCalendarPage = lazy(() => import('./pages/PlanningCalendarPage').t
 const ManagementPage = lazyNamed(() => import('./pages/ManagementPage'), 'ManagementPage')
 const FinancePage = lazyNamed(() => import('./pages/FinancePage'), 'FinancePage')
 const AssetQrPage = lazyNamed(() => import('./pages/AssetQrPage'), 'AssetQrPage')
+const SystemHealthPage = lazy(() => import('./pages/SystemHealthPage').then(module => ({ default: module.SystemHealthPage })))
 const OrganizationWorkspacePage = lazy(() => import('./pages/OrganizationWorkspacePage').then(module => ({ default: module.OrganizationWorkspacePage })))
 const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(module => ({ default: module.CustomerPortalPage })))
 
@@ -174,6 +176,7 @@ export default function App() {
     : activePage === 'reports' ? <ReportsPage />
     : activePage === 'users' ? <AdministrationPage userRoles={user.roles} />
     : activePage === 'customerAccounts' ? <CustomerAccountsPage />
+    : activePage === 'systemHealth' ? <SystemHealthPage />
     : activePage === 'divisions' || activePage === 'configuration' ? <OrganizationWorkspacePage userRoles={user.roles} />
     : <BranchesPage userRoles={user.roles} />
 

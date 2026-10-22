@@ -114,6 +114,43 @@ public sealed class PublicRentalQuotationTests
         var booking = await fixture.Db.Bookings.SingleAsync(token);
         Assert.Contains("North Coast Builders Ltd", booking.Notes);
     }
+    [Fact]
+    public async Task Configured_customer_questions_are_required_and_saved_with_a_snapshot()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var division = await fixture.Db.Divisions.SingleAsync(token);
+        var policy = DivisionBookingFlow.For(division) with { CustomerFields = [new CustomerQuestion("SITE_ACCESS", "Site access", "Choice", true, Options: ["Open site", "Restricted site"])] };
+        division.CustomerBookingConfigurationJson = policy.ToJson();
+        await fixture.Db.SaveChangesAsync(token);
+
+        var missing = await fixture.Controller.RequestBooking(fixture.ValidRequest(), token);
+        Assert.IsType<BadRequestObjectResult>(missing.Result);
+        Assert.Empty(await fixture.Db.Bookings.ToListAsync(token));
+        var invalid = await fixture.Controller.RequestBooking(fixture.ValidRequest() with { ConfigurationAnswers = new Dictionary<string, string> { ["SITE_ACCESS"] = "Spoofed option" } }, token);
+        Assert.IsType<BadRequestObjectResult>(invalid.Result);
+        var valid = await fixture.Controller.RequestBooking(fixture.ValidRequest() with { ConfigurationAnswers = new Dictionary<string, string> { ["SITE_ACCESS"] = "Open site" } }, token);
+        Assert.IsType<OkObjectResult>(valid.Result);
+        var booking = await fixture.Db.Bookings.SingleAsync(token);
+        var snapshot = OrganizationConfiguration.Read<BookingConfigurationSnapshot>(booking.ConfigurationSnapshotJson);
+        Assert.NotNull(snapshot);
+        Assert.Equal("Open site", snapshot.Answers["SITE_ACCESS"]);
+        Assert.Equal("Site access", snapshot.Questions[0].Label);
+    }
+
+    [Fact]
+    public async Task Paused_branch_division_rejects_new_customer_requests()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var link = await fixture.Db.BranchDivisions.SingleAsync(token);
+        link.AcceptsBookings = false;
+        await fixture.Db.SaveChangesAsync(token);
+        var result = await fixture.Controller.RequestBooking(fixture.ValidRequest(), token);
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Empty(await fixture.Db.Bookings.ToListAsync(token));
+    }
+
     private sealed class ThrowingEmailQueue : IEmailQueue
     {
         public OutboundEmail Queue(ApplicationDbContext db, string recipient, string subject,

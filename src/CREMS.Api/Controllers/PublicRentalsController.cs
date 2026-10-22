@@ -54,7 +54,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         CancellationToken cancellationToken)
     {
         var branches = await db.Branches.AsNoTracking()
-            .Where(branch => branch.IsActive)
+            .Where(branch => branch.IsActive && branch.IsPublic)
             .OrderBy(branch => branch.Name)
             .Select(branch => new PublicBranchResponse(
                 branch.Id, branch.Name, branch.Address, branch.Phone))
@@ -82,10 +82,10 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         { ModelState.AddModelError(nameof(startDate), "Pickup cannot be in the past."); return ValidationProblem(ModelState); }
 
         var query = db.Assets.AsNoTracking()
-            .Where(asset => asset.IsActive && asset.Branch!.IsActive &&
+            .Where(asset => asset.IsActive && asset.Branch!.IsActive && asset.Branch.IsPublic &&
                 asset.Division != null && asset.Division.IsActive && asset.Division.IsPublic &&
                 (asset.ServiceOffering == null || asset.ServiceOffering.IsActive && (asset.ServiceOffering.IsBookableOnline || asset.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == asset.BranchId && s.DivisionId == asset.DivisionId && s.ServiceOfferingId == asset.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
-                db.BranchDivisions.Any(b => b.BranchId == asset.BranchId && b.DivisionId == asset.DivisionId && b.IsActive) &&
+                db.BranchDivisions.Any(b => b.BranchId == asset.BranchId && b.DivisionId == asset.DivisionId && b.IsActive && b.AcceptsBookings) &&
                 asset.Status != AssetStatus.Maintenance && asset.Status != AssetStatus.Inspection &&
                 asset.Status != AssetStatus.OutOfService &&
                 asset.Status != AssetStatus.Retired);
@@ -170,10 +170,10 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var asset = await db.Assets.AsNoTracking()
             .Include(x => x.Branch).Include(x => x.Division).Include(x => x.ServiceOffering)
             .Include(x => x.AssetCategory).Include(x => x.AttributeValues).ThenInclude(x => x.AttributeDefinition)
-            .FirstOrDefaultAsync(x => x.Id == assetId && x.IsActive && x.Branch!.IsActive &&
+            .FirstOrDefaultAsync(x => x.Id == assetId && x.IsActive && x.Branch!.IsActive && x.Branch.IsPublic &&
                 x.Division != null && x.Division.IsActive && x.Division.IsPublic &&
                 (x.ServiceOffering == null || x.ServiceOffering.IsActive && (x.ServiceOffering.IsBookableOnline || x.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == x.BranchId && s.DivisionId == x.DivisionId && s.ServiceOfferingId == x.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
-                db.BranchDivisions.Any(b => b.BranchId == x.BranchId && b.DivisionId == x.DivisionId && b.IsActive) &&
+                db.BranchDivisions.Any(b => b.BranchId == x.BranchId && b.DivisionId == x.DivisionId && b.IsActive && b.AcceptsBookings) &&
                 x.Status != AssetStatus.Maintenance && x.Status != AssetStatus.Inspection && x.Status != AssetStatus.OutOfService &&
                 x.Status != AssetStatus.Retired, cancellationToken);
         if (asset is null || !DivisionBookingFlow.For(asset.Division).OnlineRequestsEnabled) return NotFound();
@@ -215,6 +215,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.Id, asset.Name, asset.Type, asset.Category, asset.DailyRate, PersonnelRequirement = AssetCategoryPolicy.Personnel(asset),
             BondAmount = AssetCategoryPolicy.Bond(asset), TaxRate = asset.Division?.DefaultTaxRate ?? FijiRentalDefaults.VatRate,
             BookingFlow = DivisionBookingFlow.For(asset.Division),
+            CustomerQuestions = OrganizationConfiguration.Questions(DivisionBookingFlow.For(asset.Division), asset.ServiceOffering, asset.AssetCategory),
             asset.Manufacturer, asset.Model, asset.ModelYear, asset.PhotoUrlsJson,
             Division = asset.Division is null ? null : new { asset.Division.Id, asset.Division.Code, asset.Division.Name },
             Branch = new { asset.BranchId, asset.Branch!.Name, asset.Branch.Address, asset.Branch.Phone,
@@ -249,7 +250,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var asset = await db.Assets.Include(item => item.Branch).Include(item => item.Division)
             .Include(item => item.ServiceOffering).Include(item => item.AssetCategory)
             .FirstOrDefaultAsync(item => item.Id == request.AssetId && item.IsActive, cancellationToken);
-        if (asset is null || asset.Branch is null || !asset.Branch.IsActive ||
+        if (asset is null || asset.Branch is null || !asset.Branch.IsActive || !asset.Branch.IsPublic ||
             asset.Division is not { IsActive: true, IsPublic: true } ||
             asset.ServiceOffering is { IsActive: false } ||
             asset.ServiceOffering is { IsBookableOnline: false, RequiresQuote: false } ||
@@ -257,6 +258,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             return NotFound("The selected rental item is no longer available.");
         var flow = DivisionBookingFlow.For(asset.Division);
         if (!flow.OnlineRequestsEnabled) return NotFound("Online requests are disabled for this division.");
+        var questions = OrganizationConfiguration.Questions(flow, asset.ServiceOffering, asset.AssetCategory);
+        var answerError = OrganizationConfiguration.ValidateAnswers(questions, request.ConfigurationAnswers);
+        if (answerError is not null) return BadRequest(new { message = answerError });
         var requestedDays = request.EndDate.DayNumber - request.StartDate.DayNumber;
         if (requestedDays < flow.MinimumHireDays || requestedDays > flow.MaximumHireDays)
         { ModelState.AddModelError(nameof(request.EndDate), $"Choose a hire between {flow.MinimumHireDays} and {flow.MaximumHireDays} days."); return ValidationProblem(ModelState); }
@@ -274,7 +278,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             ModelState.AddModelError(nameof(request.DeliveryAddress), "Enter the delivery or worksite address.");
             return ValidationProblem(ModelState);
         }
-        if (!await db.BranchDivisions.AnyAsync(x => x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId && x.IsActive, cancellationToken) ||
+        if (!await db.BranchDivisions.AnyAsync(x => x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId && x.IsActive && x.AcceptsBookings, cancellationToken) ||
             asset.ServiceOfferingId.HasValue && !await db.BranchDivisionServices.AnyAsync(x => x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId && x.ServiceOfferingId == asset.ServiceOfferingId && x.IsActive && x.IsBookable, cancellationToken))
             return BadRequest(new { message = "This service is not currently bookable at the selected branch." });
 
@@ -376,6 +380,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 ? $"REQ-{Guid.NewGuid():N}"[..16].ToUpperInvariant()
                 : await RentalSettings.Reference(db, false, cancellationToken),
             CustomerId = activeCustomer.Id, BranchId = asset.BranchId, Status = BookingStatus.Draft,
+            ConfigurationSnapshotJson = JsonSerializer.Serialize(await ConfiguredHireRules.Capture(db, asset, request.ConfigurationAnswers, cancellationToken), OrganizationConfiguration.Json),
             Notes = BuildRequestNotes(request, personnelRequested) + (requiresQuote ? "\nRequest type: Quotation." : "\nRequest type: Booking."),
             TaxRate = taxRate, DepositRequired = AssetCategoryPolicy.Bond(asset),
             BondStatus = AssetCategoryPolicy.Bond(asset) > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired,
@@ -574,7 +579,8 @@ public sealed record PublicBookingRequest(
     [MaxLength(150)] string? DriverName,
     [MaxLength(100)] string? DriverLicence,
     bool RequestQuotation,
-    IReadOnlyList<PublicBookingExtraRequest>? Extras, decimal? HireQuantity = null);
+    IReadOnlyList<PublicBookingExtraRequest>? Extras, decimal? HireQuantity = null,
+    IReadOnlyDictionary<string, string>? ConfigurationAnswers = null);
 public sealed record PublicBookingExtraRequest(Guid ChargeDefinitionId, decimal Quantity);
 public sealed record PublicBookingResponse(
     string Reference, string AssetName, string BranchName,
