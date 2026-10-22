@@ -5,14 +5,13 @@ import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import { Accordion, AccordionSummary, AccordionDetails, Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Grid, IconButton, MenuItem, Stack, Tab, Tabs, TextField, Typography, useMediaQuery, useTheme } from '@mui/material'
 import { api } from '../api/client'
 import { apiErrorMessage } from '../api/errors'
+import { normalizeSetupDivision, parseDivisionCapabilities as capabilities } from '../config/organizationSetup'
 import { RequiredDocumentsEditor } from './ConfigurationEditors'
 import { ConfiguredCustomerFields } from './ConfiguredCustomerFields'
 import { capabilityOptions, fieldTypes, newCategory, newDocument, newService, newTemplate, patchJson, pretty, readJson, setupTemplates, templateService, type Attribute, type BookingFlow, type BranchOption, type ChecklistSection, type CustomerQuestion, type DivisionSettings, type ServiceSettings, type SetupCategory, type SetupDocument, type SetupService, type SetupTemplate } from '../config/organizationSetup'
 
 const steps = ['General & services', 'Customer requests', 'Maintenance', 'Asset fields & checks', 'Review']
 const serviceTypes = ['VehicleRental', 'EquipmentHire', 'PropertyLease', 'LogisticsService', 'MaintenanceService', 'Other']
-const capabilityNames = ['Rental', 'Maintenance', 'PropertyLeasing', 'Logistics', 'Retail', 'PersonnelSupportedHire']
-function capabilities(value: string | number) { return typeof value === 'number' ? value : value.split(',').reduce((sum, name) => { const i = capabilityNames.indexOf(name.trim()); return i < 0 ? sum : sum | 2 ** i }, 0) }
 
 export function DivisionSetupWizard({ open, divisionId, onClose, onSaved }: { open: boolean; divisionId: string | null; onClose: () => void; onSaved: () => void }) {
   const theme = useTheme(), mobile = useMediaQuery(theme.breakpoints.down('md')), content = useRef<HTMLDivElement>(null)
@@ -53,7 +52,7 @@ export function DivisionSetupWizard({ open, divisionId, onClose, onSaved }: { op
     const message = validation(document, 5); if (message) { report(message); return }
     setSaving(true); setError('')
     try {
-      const normalized = { ...document, flow: { ...document.flow, customerFields: (document.flow.customerFields ?? []).map(q => ({ ...q, options: q.options?.map(x => x.trim()).filter(Boolean) })) },
+      const normalized = { ...document, division: normalizeSetupDivision(document.division), flow: { ...document.flow, customerFields: (document.flow.customerFields ?? []).map(q => ({ ...q, options: q.options?.map(x => x.trim()).filter(Boolean) })) },
         services: document.services.map(s => ({ ...s, categories: s.categories.map(c => ({ ...c, attributes: c.attributes.map((a, i) => ({ ...a, displayOrder: i })), templates: c.templates.map(t => ({ ...t, checklistJson: JSON.stringify(readJson<ChecklistSection[]>(t.checklistJson, []).map(section => ({ ...section, section: section.section.trim(), items: section.items.map(item => ({ ...item, label: item.label.trim() })).filter(item => item.label) }))) })) })) })) }
       await api.post('/organization/setup', normalized, { timeout: 60000 })
       setDirty(false); window.dispatchEvent(new Event('crems:configuration-changed')); onSaved()

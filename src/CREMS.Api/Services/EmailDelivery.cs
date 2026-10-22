@@ -28,6 +28,10 @@ public sealed class EmailOptions
     public bool AllowDirectDeliveryOutsideProduction { get; set; }
     public string ApiKey { get; set; } = string.Empty;
     public bool PreferHttpApi { get; set; } = true;
+    public bool UsesHttpApi => PreferHttpApi && !string.IsNullOrWhiteSpace(ApiKey);
+    public bool IsProviderConfigured => Enabled && !string.IsNullOrWhiteSpace(FromAddress)
+        && (UsesHttpApi || (!string.IsNullOrWhiteSpace(Host)
+            && !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrWhiteSpace(Password)));
 }
 
 public interface IEmailQueue
@@ -99,7 +103,7 @@ public sealed class EmailDeliveryWorker(IServiceScopeFactory scopeFactory, IOpti
         var settings = options.Value; var actualRecipient = string.IsNullOrWhiteSpace(settings.RedirectAllTo) || settings.NotificationDirectDelivery && IsCopyNotification(category) ? recipient : settings.RedirectAllTo;
         var copyTo = NotificationCopyRecipient(settings, actualRecipient!, category);
         var actualSubject = environment.IsProduction() ? subject : $"[{environment.EnvironmentName.ToUpperInvariant()}] {subject}";
-        if(settings.PreferHttpApi&&!string.IsNullOrWhiteSpace(settings.ApiKey))return await SendWithBrevoApi(actualRecipient!,actualSubject,html,text,token,copyTo);
+        if(settings.UsesHttpApi)return await SendWithBrevoApi(actualRecipient!,actualSubject,html,text,token,copyTo);
         using var message = new MailMessage { From = new MailAddress(settings.FromAddress, settings.FromName), Subject = actualSubject, Body = html, IsBodyHtml = true };
         if (copyTo != null) message.Bcc.Add(copyTo);
         message.To.Add(actualRecipient!); if (!string.IsNullOrWhiteSpace(text)) message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(text, null, "text/plain"));

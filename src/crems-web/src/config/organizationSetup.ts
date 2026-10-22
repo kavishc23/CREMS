@@ -14,6 +14,9 @@ export const fieldTypes = ['Text', 'LongText', 'Number', 'Integer', 'Date', 'Cho
 export const capabilityOptions = [['Rental', 1], ['Maintenance', 2], ['Property leasing', 4], ['Logistics', 8], ['Retail', 16], ['Personnel supported hire', 32]] as const
 export function readJson<T>(json: string | null | undefined, fallback: T): T { try { const value:unknown=JSON.parse(json || '{}'); if(Array.isArray(fallback))return (Array.isArray(value)?value:fallback) as T; if(fallback&&typeof fallback==='object')return (value&&typeof value==='object'&&!Array.isArray(value)?value:fallback) as T;return (value??fallback) as T } catch { return fallback } }
 export function patchJson(json: string, patch: Record<string, unknown>) { const value = readJson<Record<string, unknown>>(json, {}); return JSON.stringify({ ...value, ...patch }) }
+export function normalizeSetupDivision(division: DivisionSettings): DivisionSettings {
+  return { ...division, contactEmail: division.contactEmail?.trim() || null }
+}
 export function pretty(value: string) { return value.replace(/([a-z])([A-Z])/g, '$1 $2') }
 export function newTemplate(stage: 'PreHire' | 'PostHire', checks: string[]): SetupTemplate {
   return { id: null, name: stage === 'PreHire' ? 'Handover checks' : 'Return checks', stage, checklistJson: JSON.stringify([{ section: 'Condition', items: checks.map(label => ({ label })) }]), requiresCustomerSignature: true, requiresStaffSignature: true, isActive: true }
@@ -45,4 +48,14 @@ export function templateService(index: number, suffix = ''): SetupService {
   c.attributes = t.fields.map((name, i) => ({ code: name.toUpperCase().replaceAll(' ', '_'), name, dataType: /area|rooms|quantity|capacity|height|output|weight|voltage/i.test(name) ? 'Number' : /date/i.test(name) ? 'Date' : 'Text', unit: null, isRequired: i === 0, isSearchable: true, isCustomerVisible: false, isReportable: true, displayOrder: i, optionsJson: '[]' }))
   c.templates = [newTemplate('PreHire', t.checks), newTemplate('PostHire', t.checks.map(check => 'Return: ' + check))]
   result.categories = [c]; return result
+}
+
+const capabilityNames = ['Rental', 'Maintenance', 'PropertyLeasing', 'Logistics', 'Retail', 'PersonnelSupportedHire']
+export function parseDivisionCapabilities(value: string | number): number {
+  if (typeof value === 'number') return value
+  if (/^\d+$/.test(value.trim())) return Number(value)
+  return value.split(',').reduce((flags, name) => {
+    const index = capabilityNames.indexOf(name.trim())
+    return index < 0 ? flags : flags | (1 << index)
+  }, 0)
 }
