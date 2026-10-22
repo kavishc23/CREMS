@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Assets;
+using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Operations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -24,7 +25,7 @@ public static class MaintenanceRules
         try {
             using var document = JsonDocument.Parse(json);
             if (document.RootElement.ValueKind != JsonValueKind.Object) return (null, "The service rule must be an object. Ask an administrator to correct it.");
-            var unknown = document.RootElement.EnumerateObject().Any(x => x.Name != "meterInterval");
+            var unknown = document.RootElement.EnumerateObject().Any(x => x.Name is not ("meterInterval" or "serviceIntervalDays"));
             if (!document.RootElement.TryGetProperty("meterInterval", out var value)) return (null, unknown ? "Additional configured rules are not automatic triggers. Use explicit service targets." : null);
             if (value.ValueKind != JsonValueKind.Number || !value.TryGetDecimal(out var interval) || interval <= 0 || interval > 100000000)
                 return (null, "The meter interval must be greater than zero and no more than 100,000,000. Ask an administrator to correct it.");
@@ -32,15 +33,22 @@ public static class MaintenanceRules
         } catch (JsonException) { return (null, "The configured service rule is invalid. Ask an administrator to correct it."); }
     }
 
+    public static int? ReadDayInterval(string? json)
+    {
+        try { using var doc = JsonDocument.Parse(json ?? "{}"); return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("serviceIntervalDays", out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var days) && days is > 0 and <= 3650 ? days : null; } catch (JsonException) { return null; }
+    }
+
     public static ServicePlan Plan(Asset asset, MaintenanceJob? latest, string? rules, DateOnly today)
     {
         var (interval, warning) = ReadMeterRule(rules);
+        var days = ReadDayInterval(rules);
+        var nextDate = asset.NextServiceDate ?? (days.HasValue ? LocalDate(latest?.CompletedAt ?? asset.CreatedAt).AddDays(days.Value) : (DateOnly?)null);
         var target = latest?.NextServiceMeter ?? (interval.HasValue ? Math.Min(100000000, (latest?.MeterReading ?? 0) + interval.Value) : (decimal?)null);
         var source = latest?.NextServiceMeter != null ? "Completed service target" : interval != null ? latest == null ? "Initial configured interval from zero" : "Configured interval after completed service" : "Not configured";
         return new(asset.Id, asset.AssetNumber, asset.Name, asset.BranchId, asset.DivisionId, asset.Branch?.Name ?? "", asset.Status, asset.MeterUnit, asset.CurrentMeterReading,
-            asset.NextServiceDate, target, interval, latest?.ServiceIntervalMonths, source, warning,
-            asset.NextServiceDate <= today || target.HasValue && asset.CurrentMeterReading >= target,
-            asset.NextServiceDate < today || target.HasValue && asset.CurrentMeterReading > target);
+            nextDate, target, interval, latest?.ServiceIntervalMonths, source, warning,
+            nextDate <= today || target.HasValue && asset.CurrentMeterReading >= target,
+            nextDate < today || target.HasValue && asset.CurrentMeterReading > target);
     }
 
     // Resolve configured JSON intervals in one scoped batch; no per-row database calls.
@@ -105,7 +113,7 @@ public static class MaintenanceRules
 
     public static async Task<bool> GenerateMeterJobAsync(ApplicationDbContext db, Asset asset, CancellationToken token)
     {
-        if (!asset.IsActive || !asset.ServiceOfferingId.HasValue || !asset.CurrentMeterReading.HasValue
+        if (!asset.IsActive || !asset.ServiceOfferingId.HasValue
             || asset.Status is not (AssetStatus.Available or AssetStatus.Maintenance)) return false;
         if (db.ChangeTracker.Entries<MaintenanceJob>().Any(entry => entry.State == EntityState.Added
                 && entry.Entity.AssetId == asset.Id && entry.Entity.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled))
@@ -114,18 +122,18 @@ public static class MaintenanceRules
         var json = await db.ServiceOfferings.Where(service => service.Id == asset.ServiceOfferingId)
             .Select(service => service.MaintenanceRulesJson).FirstOrDefaultAsync(token);
         var (configuredInterval, _) = ReadMeterRule(json);
-        if (!configuredInterval.HasValue) return false;
-        var interval = configuredInterval.Value;
+        var dayInterval = ReadDayInterval(json);
+        if (!configuredInterval.HasValue && !dayInterval.HasValue) return false;
         var latest = await db.MaintenanceJobs.Where(job => job.AssetId == asset.Id && job.Status == MaintenanceStatus.Completed
                 && (job.NextServiceMeter.HasValue || job.IsPreventive))
             .OrderByDescending(job => job.CompletedAt).ThenByDescending(job => job.CreatedAt).ThenByDescending(job => job.Id)
             .FirstOrDefaultAsync(token);
-        var threshold = Plan(asset, latest, json, LocalDate(DateTimeOffset.UtcNow)).NextServiceMeter!.Value;
-        if (asset.CurrentMeterReading < threshold) return false;
+        var plan = Plan(asset, latest, json, LocalDate(DateTimeOffset.UtcNow));
+        if (!plan.IsDue) return false;
         db.MaintenanceJobs.Add(new MaintenanceJob { JobNumber = $"MNT-{Guid.NewGuid():N}"[..29],
-            AssetId = asset.Id, BranchId = asset.BranchId, ServiceType = "Preventive meter service", SourceType = "Preventive", ReportedByName = "System", IsPreventive = true,
-            NextServiceMeter = Math.Min(100000000, asset.CurrentMeterReading.Value + interval), MeterReading = asset.CurrentMeterReading,
-            FaultDescription = $"Meter service threshold {threshold} reached at {asset.CurrentMeterReading} {asset.MeterUnit}.",
+            AssetId = asset.Id, BranchId = asset.BranchId, ServiceType = dayInterval.HasValue ? "Scheduled preventive service" : "Preventive meter service", SourceType = "Preventive", ReportedByName = "System", IsPreventive = true,
+            NextServiceMeter = configuredInterval.HasValue && asset.CurrentMeterReading.HasValue ? Math.Min(100000000, asset.CurrentMeterReading.Value + configuredInterval.Value) : null, MeterReading = asset.CurrentMeterReading,
+            FaultDescription = $"Configured preventive service is due. Target date: {plan.NextServiceDate}; target meter: {plan.NextServiceMeter} {asset.MeterUnit}.",
             Status = MaintenanceStatus.Open });
         db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = asset.Id, Type = AssetLifecycleEventType.MaintenanceStarted,
             FromStatus = asset.Status, ToStatus = AssetStatus.Maintenance, Notes = "Meter service threshold reached", RecordedByName = "System" });

@@ -14,7 +14,7 @@ type PageHeaderProps = {
 // Used across every staff workspace so headers read as one consistent product, not per-page one-offs.
 export function PageHeader({ icon, eyebrow, title, subtitle, actions, dense }: PageHeaderProps) {
   return (
-    <Stack
+    <Stack data-page-header
       direction={{ xs: 'column', md: 'row' }}
       justifyContent="space-between"
       alignItems={{ xs: 'flex-start', md: 'center' }}

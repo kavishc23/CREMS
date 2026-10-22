@@ -78,6 +78,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<string>("EngineNumber")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("HireUnit")
+                        .HasColumnType("int");
+
                     b.Property<bool>("InheritBond")
                         .HasColumnType("bit");
 
@@ -146,6 +149,9 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("UseServiceHireRate")
+                        .HasColumnType("bit");
 
                     b.Property<string>("VinOrChassisNumber")
                         .HasColumnType("nvarchar(max)");
@@ -651,6 +657,9 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<int?>("DefaultAssetType")
+                        .HasColumnType("int");
 
                     b.Property<string>("DefaultMeterType")
                         .HasColumnType("nvarchar(max)");
@@ -3800,6 +3809,10 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("ConfigurationSnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -3917,6 +3930,16 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<DateTimeOffset>("EndAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("HireIsTaxable")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal?>("HireQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<int>("HireUnit")
+                        .HasColumnType("int");
 
                     b.Property<DateTimeOffset>("StartAt")
                         .HasColumnType("datetimeoffset");

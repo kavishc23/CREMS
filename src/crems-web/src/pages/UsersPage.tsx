@@ -65,7 +65,7 @@ const roleHelp: Record<string, string> = {
   [roles.maintenanceOfficer]: 'Records inspections, servicing, parts, costs and asset availability.',
 }
 
-export function UsersPage({ userRoles }: { userRoles: string[] }) {
+export function UsersPage({ userRoles, embedded = false }: { userRoles: string[]; embedded?: boolean }) {
   const isSuperAdministrator = userRoles.includes(roles.superAdministrator)
   const assignableRoles = Object.values(roles).filter(role => isSuperAdministrator || role !== roles.superAdministrator)
   const [users, setUsers] = useState<UserRecord[]>([])
@@ -163,7 +163,7 @@ export function UsersPage({ userRoles }: { userRoles: string[] }) {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1400, mx: 'auto' }}>
-      <PageHeader icon={<ManageAccountsOutlined />} title="Staff directory" subtitle="Review staff status, assigned scope and account activity." actions={<Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Create user</Button>} />
+      {embedded ? <Stack direction="row" justifyContent="flex-end" mb={2}><Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Create user</Button></Stack> : <PageHeader icon={<ManageAccountsOutlined />} title="Staff directory" subtitle="Review staff status, assigned scope and account activity." actions={<Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Create user</Button>} />}
 
       {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       <Grid container spacing={2} mb={2.5}>

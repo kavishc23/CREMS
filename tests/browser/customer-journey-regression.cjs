@@ -42,7 +42,7 @@ async function fixture(t, { signedIn = false, registrationStatus = 201, loginSta
     if (url === '/api/public/branches') { branchCalls++; return !requestForm && branchCalls <= 2 ? json({}, 503) : json([{ id: 'branch-test', name: 'Suva', address: null, phone: null }]); }
     if (url === '/api/public/divisions') return json(requestForm ? [{ id: 'division-test', code: 'MOTORS', name: 'Carpenters Motors', capabilities: 1 }] : []);
     if (url === '/api/public/assets') return json(requestForm ? [asset] : []);
-    if (url === `/api/public/assets/${asset.id}`) return json({ ...asset, taxRate: 12.5, service: null, charges: [] });
+    if (url === `/api/public/assets/${asset.id}`) return json({ ...asset, taxRate: 12.5, bookingFlow: { quoteMode: 'Automatic', businessCustomersRequireQuote: true, unpricedPersonnelRequiresQuote: true, unpricedDeliveryRequiresQuote: true, requireVerifiedLicenceForVehicles: true, minimumHireDays:1, maximumHireDays:366 }, customerQuestions: [{code:'SITE_ACCESS',label:'Site access confirmed',type:'Boolean',required:true}], service: null, charges: [] });
     if (url === '/api/public/booking-requests') return json({ reference: quotation ? 'QUO-TEST' : 'BKR-TEST', requestType: quotation ? 'Quotation' : 'Booking' });
     unexpected.push(`${request.method()} ${url}`); return json({ message: 'Unexpected API call in isolated test' }, 500);
   });
@@ -179,13 +179,15 @@ for (const quotation of [false, true]) {
     await dialog.getByText('When and where?', { exact: true }).waitFor();
     await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
     await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
-    assert.equal(await dialog.getByLabel(/^Full name(?:\s*\*)?$/).inputValue(), session.fullName);
-    assert.equal(await dialog.getByLabel(/^Driver licence number(?:\s*\*)?$/).inputValue(), 'TEST-LICENCE');
+    assert.equal(await dialog.getByLabel(/^Contact person(?:\s*\*)?$/).inputValue(), session.fullName);
+    assert.equal(await dialog.getByLabel(/^Verified driver licence(?:\s*\*)?$/).inputValue(), 'TEST-LICENCE');
     await dialog.getByLabel(/^Phone(?:\s*\*)?$/).fill('');
     await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
     assert.equal(await dialog.getByText('Review and submit', { exact: true }).count(), 0);
     assert.equal(writes.length, 0);
     await dialog.getByLabel(/^Phone(?:\s*\*)?$/).fill('7654321');
+    await dialog.getByLabel(/^Site access confirmed/).click();
+    await page.getByRole('option',{name:'No',exact:true}).click();
     await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
     const submit = dialog.getByRole('button', { name: quotation ? 'Request quotation' : 'Submit booking', exact: true });
     assert.equal(await submit.isDisabled(), true);
@@ -198,6 +200,7 @@ for (const quotation of [false, true]) {
     assert.equal(payload.phone, '7654321');
     assert.equal(payload.driverLicence, 'TEST-LICENCE');
     assert.equal(payload.requestQuotation, quotation);
+    assert.equal(payload.configurationAnswers.SITE_ACCESS,'false');
     assert(payload.endDate > payload.startDate);
   });
 }

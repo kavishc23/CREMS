@@ -3,6 +3,7 @@ using System.Text.Json;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
+using CREMS.Api.Domain.Rentals;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,11 +15,48 @@ namespace CREMS.Api.Controllers;
 [Authorize(Policy = SystemPolicies.StaffPortal)]
 public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
+    [HttpGet("{id:guid}/booking-flow")]
+    public async Task<ActionResult> GetBookingFlow(Guid id, CancellationToken token)
+    {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasDivisionAccess(id)) return Forbid();
+        var division = await db.Divisions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, token);
+        if (division is null) return NotFound();
+        return Ok(new { division.Id, division.Name, flow = DivisionBookingFlow.For(division),
+            division.DefaultBondAmount, division.DefaultTaxRate, division.DefaultCurrency,
+            division.DefaultRentalTerms });
+    }
+
+    [HttpPut("{id:guid}/booking-flow")]
+    [Authorize(Policy = SystemPolicies.ManageDivisions)]
+    public async Task<ActionResult> SaveBookingFlow(Guid id, SaveDivisionBookingFlowRequest request, CancellationToken token)
+    {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasDivisionAccess(id)) return Forbid();
+        if (request.Flow is null || !request.Flow.IsValid || request.DefaultBondAmount is < 0 or > 1_000_000 ||
+            request.DefaultTaxRate is < 0 or > 100 || string.IsNullOrWhiteSpace(request.DefaultCurrency) ||
+            !string.Equals(request.DefaultCurrency.Trim(), "FJD", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "Check the booking flow, hire limits, bond and tax rate. CREMS currently supports FJD transactions only." });
+        var division = await db.Divisions.FirstOrDefaultAsync(x => x.Id == id, token);
+        if (division is null) return NotFound();
+        division.CustomerBookingConfigurationJson = OrganizationConfiguration.Merge(division.CustomerBookingConfigurationJson, request.Flow);
+        division.DefaultBondAmount = request.DefaultBondAmount;
+        division.DefaultTaxRate = request.DefaultTaxRate;
+        division.DefaultCurrency = request.DefaultCurrency.Trim().ToUpperInvariant();
+        division.DefaultRentalTerms = Clean(request.DefaultRentalTerms);
+        division.UpdatedAt = DateTimeOffset.UtcNow;
+        AuditWriter.Record(db, scope, "Division booking flow updated", nameof(Division), id,
+            $"{division.Name} booking and quotation policy updated.", null);
+        await db.SaveChangesAsync(token);
+        return Ok(new { division.Id, division.Name, flow = request.Flow, division.DefaultBondAmount,
+            division.DefaultTaxRate, division.DefaultCurrency, division.DefaultRentalTerms });
+    }
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<DivisionResponse>>> GetAll(CancellationToken cancellationToken)
     {
         var scope = await staffScope.GetAsync(User); if (scope is null) return Unauthorized();
-        var query = Query(); if (!scope.IsAdministrator) query = query.Where(x => scope.DivisionIds.Contains(x.Id));
+        var query = Query(scope);
         return Ok(await query.ToListAsync(cancellationToken));
     }
 
@@ -26,6 +64,7 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
     [Authorize(Policy = SystemPolicies.ManageDivisions)]
     public async Task<ActionResult<DivisionResponse>> Create(SaveDivisionRequest request, CancellationToken cancellationToken)
     {
+        if (!string.Equals(request.DefaultCurrency, "FJD", StringComparison.OrdinalIgnoreCase)) return BadRequest(new { message = "CREMS currently supports FJD transactions only." });
         if (!ValidObject(request.BrandingJson) || !ValidObject(request.CustomerBookingConfigurationJson)) return BadRequest(new { message = "Branding and customer booking settings must be JSON objects." });
         var code = request.Code.Trim().ToUpperInvariant();
         if (await db.Divisions.AnyAsync(x => x.Code == code, cancellationToken))
@@ -43,7 +82,8 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
     [Authorize(Policy = SystemPolicies.ManageDivisions)]
     public async Task<ActionResult<DivisionResponse>> Update(Guid id, SaveDivisionRequest request, CancellationToken cancellationToken)
     {
-        if (!ValidObject(request.BrandingJson) || !ValidObject(request.CustomerBookingConfigurationJson)) return BadRequest(new { message = "Branding and customer booking settings must be JSON objects." });
+        if (!string.Equals(request.DefaultCurrency, "FJD", StringComparison.OrdinalIgnoreCase)) return BadRequest(new { message = "CREMS currently supports FJD transactions only." });
+        if (!ValidObject(request.BrandingJson) || request.CustomerBookingConfigurationJson is not null && !ValidObject(request.CustomerBookingConfigurationJson)) return BadRequest(new { message = "Branding and customer booking settings must be JSON objects." });
         var division = await db.Divisions.FindAsync([id], cancellationToken);
         if (division is null) return NotFound();
         var code = request.Code.Trim().ToUpperInvariant();
@@ -52,9 +92,38 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
         division.Code = code; division.Name = request.Name.Trim(); division.Description = Clean(request.Description);
         division.ContactEmail = Clean(request.ContactEmail)?.ToLowerInvariant(); division.ContactPhone = Clean(request.ContactPhone);
         if (!request.IsActive && (await db.Bookings.AnyAsync(x => x.Items.Any(i => i.Asset!.DivisionId == id) && x.Status != Domain.Rentals.BookingStatus.Completed && x.Status != Domain.Rentals.BookingStatus.Cancelled && x.Status != Domain.Rentals.BookingStatus.Expired, cancellationToken) || await db.Assets.AnyAsync(x => x.DivisionId == id && x.IsActive, cancellationToken))) return Conflict(new { message = "Transfer or retire active assets and close active rentals before deactivating this division." });
-        division.Capabilities = request.Capabilities; division.IsPublic = request.IsPublic; division.IsActive = request.IsActive; division.BrandingJson = request.BrandingJson ?? "{}"; division.DefaultCurrency = request.DefaultCurrency.Trim().ToUpperInvariant(); division.DefaultTaxRate = request.DefaultTaxRate; division.DefaultBondAmount = request.DefaultBondAmount; division.DefaultRentalTerms = Clean(request.DefaultRentalTerms); division.DefaultApprovalWorkflowId = request.DefaultApprovalWorkflowId; division.CustomerBookingConfigurationJson = request.CustomerBookingConfigurationJson ?? "{}";
+        division.Capabilities = request.Capabilities; division.IsPublic = request.IsPublic; division.IsActive = request.IsActive; division.BrandingJson = request.BrandingJson ?? "{}"; division.DefaultCurrency = request.DefaultCurrency.Trim().ToUpperInvariant(); division.DefaultTaxRate = request.DefaultTaxRate; division.DefaultBondAmount = request.DefaultBondAmount; division.DefaultRentalTerms = Clean(request.DefaultRentalTerms); division.DefaultApprovalWorkflowId = request.DefaultApprovalWorkflowId;
+        if (request.CustomerBookingConfigurationJson is not null) division.CustomerBookingConfigurationJson = request.CustomerBookingConfigurationJson;
         division.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
+        return Ok(ToResponse(division));
+    }
+
+    [HttpPut("{id:guid}/details")]
+    [Authorize(Policy = SystemPolicies.ManageDivisions)]
+    public async Task<ActionResult<DivisionResponse>> UpdateDetails(Guid id, SaveDivisionDetailsRequest request, CancellationToken token)
+    {
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasDivisionAccess(id)) return Forbid();
+        if (!ValidObject(request.BrandingJson)) return BadRequest(new { message = "Branding must be a JSON object." });
+        var division = await db.Divisions.FindAsync([id], token);
+        if (division is null) return NotFound();
+        var code = request.Code.Trim().ToUpperInvariant();
+        if (await db.Divisions.AnyAsync(x => x.Id != id && x.Code == code, token)) return Conflict(new { message = "This division code is already in use." });
+        if (!request.IsActive && (await db.Bookings.AnyAsync(x => x.Items.Any(i => i.Asset!.DivisionId == id) && x.Status != Domain.Rentals.BookingStatus.Completed && x.Status != Domain.Rentals.BookingStatus.Cancelled && x.Status != Domain.Rentals.BookingStatus.Expired, token) || await db.Assets.AnyAsync(x => x.DivisionId == id && x.IsActive, token)))
+            return Conflict(new { message = "Transfer or retire active assets and close active rentals before deactivating this division." });
+        division.Code = code;
+        division.Name = request.Name.Trim();
+        division.Description = Clean(request.Description);
+        division.ContactEmail = Clean(request.ContactEmail)?.ToLowerInvariant();
+        division.ContactPhone = Clean(request.ContactPhone);
+        division.Capabilities = request.Capabilities;
+        division.IsPublic = request.IsPublic;
+        division.IsActive = request.IsActive;
+        division.BrandingJson = request.BrandingJson ?? "{}";
+        division.UpdatedAt = DateTimeOffset.UtcNow;
+        AuditWriter.Record(db, scope, "Division details updated", nameof(Division), id, $"{division.Name} details updated.", null);
+        await db.SaveChangesAsync(token);
         return Ok(ToResponse(division));
     }
 
@@ -93,7 +162,8 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
         return NoContent();
     }
 
-    private IQueryable<DivisionResponse> Query() => db.Divisions.AsNoTracking()
+    private IQueryable<DivisionResponse> Query(StaffDataScope scope) => db.Divisions.AsNoTracking()
+        .Where(x => scope.IsAdministrator || scope.DivisionIds.Contains(x.Id))
         .OrderBy(x => x.Name).Select(x =>
         new DivisionResponse(x.Id, x.Code, x.Name, x.Description, x.ContactEmail, x.ContactPhone, x.Capabilities,
             x.IsPublic, x.IsActive, x.ServiceOfferings
@@ -102,28 +172,33 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
     private static DivisionResponse ToResponse(Division x) => new(x.Id, x.Code, x.Name, x.Description, x.ContactEmail,
         x.ContactPhone, x.Capabilities, x.IsPublic, x.IsActive, [], x.BrandingJson, x.DefaultCurrency, x.DefaultTaxRate, x.DefaultRentalTerms, x.DefaultApprovalWorkflowId, x.CustomerBookingConfigurationJson, x.DefaultBondAmount);
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    private static bool ValidObject(string? json)
+    internal static bool ValidObject(string? json)
     {
         try { using var doc = JsonDocument.Parse(json ?? "{}"); return doc.RootElement.ValueKind == JsonValueKind.Object; }
         catch (JsonException) { return false; }
     }
-    private static bool ValidDocuments(string? json)
+    internal static bool ValidDocuments(string? json)
     {
         try { using var doc = JsonDocument.Parse(json ?? "[]"); return doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.EnumerateArray().All(x => x.ValueKind == JsonValueKind.String); }
         catch (JsonException) { return false; }
     }
-    private static bool ValidMaintenance(string? json)
+    internal static bool ValidMaintenance(string? json)
     {
         if (!ValidObject(json)) return false;
         using var doc = JsonDocument.Parse(json ?? "{}");
-        return !doc.RootElement.TryGetProperty("meterInterval", out var interval) ||
-            interval.ValueKind == JsonValueKind.Number && interval.TryGetDecimal(out var value) && value > 0 && value <= 100000000;
+        var meterValid = !doc.RootElement.TryGetProperty("meterInterval", out var interval) || interval.ValueKind == JsonValueKind.Number && interval.TryGetDecimal(out var value) && value > 0 && value <= 100000000;
+        var daysValid = !doc.RootElement.TryGetProperty("serviceIntervalDays", out var days) || days.ValueKind == JsonValueKind.Number && days.TryGetInt32(out var count) && count is > 0 and <= 3650;
+        return meterValid && daysValid;
     }
 }
 
 public sealed record SaveDivisionRequest([Required, MaxLength(30)] string Code, [Required, MaxLength(150)] string Name,
     [MaxLength(1000)] string? Description, [EmailAddress, MaxLength(254)] string? ContactEmail,
     [MaxLength(50)] string? ContactPhone, DivisionCapabilities Capabilities, bool IsPublic, bool IsActive = true, string? BrandingJson = "{}", string DefaultCurrency = "FJD", [Range(0,100)] decimal DefaultTaxRate = FijiRentalDefaults.VatRate, string? DefaultRentalTerms = null, Guid? DefaultApprovalWorkflowId = null, string? CustomerBookingConfigurationJson = "{}", [Range(0,1_000_000)] decimal DefaultBondAmount = 0);
+public sealed record SaveDivisionDetailsRequest([Required, MaxLength(30)] string Code, [Required, MaxLength(150)] string Name,
+    [MaxLength(1000)] string? Description, [EmailAddress, MaxLength(254)] string? ContactEmail,
+    [MaxLength(50)] string? ContactPhone, DivisionCapabilities Capabilities, bool IsPublic, bool IsActive,
+    string? BrandingJson);
 public sealed record SaveServiceRequest([Required, MaxLength(40)] string Code, [Required, MaxLength(150)] string Name,
     [MaxLength(1000)] string? Description, ServiceOfferingType Type, PersonnelRequirement PersonnelRequirement,
     bool IsBookableOnline, bool RequiresQuote, bool IsActive = true, ChargeUnit DefaultHireUnit = ChargeUnit.Day, bool RequiresDelivery = false, string? RequiredDocumentsJson = "[]", [Range(0,1_000_000)] decimal DefaultDepositAmount = 0, string? InspectionRequirementsJson = "{}", string? MeterType = null, string? MaintenanceRulesJson = "{}", bool InheritBond = false);
@@ -131,3 +206,6 @@ public sealed record DivisionResponse(Guid Id, string Code, string Name, string?
     string? ContactPhone, DivisionCapabilities Capabilities, bool IsPublic, bool IsActive, IReadOnlyList<ServiceResponse> Services, string BrandingJson, string DefaultCurrency, decimal DefaultTaxRate, string? DefaultRentalTerms, Guid? DefaultApprovalWorkflowId, string CustomerBookingConfigurationJson, decimal DefaultBondAmount);
 public sealed record ServiceResponse(Guid Id, string Code, string Name, string? Description, ServiceOfferingType Type,
     PersonnelRequirement PersonnelRequirement, bool IsBookableOnline, bool RequiresQuote, bool IsActive, ChargeUnit DefaultHireUnit, bool RequiresDelivery, string RequiredDocumentsJson, decimal DefaultDepositAmount, string InspectionRequirementsJson, string? MeterType, string MaintenanceRulesJson, bool InheritBond);
+
+public sealed record SaveDivisionBookingFlowRequest(DivisionBookingFlow? Flow, decimal DefaultBondAmount,
+    decimal DefaultTaxRate, string DefaultCurrency, string? DefaultRentalTerms);

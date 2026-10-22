@@ -1,3 +1,4 @@
+import MonitorHeartOutlined from '@mui/icons-material/MonitorHeartOutlined'
 import { lazy, Suspense, type ReactNode, useState } from 'react'
 import DashboardOutlined from '@mui/icons-material/DashboardOutlined'
 import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined'
@@ -15,7 +16,6 @@ import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined'
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined'
 import HomeOutlined from '@mui/icons-material/HomeOutlined'
 import HelpOutlineOutlined from '@mui/icons-material/HelpOutlineOutlined'
-import SettingsOutlined from '@mui/icons-material/SettingsOutlined'
 import AccountBalanceWalletOutlined from '@mui/icons-material/AccountBalanceWalletOutlined'
 import PeopleAltOutlined from '@mui/icons-material/PeopleAltOutlined'
 import {
@@ -47,7 +47,6 @@ const GlobalSearch = lazy(() => import('../components/GlobalSearch').then(module
 const NotificationBell = lazy(() => import('../components/NotificationBell').then(module => ({ default: module.NotificationBell })))
 import { staffTheme } from './staffTheme'
 import { canAccessPage, formatRole, getPrimaryRole, type AppPage } from '../auth/access'
-import { isNotificationModuleEnabled, isPageEnabledForDemo } from '../config/demoMode'
 const drawerWidth = 272
 const collapsedDrawerWidth = 76
 const navigation = [
@@ -63,8 +62,8 @@ const navigation = [
   { label: 'Reports & performance', id: 'reports', icon: <AssessmentOutlined />, section: 'Management' },
   { label: 'Staff & access', id: 'users', icon: <ManageAccountsOutlined />, section: 'Administration' },
   { label: 'Customer accounts', id: 'customerAccounts', icon: <PeopleAltOutlined />, section: 'Administration' },
-  { label: 'Organization', id: 'divisions', icon: <AccountTreeOutlined />, section: 'Administration' },
-  { label: 'System configuration', id: 'configuration', icon: <SettingsOutlined />, section: 'Administration' },
+  { label: 'Organization & settings', id: 'divisions', icon: <AccountTreeOutlined />, section: 'Administration' },
+  { label: 'System health & audit', id: 'systemHealth', icon: <MonitorHeartOutlined />, section: 'Administration' },
 ] satisfies { label: string; id: AppPage; icon: ReactNode; section?: string }[]
 const sections = ['Rental operations', 'Asset operations', 'Management', 'Administration']
 const pageHelp: Record<string, { purpose: string; steps: string[] }> = {
@@ -80,8 +79,7 @@ const pageHelp: Record<string, { purpose: string; steps: string[] }> = {
   reports: { purpose: 'Review utilization, revenue, rental history and maintenance performance.', steps: ['Choose the report needed.', 'Confirm the date and operating scope.', 'Export or use the result for management decisions.'] },
   users: { purpose: 'Control staff accounts, roles and access boundaries.', steps: ['Choose the correct role.', 'Assign the staff member’s division and branch.', 'Use security actions only when required.'] },
   customerAccounts: { purpose: 'Manage customer portal accounts separately from staff access.', steps: ['Search for the customer before creating access.', 'Review portal status and account activity.', 'Use reset, lock or session controls only when required.'] },
-  divisions: { purpose: 'Maintain divisions, branches, services and asset categories in one organization workspace.', steps: ['Choose the relevant organization tab.', 'Update only confirmed operating details.', 'Save and verify the affected branch or service.'] },
-  configuration: { purpose: 'Manage group rental defaults, rates, notifications and technical controls.', steps: ['Choose the configuration area.', 'Review the current value and business impact.', 'Save only an approved change.'] },
+  divisions: { purpose: 'Manage organization structure, booking rules and system settings in one workspace.', steps: ['Choose Business setup, Booking & pricing or Platform.', 'Review the current value and where it applies.', 'Save and verify the affected division, branch or setting.'] },
 }
 
 type AppShellProps = {
@@ -118,7 +116,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
       <List component="nav" aria-label="Staff workspaces" sx={{ px: 1.25, pt: 1, pb: 2, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', '&::-webkit-scrollbar': { width: 5 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#716a52', borderRadius: 8 }, '&::-webkit-scrollbar-track': { bgcolor: 'transparent' } }}>
         {(!collapsed || !desktop) && <Box sx={{ mx: .75, mb: 1.25, p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)' }}><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: .8 }}>Working in</Typography><Typography variant="body2" fontWeight={750} noWrap>{divisionName || 'Carpenters Fiji Group'}</Typography><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.62)' }}>{branchName || 'All branches'}</Typography></Box>}
         {sections.map((section) => {
-          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id) && isPageEnabledForDemo(item.id))
+          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id))
           if (!items.length) return null
           return <Box key={section}>{!collapsed || !desktop ? <ListSubheader disableSticky sx={{ bgcolor: 'transparent', color: 'rgba(255,255,255,.42)', fontSize: 11, fontWeight: 800, lineHeight: '32px', letterSpacing: 1.1, textTransform: 'uppercase', px: 2, mt: 1 }}>{section}</ListSubheader> : <Box sx={{ height: 12 }} />}{items.map((item) => {
           const button = (
@@ -193,7 +191,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           )}
           <Box><Typography variant="overline" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' }, lineHeight: 1.1 }}>{navigation.find(item=>item.id===activePage)?.section ?? 'Staff workspace'}</Typography><Typography variant="subtitle1" fontWeight={800} lineHeight={1.25}>{currentPageLabel}</Typography></Box>
           <Box sx={{ flexGrow: 1 }} />
-          {isNotificationModuleEnabled && <Suspense fallback={null}><NotificationBell key={userName} canSend={canAccessPage(userRoles, 'bookings')} /></Suspense>}
+          <Suspense fallback={null}><NotificationBell key={userName} canSend={canAccessPage(userRoles, 'bookings')} /></Suspense>
           <Button size="small" color="inherit" startIcon={<HelpOutlineOutlined />} onClick={() => setHelpOpen(true)} sx={{ mr: 1, display: { xs: 'none', sm: 'inline-flex' } }}>Help</Button>
           <Typography variant="body2" fontWeight={600} sx={{ display: { xs: 'none', lg: 'block' } }}>{userName}</Typography>
           <Chip
@@ -231,7 +229,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
         sx={{
           flexGrow: 1,
           minWidth: 0,
-          '& > .staff-page-content': { '& > .MuiBox-root': { maxWidth: '1680px', marginInline:'auto' }, '& .MuiTypography-h4': { fontVariantNumeric:'tabular-nums' }, '& .MuiTableCell-root .MuiButton-root': { whiteSpace:'nowrap' } },
+          '& > .staff-page-content': { '& > .MuiBox-root:not([data-fill-workspace])': { maxWidth: '1680px', marginInline:'auto' }, '& .MuiTypography-h4': { fontVariantNumeric:'tabular-nums' }, '& .MuiTableCell-root .MuiButton-root': { whiteSpace:'nowrap' } },
           width: { xs: '100%', md: `calc(100% - ${activeDrawerWidth}px)` },
           pt: { xs: '56px', sm: '64px' },
           transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),

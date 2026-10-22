@@ -13,6 +13,7 @@ public sealed class Booking : Entity
     public Branch? Branch { get; set; }
     public BookingStatus Status { get; set; } = BookingStatus.Draft;
     public string? Notes { get; set; }
+    public string ConfigurationSnapshotJson { get; set; } = "{}";
     public decimal DiscountAmount { get; set; }
     public decimal TaxRate { get; set; } = FijiRentalDefaults.VatRate;
     public decimal DepositRequired { get; set; }
@@ -85,6 +86,9 @@ public sealed class BookingItem : Entity
     public DateTimeOffset StartAt { get; set; }
     public DateTimeOffset EndAt { get; set; }
     public decimal DailyRate { get; set; }
+    public ChargeUnit HireUnit { get; set; } = ChargeUnit.Day;
+    public decimal? HireQuantity { get; set; }
+    public bool HireIsTaxable { get; set; } = true;
 }
 
 public enum BookingStatus

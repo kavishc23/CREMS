@@ -60,7 +60,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var rows = await selected.OrderBy(x => x.Items.Select(i => i.StartAt).FirstOrDefault()).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(x => new RentalWorkQueueRow(x.Id, x.BookingNumber, x.Status.ToString(), x.Customer!.Name, x.Customer.Phone,
                 x.Branch!.Name, x.Items.Select(i => i.Asset!.AssetNumber).FirstOrDefault(), x.Items.Select(i => i.Asset!.Name).FirstOrDefault(),
-                x.Items.Select(i => i.Asset!.AssetCategory!.Code).FirstOrDefault(), x.Items.Select(i => i.Asset!.Category).FirstOrDefault(),
+                x.Items.Select(i => i.Asset!.Type == AssetType.PropertyUnit ? "PROPERTY_UNIT" : i.Asset.AssetCategory!.Code).FirstOrDefault(), x.Items.Select(i => i.Asset!.Category).FirstOrDefault(),
                 x.Charges.Any(c => c.Category == ChargeCategory.Driver || c.Category == ChargeCategory.Operator),
                 x.Items.Select(i => (DateTimeOffset?)i.StartAt).FirstOrDefault(), x.Items.Select(i => (DateTimeOffset?)i.EndAt).FirstOrDefault(),
                 x.RentalAgreement != null, x.RentalAgreement != null
@@ -104,6 +104,9 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             return BadRequest(new { message = "Complete the checklist, condition notes and at least one inspection photo." });
         if (request.MeterReading < 0 || request.FuelLevelPercent is < 0 or > 100 || request.MeterReading.HasValue && asset.CurrentMeterReading.HasValue && request.MeterReading < asset.CurrentMeterReading)
             return BadRequest(new { message = "Check the meter and fuel readings. The meter cannot decrease and fuel must be between 0 and 100 percent." });
+        var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PreHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, true, cancellationToken);
+        if (configuredError is not null) return BadRequest(new { message = configuredError });
+        await ConfiguredHireRules.CaptureIfMissing(db, booking, cancellationToken);
         var inspection = RentalInspectionPersistence.GetOrCreatePreparation(db, booking, scope.UserName);
         inspection.MeterReading = request.MeterReading;
         inspection.FuelLevelPercent = request.FuelLevelPercent;
@@ -145,9 +148,11 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             .Where(x => x.IsActive && x.AssetCategoryId == categoryId && (x.Stage == InspectionStage.PreHire || x.Stage == InspectionStage.PostHire))
             .OrderBy(x => x.Name).Select(x => new { x.Id, x.Name, x.Stage, x.ChecklistJson }).ToListAsync(cancellationToken);
         var preHire = booking.Inspections.Where(x => x.Type == InspectionType.Handover).OrderByDescending(x => x.CompletedAt).FirstOrDefault();
+        var configuration = await ConfiguredHireRules.Resolve(db, booking, cancellationToken);
         return Ok(new
         {
-            templates,
+            templates = configuration?.Templates ?? templates.Select(t => new InspectionTemplateSnapshot(t.Id, t.Name, t.Stage, t.ChecklistJson)).ToArray(),
+            tracksMeter = configuration?.TracksMeter, tracksFuel = configuration?.TracksFuel, meterUnit = configuration?.MeterUnit,
             assetCurrentMeterReading = booking.Items.FirstOrDefault()?.Asset?.CurrentMeterReading,
             preHire = preHire is null ? null : new { preHire.ConditionNotes, preHire.DamageNotes, preHire.EvidenceJson, preHire.MeterReading, preHire.FuelLevelPercent }
         });
@@ -172,6 +177,9 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (!request.IdentificationVerified || customerWillDrive && !request.DriverLicenceVerified || string.IsNullOrWhiteSpace(request.SignatureName))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Identification, driver licence and customer signature are required."] }));
 
+        var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PreHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, false, cancellationToken);
+        if (configuredError is not null) return BadRequest(new { message = configuredError });
+        await ConfiguredHireRules.CaptureIfMissing(db, booking, cancellationToken);
         db.RentalInspections.Add(CreateInspection(booking.Id, InspectionType.Handover, request, scope));
         booking.Status = BookingStatus.ConvertedToRental;
         booking.UpdatedAt = DateTimeOffset.UtcNow;
@@ -239,6 +247,8 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             return BadRequest(new { message = "The return time must be after hire starts and no later than now." });
         var calculatedLateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt, await LateFeeMultiplier(cancellationToken));
         var lateFee = request.LateFee ?? calculatedLateFee;
+        var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PostHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, false, cancellationToken);
+        if (configuredError is not null) return BadRequest(new { message = configuredError });
         var returnInspection = CreateInspection(booking.Id, InspectionType.Return, request, scope);
         returnInspection.CompletedAt = returnedAt;
         db.RentalInspections.Add(returnInspection);
@@ -273,17 +283,14 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             if (hasDamage)
                 db.MaintenanceJobs.Add(new MaintenanceJob { JobNumber = $"MNT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}", AssetId = asset.Id, BranchId = asset.BranchId, SourceType = "Damage", SourceReference = booking.BookingNumber, ReportedByName = scope.UserName, ServiceType = "Post-hire damage assessment", FaultDescription = request.DamageNotes!.Trim(), Description = $"Automatically referred from return of {booking.BookingNumber}.", Priority = MaintenancePriority.High, Status = MaintenanceStatus.Open, MeterReading = request.MeterReading });
         }
-        var rentalSubtotal = booking.Items.Sum(item => item.DailyRate * Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)));
+        var rentalSubtotal = booking.Items.Sum(item => HirePricing.Amount(item));
         var invoiceSubtotal = Math.Max(0, rentalSubtotal - booking.DiscountAmount + quotedChargeTotal + returnChargeTotal);
-        var taxableSubtotal = Math.Max(0, rentalSubtotal - booking.DiscountAmount +
+        var taxableSubtotal = Math.Max(0, booking.Items.Where(x=>x.HireIsTaxable).Sum(HirePricing.Amount) - booking.DiscountAmount +
             booking.Charges.Where(x => x.IsTaxable).Sum(x => x.Quantity * x.UnitRate) + returnChargeTotal);
         var invoiceTax = decimal.Round(taxableSubtotal * booking.TaxRate / 100m, 2);
         var paid = await db.RentalPayments.Where(x => x.BookingId == bookingId && x.Status == PaymentStatus.Recorded &&
             (x.Type == PaymentType.RentalCharge || x.Type == PaymentType.AdditionalCharge)).SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
-        var invoiceLines = new List<InvoiceLine>
-        {
-            new() { Description = "Rental charges", Quantity = 1, UnitPrice = rentalSubtotal, TaxRate = booking.TaxRate, IsTaxable = true },
-        };
+        var invoiceLines = booking.Items.Select(item => new InvoiceLine { Description = $"{item.Asset?.Name ?? "Rental"} hire ({item.HireUnit})", Quantity = HirePricing.Quantity(item), UnitPrice = item.DailyRate, TaxRate = booking.TaxRate, IsTaxable = item.HireIsTaxable }).ToList();
         if (booking.DiscountAmount > 0)
             invoiceLines.Add(new InvoiceLine { Description = "Discount", Quantity = 1, UnitPrice = -booking.DiscountAmount, TaxRate = booking.TaxRate, IsTaxable = true });
         invoiceLines.AddRange(booking.Charges.Select(x => new InvoiceLine { Description = x.Description, Quantity = x.Quantity,
@@ -338,8 +345,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
 
     private static object ToResponse(Booking booking)
     {
-        var subtotal = booking.Items.Sum(item => item.DailyRate * Math.Max(1,
-            (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays)));
+        var subtotal = booking.Items.Sum(item => HirePricing.Amount(item));
         var taxable = Math.Max(0, subtotal - booking.DiscountAmount + booking.AdditionalCharges);
         return new { booking.Id, booking.BookingNumber, booking.Status, booking.DepositRequired,
             bond = new { required = booking.DepositRequired, held = booking.BondAmountHeld, deduction = booking.BondDeductionAmount, booking.BondDeductionReason, refund = booking.BondRefundAmount, status = booking.BondStatus.ToString(), booking.BondSettledAt },

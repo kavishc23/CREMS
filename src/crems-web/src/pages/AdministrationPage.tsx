@@ -25,7 +25,7 @@ export function AdministrationPage({ userRoles }: { userRoles: string[] }) {
   if (!isSuperAdministrator) {
     return <Box>
       <Box sx={{ px: { xs: 2, sm: 3, lg: 4 }, pt: 3 }}><PageHeader icon={<ManageAccountsOutlined />} title="Staff access & activity" subtitle="Manage staff accounts, operating scope, security and role permissions." /></Box>
-      <UsersPage userRoles={userRoles} />
+      <UsersPage userRoles={userRoles} embedded />
     </Box>
   }
 
@@ -38,7 +38,7 @@ export function AdministrationPage({ userRoles }: { userRoles: string[] }) {
       <Tab label="Technicians & suppliers" />
     </Tabs>
     {tab === 2 && <MaintenanceDirectoryPage />}
-    {tab === 0 && <UsersPage userRoles={userRoles} />}
+    {tab === 0 && <UsersPage userRoles={userRoles} embedded />}
     {tab === 1 && <Box sx={{ p: { xs: 2, sm: 3, lg: 4 } }}><Typography variant="h5" fontWeight={800}>Roles and permissions</Typography><Typography color="text.secondary" mt={.5} mb={3}>Review the responsibilities and default access assigned to each staff role.</Typography><Grid container spacing={2}>{permissions.map(item => <Grid key={item.role} size={{ xs: 12, md: 6, xl: 4 }}><Card variant="outlined" sx={{ height: '100%' }}><CardContent><Stack direction="row" justifyContent="space-between" gap={1}><Typography variant="h6" fontWeight={800}>{formatRole(item.role)}</Typography><Chip size="small" label={item.scope} /></Stack><Stack component="ul" spacing={1} sx={{ pl: 2, mb: 0 }}>{item.permissions.map(permission => <Typography component="li" variant="body2" key={permission}>{permission}</Typography>)}</Stack></CardContent></Card></Grid>)}</Grid></Box>}
   </Box>
 }

@@ -17,12 +17,13 @@ public sealed class ChargeDefinitionsController(ApplicationDbContext db, Current
     public async Task<ActionResult> Get([FromQuery] Guid? divisionId, [FromQuery] Guid? serviceOfferingId, CancellationToken token)
     {
         var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid();
-        var effectiveDivision = scope.IsAdministrator ? divisionId : scope.DivisionId;
+        if (divisionId.HasValue && !scope.HasDivisionAccess(divisionId)) return Forbid();
         var query = db.ChargeDefinitions.AsNoTracking().AsQueryable();
         // Administrators need to see inactive definitions so they can restore them.
         // Operational users only receive charges that can currently be applied.
         if (!scope.IsAdministrator) query = query.Where(x => x.IsActive);
-        if (effectiveDivision.HasValue) query = query.Where(x => x.DivisionId == effectiveDivision);
+        if (!scope.IsAdministrator) query = query.Where(x => scope.DivisionIds.Contains(x.DivisionId));
+        if (divisionId.HasValue) query = query.Where(x => x.DivisionId == divisionId);
         if (serviceOfferingId.HasValue) query = query.Where(x => x.ServiceOfferingId == null || x.ServiceOfferingId == serviceOfferingId);
         return Ok(await query.OrderBy(x => x.Category).ThenBy(x => x.Name).ToListAsync(token));
     }
@@ -44,6 +45,8 @@ public sealed class ChargeDefinitionsController(ApplicationDbContext db, Current
     {
         var item = await db.ChargeDefinitions.FirstOrDefaultAsync(x => x.Id == id, token); if (item is null) return NotFound();
         var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid(); if (!await ValidScope(request.DivisionId, request.ServiceOfferingId, token)) return BadRequest();
+        if (request.DivisionId != item.DivisionId || !string.Equals(request.Code.Trim(), item.Code, StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "A charge's division and permanent code cannot change. Create a new charge and deactivate the old one instead." });
         Map(item, request); item.UpdatedAt = DateTimeOffset.UtcNow; AuditWriter.Record(db, scope, "Charge definition updated", nameof(ChargeDefinition), item.Id, $"{item.Name} rates or applicability changed.", null); await db.SaveChangesAsync(token); return Ok(item);
     }
 

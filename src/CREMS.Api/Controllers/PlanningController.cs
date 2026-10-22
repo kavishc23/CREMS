@@ -34,8 +34,8 @@ public sealed class PlanningController(ApplicationDbContext db, CurrentStaffScop
    .Select(x => new { x.AssetId, x.StartAt, x.EndAt, type = x.Booking!.Status.ToString(), reference = x.Booking.BookingNumber })
    .ToListAsync(token);
   var maintenance = await db.MaintenanceJobs.AsNoTracking().Where(x => ids.Contains(x.AssetId) &&
-   x.Status != Domain.Assets.MaintenanceStatus.Cancelled && x.ReportedAt < to && (x.CompletedAt ?? to) > from)
-   .Select(x => new { x.AssetId, startAt = x.ReportedAt, endAt = x.CompletedAt ?? to, type = "Maintenance", reference = x.JobNumber })
+   x.Status != Domain.Assets.MaintenanceStatus.Cancelled && x.ReportedAt < to && (x.ReleasedAt ?? to) > from)
+   .Select(x => new { x.AssetId, startAt = x.ReportedAt, endAt = x.ReleasedAt ?? to, type = "Maintenance", reference = x.JobNumber })
    .ToListAsync(token);
   var transfers = await db.AssetTransfers.AsNoTracking().Where(x => ids.Contains(x.AssetId) &&
    x.DepartedAt < to && (x.ReceivedAt ?? to) > from)

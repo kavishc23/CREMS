@@ -1,7 +1,12 @@
 import { Box, Button, Stack, Typography } from '@mui/material'
 
 export function RentalChecklist({items,passed,failed,onChange}:{items:string[];passed:string[];failed:string[];onChange:(passed:string[],failed:string[])=>void}) {
-  return <Stack spacing={1}>{items.map(label=>{
+  return <Stack spacing={1}>
+    <Stack direction="row" spacing={1} justifyContent="flex-end" role="group" aria-label="Set all checklist results">
+      <Button size="small" color="success" variant="outlined" disabled={items.length===0} onClick={()=>onChange([...items],[])}>Pass all</Button>
+      <Button size="small" color="error" variant="outlined" disabled={items.length===0} onClick={()=>onChange([],[...items])}>Fail all</Button>
+    </Stack>
+    {items.map(label=>{
     const status=passed.includes(label)?'Pass':failed.includes(label)?'Fail':'Pending'
     return <Box key={label} sx={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:2,p:1,border:1,borderColor:'divider',borderRadius:1}}>
       <Typography>{label}</Typography>

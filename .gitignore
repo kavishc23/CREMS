@@ -19,3 +19,4 @@ src/CREMS.Api/App_Data/customer-licences/
 .data-protection/
 *.suo
 src/CREMS.Api/App_Data/maintenance-documents/
+outputs/operational-label-backup-*.json

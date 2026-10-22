@@ -16,7 +16,7 @@ export function ToastHost() {
   }, [])
   const severity = notice?.severity ?? 'info'
   const heading = notice?.title || { success: 'All done', error: 'Needs your attention', info: 'New update' }[severity]
-  return <Snackbar key={notice?.id} open={Boolean(notice)} autoHideDuration={8000}
+  return <Snackbar key={notice?.id} open={Boolean(notice)} autoHideDuration={5000}
     onClose={(_, reason) => { if (reason !== 'clickaway') setNotice(null) }}
     anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
     sx={{ top: { xs: 72, sm: 80 }, right: { xs: 12, sm: 24 }, left: 'auto', maxWidth: 'calc(100vw - 24px)', zIndex: theme => theme.zIndex.modal + 100 }}>

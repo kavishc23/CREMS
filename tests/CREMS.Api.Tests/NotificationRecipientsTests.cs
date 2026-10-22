@@ -15,6 +15,25 @@ namespace CREMS.Api.Tests;
 
 public sealed class NotificationRecipientsTests
 {
+    [Fact]
+    public async Task Manual_message_template_is_saved_and_available_to_compose()
+    {
+        await using var db = CreateDatabase();
+        var notifications = await CreateController(db);
+        var administration = new AdministrationController(db, new CurrentStaffScope(db), null!, null!)
+        { ControllerContext = notifications.ControllerContext };
+        var token = TestContext.Current.CancellationToken;
+
+        Assert.IsType<BadRequestObjectResult>(await administration.CreateTemplate(
+            new CreateTemplateRequest("booking.confirmed", "Wrong key", "InApp", "Title", "Message", true), token));
+        Assert.IsType<OkObjectResult>(await administration.CreateTemplate(
+            new CreateTemplateRequest("manual.service-update", "Service update", "InApp", "Asset update", "Your asset is ready.", true), token));
+        var result = Assert.IsType<OkObjectResult>(await notifications.MessageTemplates(token));
+        var templates = System.Text.Json.JsonSerializer.Serialize(result.Value);
+        Assert.Contains("Service update", templates);
+        Assert.DoesNotContain("Wrong key", templates);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

@@ -99,6 +99,41 @@ public sealed class CustomerLicenceOcrTests
         Assert.Equal(expected, result.Classes);
     }
 
+    [Theory]
+    [InlineData("2", new[] { 2 })]
+    [InlineData("2,3", new[] { 2, 3 })]
+    [InlineData("2, 3", new[] { 2, 3 })]
+    public void Parses_sample_layout_without_absorbing_address_or_conditions(string value, int[] expected)
+    {
+        var result = CustomerLicenceService.Parse($"REPUBLIC OF FIJI DRIVER LICENCE\nMR. RAHUL CHAND\nLOT 31, STAGE 11A, GRANTHAM\nROAD, RAIWAQA, SUVA CITY\nLicence Number\n1060343\nDate of Birth\n23/01/2004\nFull Licence Classes\n{value}\nExpiry Date Conditions\n17/08/2027 7");
+        Assert.Equal("RAHUL CHAND", result.FullName);
+        Assert.Equal("1060343", result.LicenceNumber);
+        Assert.Equal(expected, result.Classes);
+    }
+
+    [Fact]
+    public void Falls_back_to_clear_full_card_classes_when_centre_crop_is_noisy()
+    {
+        var result = CustomerLicenceService.Parse("MR. RAHUL CHAND\nLicence Number 1060343\nFull Licence Classes\n2,3\n[[CREMS_CENTRE_BEGIN]]\nFull Licence Classes\nblurred\n[[CREMS_CENTRE_END]]");
+        Assert.Equal([2, 3], result.Classes);
+    }
+
+    [Theory]
+    [InlineData("2,3", "3", new[] { 2, 3 })]
+    [InlineData("", "2", new[] { 2 })]
+    public void Prefers_isolated_class_values_over_noisy_centre_reading(string wideValue, string tightValue, int[] expected)
+    {
+        var result = CustomerLicenceService.Parse($"MR. SAMPLE CUSTOMER\nLicence Number 1074426\n[[CREMS_CENTRE_BEGIN]]\n7\n[[CREMS_CENTRE_END]]\n[[CREMS_CLASS_VALUE_BEGIN]]\n{wideValue}\n[[CREMS_PASS_BREAK]]\n{tightValue}\n[[CREMS_CLASS_VALUE_END]]");
+        Assert.Equal(expected, result.Classes);
+    }
+
+    [Fact]
+    public void Does_not_use_a_centre_digit_when_isolated_value_crops_are_unreadable()
+    {
+        var result = CustomerLicenceService.Parse("MR. SAMPLE CUSTOMER\nLicence Number 1074426\n[[CREMS_CENTRE_BEGIN]]\n7\n[[CREMS_CENTRE_END]]\n[[CREMS_CLASS_VALUE_BEGIN]]\n[[CREMS_CLASS_VALUE_END]]", allowMissingClasses: true);
+        Assert.Empty(result.Classes);
+    }
+
     [Fact]
     public void Does_not_treat_a_conditions_number_as_a_licence_class_when_the_class_is_unreadable()
     {

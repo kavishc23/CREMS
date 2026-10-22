@@ -23,6 +23,11 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
     [HttpPost("api/customer-account/notifications/read"), Authorize(Policy = SystemPolicies.CustomerPortal)]
     public Task<ActionResult> CustomerRead(ReadNotifications request, CancellationToken token) => Read(true, request, token);
 
+    [HttpGet("api/notifications/message-templates"), Authorize(Policy = SystemPolicies.StaffPortal)]
+    public async Task<ActionResult> MessageTemplates(CancellationToken token) => Ok(await db.NotificationTemplates.AsNoTracking()
+        .Where(x => x.IsActive && x.Key.StartsWith("manual.")).OrderBy(x => x.Name)
+        .Select(x => new { x.Id, x.Name, x.Channel, x.Subject, x.Body }).ToListAsync(token));
+
     private async Task<IQueryable<InAppNotification>> Visible(ApplicationUser user, bool customer, bool history = false)
     {
         var since = DateTimeOffset.UtcNow.AddDays(-90);

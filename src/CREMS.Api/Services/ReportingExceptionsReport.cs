@@ -47,9 +47,9 @@ public static class ReportingExceptionsReport
                 ReturnAt = x.Items.Max(i => i.EndAt) }).ToListAsync(token);
         var selectedBookingIds = bookings.Select(x => x.Id).ToArray();
         var bookedItems = await db.BookingItems.AsNoTracking().Where(x => selectedBookingIds.Contains(x.BookingId))
-            .Select(x => new { x.BookingId, x.DailyRate, x.StartAt, x.EndAt }).ToListAsync(token);
+            .Select(x => new { x.BookingId, x.DailyRate, x.HireQuantity, x.StartAt, x.EndAt }).ToListAsync(token);
         var bookedValues = bookedItems.GroupBy(x => x.BookingId).ToDictionary(x => x.Key,
-            x => x.Sum(i => i.DailyRate * Math.Max(1, (decimal)Math.Ceiling((i.EndAt - i.StartAt).TotalDays))));
+            x => x.Sum(i => i.DailyRate * (i.HireQuantity ?? Math.Max(1, (decimal)Math.Ceiling((i.EndAt - i.StartAt).TotalDays)))));
         foreach (var booking in bookings)
         {
             var url = "/staff/rentals?bookingId=" + booking.Id;

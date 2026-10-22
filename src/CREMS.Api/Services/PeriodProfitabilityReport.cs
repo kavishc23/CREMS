@@ -28,9 +28,9 @@ public static class PeriodProfitabilityReport
                 x.Items.Any(i => visible.Contains(i.AssetId)))
             .Select(x => x.Id).ToListAsync(token);
         var items = await db.BookingItems.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId))
-            .Select(x => new { x.BookingId, x.AssetId, x.StartAt, x.EndAt, x.DailyRate }).ToListAsync(token);
+            .Select(x => new { x.BookingId, x.AssetId, x.StartAt, x.EndAt, x.DailyRate, x.HireQuantity }).ToListAsync(token);
         var weights = items.GroupBy(x => x.BookingId).ToDictionary(g => g.Key, g => g.GroupBy(i => i.AssetId)
-            .ToDictionary(a => a.Key, a => a.Sum(i => Math.Max(0, i.DailyRate * Math.Max(1, (decimal)Math.Ceiling((i.EndAt - i.StartAt).TotalDays))))));
+            .ToDictionary(a => a.Key, a => a.Sum(i => Math.Max(0, i.DailyRate * (i.HireQuantity ?? Math.Max(1, (decimal)Math.Ceiling((i.EndAt - i.StartAt).TotalDays)))))));
         var invoices = await db.RentalInvoices.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId) &&
             x.Status != InvoiceStatus.Voided && x.Status != InvoiceStatus.Draft && x.IssuedAt >= start && x.IssuedAt < end)
             .Select(x => new { x.Id, x.BookingId, x.IssuedAt, x.Subtotal }).ToListAsync(token);

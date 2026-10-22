@@ -3,7 +3,6 @@ import { Box, CircularProgress } from '@mui/material'
 import { useAuth } from './auth/AuthContext'
 import { canAccessPage, type AppPage } from './auth/access'
 import { AppShell } from './layout/AppShell'
-import { isPageEnabledForDemo } from './config/demoMode'
 import { api } from './api/client'
 
 const staffRoutes: Record<AppPage, string> = {
@@ -22,10 +21,12 @@ const staffRoutes: Record<AppPage, string> = {
   customerAccounts: '/staff/customer-accounts',
   branches: '/staff/branches',
   divisions: '/staff/organization',
-  configuration: '/staff/configuration',
+  configuration: '/staff/organization',
+  systemHealth: '/staff/system-health',
 }
 
 function staffPageFromPath(pathname: string): AppPage | null {
+  if (pathname === '/staff/configuration') return 'divisions'
   const match = Object.entries(staffRoutes).find(([, path]) => path === pathname)
   return match?.[0] as AppPage | undefined ?? null
 }
@@ -54,8 +55,8 @@ const PlanningCalendarPage = lazy(() => import('./pages/PlanningCalendarPage').t
 const ManagementPage = lazyNamed(() => import('./pages/ManagementPage'), 'ManagementPage')
 const FinancePage = lazyNamed(() => import('./pages/FinancePage'), 'FinancePage')
 const AssetQrPage = lazyNamed(() => import('./pages/AssetQrPage'), 'AssetQrPage')
+const SystemHealthPage = lazy(() => import('./pages/SystemHealthPage').then(module => ({ default: module.SystemHealthPage })))
 const OrganizationWorkspacePage = lazy(() => import('./pages/OrganizationWorkspacePage').then(module => ({ default: module.OrganizationWorkspacePage })))
-const SystemConfigurationPage = lazyNamed(() => import('./pages/SystemConfigurationPage'), 'SystemConfigurationPage')
 const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(module => ({ default: module.CustomerPortalPage })))
 
 function LoadingScreen() {
@@ -112,7 +113,7 @@ export default function App() {
   useEffect(() => {
     if (checkingSession || !user || user.roles.includes('Customer') || !staffView) return
     const requestedPage = staffPageFromPath(window.location.pathname) ?? 'dashboard'
-    const allowedPage = canAccessPage(user.roles, requestedPage) && isPageEnabledForDemo(requestedPage)
+    const allowedPage = canAccessPage(user.roles, requestedPage)
       ? requestedPage
       : 'dashboard'
     // Synchronize authenticated application state with the requested browser route.
@@ -160,7 +161,7 @@ export default function App() {
 
   if (user.mustChangePassword) return <Suspense fallback={<LoadingScreen />}><ChangePasswordPage /></Suspense>
 
-  const activePage = canAccessPage(user.roles, page) && isPageEnabledForDemo(page) ? page : 'dashboard'
+  const activePage = canAccessPage(user.roles, page) ? page : 'dashboard'
   const content = activePage === 'dashboard'
     ? <DashboardPage userName={user.fullName || user.email} userRoles={user.roles} onNavigate={navigateStaff} />
     : activePage === 'assets' ? <AssetsPage userRoles={user.roles} />
@@ -175,8 +176,8 @@ export default function App() {
     : activePage === 'reports' ? <ReportsPage />
     : activePage === 'users' ? <AdministrationPage userRoles={user.roles} />
     : activePage === 'customerAccounts' ? <CustomerAccountsPage />
-    : activePage === 'divisions' ? <OrganizationWorkspacePage userRoles={user.roles} />
-    : activePage === 'configuration' ? <SystemConfigurationPage />
+    : activePage === 'systemHealth' ? <SystemHealthPage />
+    : activePage === 'divisions' || activePage === 'configuration' ? <OrganizationWorkspacePage userRoles={user.roles} />
     : <BranchesPage userRoles={user.roles} />
 
   return <AppShell activePage={activePage} onNavigate={navigateStaff} userName={user.fullName || user.email} userRoles={user.roles} divisionName={user.divisionName} branchName={user.branchName} onLogout={logoutStaff}>

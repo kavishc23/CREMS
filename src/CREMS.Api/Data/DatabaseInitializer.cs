@@ -51,7 +51,7 @@ public static class DatabaseInitializer
                  asset.Division != null && asset.Division.Code == "SHIPPING" &&
                  asset.Division.IsActive && asset.Division.IsPublic &&
                  asset.ServiceOffering != null && asset.ServiceOffering.IsActive &&
-                 (asset.ServiceOffering.IsBookableOnline || asset.ServiceOffering.RequiresQuote) &&
+                 asset.ServiceOffering.IsBookableOnline &&
                  db.BranchDivisions.Any(link => link.BranchId == asset.BranchId &&
                      link.DivisionId == asset.DivisionId && link.IsActive) &&
                  db.BranchDivisionServices.Any(link => link.BranchId == asset.BranchId &&
@@ -224,13 +224,13 @@ public static class DatabaseInitializer
             new DivisionSeed("MOTORS", "Carpenters Motors & Rentals", "Vehicle rental, fleet operations, servicing and parts.", DivisionCapabilities.Rental | DivisionCapabilities.Maintenance,
                 new[] { new ServiceSeed("VEHICLE_RENTAL", "Vehicle rental", ServiceOfferingType.VehicleRental, PersonnelRequirement.None, true, false) }),
             new DivisionSeed("CARPTRAC", "Carptrac", "Caterpillar construction equipment, forklifts, power generation and technical support.", DivisionCapabilities.Maintenance | DivisionCapabilities.PersonnelSupportedHire,
-                new[] { new ServiceSeed("EQUIPMENT_HIRE", "Equipment hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.Optional, false, true, ChargeUnit.Day, true) }),
+                new[] { new ServiceSeed("EQUIPMENT_HIRE", "Equipment hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.Optional, true, true, ChargeUnit.Day, true) }),
             new DivisionSeed("SHIPPING", "Carpenters Shipping", "Portable toilets, scaffolding and big-bin hire with delivery and collection support.", DivisionCapabilities.Rental | DivisionCapabilities.Logistics | DivisionCapabilities.Maintenance,
                 new[]
                 {
-                    new ServiceSeed("PORTABLE_TOILET_HIRE", "Portable toilet hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.None, false, true, ChargeUnit.Unit, true),
-                    new ServiceSeed("SCAFFOLDING_HIRE", "Scaffolding hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.Optional, false, true, ChargeUnit.SquareMetre, true),
-                    new ServiceSeed("BIG_BIN_HIRE", "Big-bin hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.None, false, true, ChargeUnit.Unit, true),
+                    new ServiceSeed("PORTABLE_TOILET_HIRE", "Portable toilet hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.None, true, true, ChargeUnit.Unit, true),
+                    new ServiceSeed("SCAFFOLDING_HIRE", "Scaffolding hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.Optional, true, true, ChargeUnit.SquareMetre, true),
+                    new ServiceSeed("BIG_BIN_HIRE", "Big-bin hire", ServiceOfferingType.EquipmentHire, PersonnelRequirement.None, true, true, ChargeUnit.Unit, true),
                 }),
         };
         foreach (var seed in divisionSeeds)
@@ -240,7 +240,14 @@ public static class DatabaseInitializer
             if (division is null)
             {
                 division = new Division { Code = seed.Code, Name = seed.Name, Description = seed.Description,
-                    Capabilities = seed.Capabilities, IsPublic = true, IsActive = true };
+                    Capabilities = seed.Capabilities, IsPublic = true, IsActive = true,
+                    CustomerBookingConfigurationJson = seed.Code switch
+                    {
+                        "MOTORS" => new DivisionBookingFlow(PersonnelRequirement.Optional).ToJson(),
+                        "CARPTRAC" => new DivisionBookingFlow(PersonnelRequirement.Optional, QuoteMode: "Always").ToJson(),
+                        "SHIPPING" => new DivisionBookingFlow(QuoteMode: "Always").ToJson(),
+                        _ => new DivisionBookingFlow().ToJson(),
+                    } };
                 db.Divisions.Add(division);
             }
             else if (seed.Code == "SHIPPING")
@@ -567,7 +574,9 @@ public static class DatabaseInitializer
                 existingAsset.RequiresDelivery = existingCategoryCode != "RENTAL_VEHICLE";
                 continue;
             }
-            if (!existingAssets.TryGetValue(seed.AssetNumber, out var asset))
+            existingAssets.TryGetValue(seed.AssetNumber, out var asset);
+            var isNewAsset = asset is null;
+            if (asset is null)
             {
                 asset = new Asset { AssetNumber = seed.AssetNumber, Name = seed.Name, RequiresDelivery = seed.Type != AssetType.Vehicle };
                 db.Assets.Add(asset);
@@ -589,6 +598,8 @@ public static class DatabaseInitializer
                   seed.Name.Contains("Telehandler", StringComparison.OrdinalIgnoreCase) ? "HEAVY_MACHINE"
                 : "GENERAL_EQUIPMENT";
             asset.AssetCategoryId = categories[categoryCode].Id;
+            if (isNewAsset && categories[categoryCode].PersonnelRequirement != DivisionBookingFlow.For(divisions[seed.Type == AssetType.Vehicle ? "MOTORS" : isShippingAsset ? "SHIPPING" : "CARPTRAC"]).PersonnelRequirement)
+                asset.PersonnelOverride = categories[categoryCode].PersonnelRequirement;
             asset.Type = categoryCode switch
             {
                 "RENTAL_VEHICLE" when seed.Name.Contains("Urvan") || seed.Name.Contains("Crew Cab") || seed.Name.Contains("Coach") || seed.Name.Contains("Navara") || seed.Name.Contains("D-Max") => AssetType.CommercialVehicle,

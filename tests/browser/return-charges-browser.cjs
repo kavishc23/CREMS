@@ -27,7 +27,7 @@ const {default:React}=await import('/node_modules/.vite/deps/react.js');const {d
       const next = () => page.getByRole('button', { name: 'Continue', exact: true }).click();
       await page.getByLabel('Scan or enter returned asset QR number').fill('TEST-ASSET');
       await next(); await next();
-      await page.getByRole('button', { name: 'Check all checklist items' }).click();
+      await page.getByRole('button', { name: 'Pass all', exact:true }).click();
       await page.getByLabel('Post-hire inspection result').fill('Returned intact');
       await page.getByLabel('Inspection photo files').setInputFiles('src/crems-web/public/catalog/sedan.jpg');
       await page.getByAltText('Inspection photo 1', { exact: true }).waitFor();
