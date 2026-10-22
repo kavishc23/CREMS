@@ -24,9 +24,9 @@ public sealed class OperatingConfigurationController(ApplicationDbContext db, Cu
             exceptions = db.BranchCalendarExceptions.Where(p => p.BranchId == x.BranchId && p.Date >= DateOnly.FromDateTime(DateTime.UtcNow)).OrderBy(p => p.Date).Select(p => new { p.Date, p.Name, p.IsClosed }).Take(20).ToList(),
             services = db.BranchDivisionServices.Where(b => b.BranchId == x.BranchId && b.DivisionId == x.DivisionId && b.IsActive)
                 .Join(db.ServiceOfferings.Where(s => s.IsActive), b => b.ServiceOfferingId, s => s.Id, (b, s) => new {
-                    s.Id, s.Code, s.Name, b.IsBookable, s.RequiresDelivery, s.MeterType, s.RequiredDocumentsJson, s.MaintenanceRulesJson,
-                    categories = db.AssetCategories.Where(c => c.ServiceOfferingId == s.Id && c.IsActive).OrderBy(c => c.Name).Select(c => new {
-                        c.Name, c.Code, fields = c.AttributeDefinitions.OrderBy(a => a.DisplayOrder).Select(a => new { a.Name, a.IsRequired }).ToList(),
+                    s.Id, s.Code, s.Name, s.Type, s.DefaultHireUnit, s.PersonnelRequirement, b.IsBookable, s.RequiresDelivery, s.MeterType, s.RequiredDocumentsJson, s.MaintenanceRulesJson,
+                    categories = db.AssetCategories.Where(c => c.DivisionId == x.DivisionId && (c.ServiceOfferingId == s.Id || c.ServiceOfferingId == null) && c.IsActive).OrderBy(c => c.Name).Select(c => new {
+                        c.Id, c.Name, c.Code, c.DefaultAssetType, c.DefaultMeterType, fields = c.AttributeDefinitions.OrderBy(a => a.DisplayOrder).Select(a => new { a.Name, a.IsRequired }).ToList(),
                         templates = db.InspectionTemplates.Where(t => t.AssetCategoryId == c.Id && t.IsActive && (t.Stage == Domain.Assets.InspectionStage.PreHire || t.Stage == Domain.Assets.InspectionStage.PostHire)).OrderBy(t => t.Name).Select(t => new { t.Name, t.Stage, t.ChecklistJson }).ToList() }).ToList() }).ToList()
         }).ToListAsync(token);
         return Ok(links.Select(x => new { x.BranchId, x.DivisionId, x.branchName, x.divisionName, x.AcceptsBookings, x.PickupInstructions, x.ReturnInstructions, x.periods, x.exceptions,

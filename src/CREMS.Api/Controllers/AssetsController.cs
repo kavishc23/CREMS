@@ -350,8 +350,12 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
     private async Task<bool> ValidClassification(SaveAssetRequest request, CancellationToken token)
     {
         if (!request.DivisionId.HasValue) return false;
-        if (request.ServiceOfferingId.HasValue && !await db.BranchDivisionServices.AnyAsync(x => x.BranchId == request.BranchId && x.DivisionId == request.DivisionId && x.ServiceOfferingId == request.ServiceOfferingId && x.IsActive, token)) return false;
-        if (request.AssetCategoryId.HasValue && !await db.AssetCategories.AnyAsync(x => x.Id == request.AssetCategoryId && x.DivisionId == request.DivisionId && x.IsActive && (!request.ServiceOfferingId.HasValue || (!x.ServiceOfferingId.HasValue || x.ServiceOfferingId == request.ServiceOfferingId)), token)) return false;
+        var category = request.AssetCategoryId.HasValue ? await db.AssetCategories.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.AssetCategoryId && x.DivisionId == request.DivisionId && x.IsActive, token) : null;
+        if (request.AssetCategoryId.HasValue && category is null) return false;
+        if (category?.ServiceOfferingId is Guid categoryService && request.ServiceOfferingId.HasValue && request.ServiceOfferingId != categoryService) return false;
+        var effectiveService = request.ServiceOfferingId ?? category?.ServiceOfferingId;
+        if (effectiveService.HasValue && !await db.BranchDivisionServices.AnyAsync(x => x.BranchId == request.BranchId && x.DivisionId == request.DivisionId && x.ServiceOfferingId == effectiveService && x.IsActive, token)) return false;
+        if (effectiveService.HasValue && !await db.ServiceOfferings.AnyAsync(x => x.Id == effectiveService && x.IsActive && x.DivisionId == request.DivisionId, token)) return false;
         return true;
     }
 

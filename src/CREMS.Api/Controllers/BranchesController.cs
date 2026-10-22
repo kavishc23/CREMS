@@ -38,6 +38,8 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
         if (request.DivisionIds is null || request.DivisionIds.Count == 0 ||
             await db.Divisions.CountAsync(x => request.DivisionIds.Contains(x.Id) && x.IsActive, cancellationToken) != request.DivisionIds.Distinct().Count())
             return BadRequest(new { message = "Select at least one active business/division for this branch." });
+        if (request.ServiceOfferingIds is not null && await db.ServiceOfferings.CountAsync(x => request.ServiceOfferingIds.Contains(x.Id) && x.IsActive && request.DivisionIds!.Contains(x.DivisionId), cancellationToken) != request.ServiceOfferingIds.Distinct().Count())
+            return BadRequest(new { message = "Choose active services belonging to the branch divisions." });
         var code = request.Code.Trim().ToUpperInvariant();
         if (await db.Branches.AnyAsync(branch => branch.Code == code, cancellationToken))
         {
@@ -57,6 +59,7 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
         db.Branches.Add(branch);
         foreach (var divisionId in request.DivisionIds ?? [])
             branch.Divisions.Add(new BranchDivision { DivisionId = divisionId, IsActive = true });
+        await SyncBranchServices(branch.Id, request.DivisionIds!, request.ServiceOfferingIds, cancellationToken);
         var scope = await staffScope.GetAsync(User);
         if (scope is not null) AuditWriter.Record(db, scope, "Branch created", "Branch", branch.Id,
             $"{branch.Code} — {branch.Name} was created.", branch.Id);
@@ -80,6 +83,9 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
             await db.Divisions.CountAsync(x => request.DivisionIds.Contains(x.Id) && x.IsActive, cancellationToken) != request.DivisionIds.Distinct().Count())
             return BadRequest(new { message = "Select active businesses/divisions for this branch." });
 
+        if (request.ServiceOfferingIds is not null && (request.DivisionIds is null || !scope.IsAdministrator)) return BadRequest(new { message = "Only administrators can change operating services." });
+        if (request.ServiceOfferingIds is not null && await db.ServiceOfferings.CountAsync(x => request.ServiceOfferingIds.Contains(x.Id) && x.IsActive && request.DivisionIds!.Contains(x.DivisionId), cancellationToken) != request.ServiceOfferingIds.Distinct().Count())
+            return BadRequest(new { message = "Choose active services belonging to the branch divisions." });
         var code = scope.IsAdministrator ? request.Code.Trim().ToUpperInvariant() : branch.Code;
         if (await db.Branches.AnyAsync(other => other.Id != id && other.Code == code, cancellationToken))
         {
@@ -99,6 +105,7 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
             foreach (var divisionId in request.DivisionIds.Where(divisionId => existing.All(x => x.DivisionId != divisionId)))
                 db.BranchDivisions.Add(new BranchDivision { BranchId = id, DivisionId = divisionId, IsActive = true });
         }
+        if (scope.IsAdministrator && request.DivisionIds is not null) await SyncBranchServices(branch.Id, request.DivisionIds, request.ServiceOfferingIds, cancellationToken);
         AuditWriter.Record(db, scope, "Branch updated", "Branch", branch.Id,
             $"{branch.Code} contact details were updated.", branch.Id);
         await db.SaveChangesAsync(cancellationToken);
@@ -122,6 +129,23 @@ public sealed class BranchesController(ApplicationDbContext db, CurrentStaffScop
             $"{branch.Code} active={request.IsActive}.", branch.Id);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToResponse(branch));
+    }
+
+    private async Task SyncBranchServices(Guid branchId, IReadOnlyCollection<Guid> divisionIds, IReadOnlyCollection<Guid>? serviceIds, CancellationToken token)
+    {
+        var existing = await db.BranchDivisionServices.Where(x => x.BranchId == branchId).ToListAsync(token);
+        foreach (var link in existing)
+        {
+            if (!divisionIds.Contains(link.DivisionId) || serviceIds is not null && !serviceIds.Contains(link.ServiceOfferingId)) { link.IsActive = false; link.IsBookable = false; }
+            else if (serviceIds is not null) { link.IsActive = true; }
+        }
+        if (serviceIds is null) return;
+        var services = await db.ServiceOfferings.Where(x => serviceIds.Contains(x.Id)).ToListAsync(token);
+        foreach (var service in services)
+        {
+            var link = existing.FirstOrDefault(x => x.ServiceOfferingId == service.Id);
+            if (link is null) db.BranchDivisionServices.Add(new BranchDivisionService { BranchId = branchId, DivisionId = service.DivisionId, ServiceOfferingId = service.Id, IsActive = true, IsBookable = service.IsBookableOnline });
+        }
     }
 
     private static string? Normalize(string? value) =>
@@ -251,7 +275,7 @@ public sealed record SaveBranchRequest(
     [Required, MaxLength(150)] string Name,
     [MaxLength(500)] string? Address,
     [MaxLength(50)] string? Phone,
-    IReadOnlyCollection<Guid>? DivisionIds = null, string? PostalAddress = null, string? Email = null, decimal? Latitude = null, decimal? Longitude = null, Guid? BranchManagerUserId = null, string? PickupInstructions = null, string? ReturnInstructions = null, string? DeliveryCoverage = null, bool IsPublic = true);
+    IReadOnlyCollection<Guid>? DivisionIds = null, string? PostalAddress = null, string? Email = null, decimal? Latitude = null, decimal? Longitude = null, Guid? BranchManagerUserId = null, string? PickupInstructions = null, string? ReturnInstructions = null, string? DeliveryCoverage = null, bool IsPublic = true, IReadOnlyCollection<Guid>? ServiceOfferingIds = null);
 public sealed record SetBranchStatusRequest(bool IsActive);
 public sealed record BranchResponse(
     Guid Id, string Code, string Name, string? Address, string? Phone, bool IsActive, IReadOnlyCollection<Guid> DivisionIds, string? PostalAddress, string? Email, decimal? Latitude, decimal? Longitude, Guid? BranchManagerUserId, string? PickupInstructions, string? ReturnInstructions, string? DeliveryCoverage, bool IsPublic);

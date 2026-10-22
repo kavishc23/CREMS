@@ -182,6 +182,30 @@ public sealed class OrganizationSetupTests
         Assert.Equal(division.Id, json.RootElement[0].GetProperty("divisionId").GetGuid());
     }
 
+
+    [Fact]
+    public async Task Branch_creation_saves_selected_services_atomically_and_rejects_unrelated_services()
+    {
+        await using var f = await Fixture.Create();
+        await f.Controller.Save(f.NewSetup(), Token);
+        var division = await f.Db.Divisions.SingleAsync(Token);
+        var service = await f.Db.ServiceOfferings.SingleAsync(Token);
+        var admin = await f.Db.Users.SingleAsync(Token);
+        var controller = new BranchesController(f.Db, new CurrentStaffScope(f.Db)) { ControllerContext = Context(admin, SystemRoles.SuperAdministrator) };
+        var request = new SaveBranchRequest("NEW", "New location", null, null, [division.Id], ServiceOfferingIds: [service.Id]);
+        Assert.IsType<CreatedAtActionResult>((await controller.Create(request, Token)).Result);
+        var branch = await f.Db.Branches.SingleAsync(x => x.Code == "NEW", Token);
+        var link = await f.Db.BranchDivisionServices.SingleAsync(x => x.BranchId == branch.Id, Token);
+        Assert.Equal(service.Id, link.ServiceOfferingId);
+        Assert.True(link.IsActive);
+        Assert.True(link.IsBookable);
+        Assert.IsType<BadRequestObjectResult>((await controller.Create(request with { Code = "BAD", ServiceOfferingIds = [Guid.NewGuid()] }, Token)).Result);
+        Assert.False(await f.Db.Branches.AnyAsync(x => x.Code == "BAD", Token));
+        Assert.IsType<OkObjectResult>((await controller.Update(branch.Id, request with { ServiceOfferingIds = [] }, Token)).Result);
+        Assert.False(link.IsActive);
+        Assert.False(link.IsBookable);
+    }
+
     private static string Checklist(string check) => JsonSerializer.Serialize(new[] { new { section = "Condition", items = new[] { new { label = check } } } });
     private static ControllerContext Context(ApplicationUser user, string role) => new() { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), new Claim(ClaimTypes.Role, role)], "test")) } };
     private sealed class AllowAuthorization : Microsoft.AspNetCore.Authorization.IAuthorizationService

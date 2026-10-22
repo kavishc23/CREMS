@@ -4,7 +4,7 @@ Implemented on `configurable-system-settings-enhancements` in `C:\Users\jaysh\Do
 
 ## Staff experience
 
-Organization & settings retains its existing structure and features:
+Organization & settings uses one grouped settings menu (a single selector on phones), with one page heading and compact section headings. Existing features remain available:
 
 - Business setup: divisions and services, branches, branch operations, asset categories.
 - Booking & pricing: division booking policies, fees and charges, approval rules, rental defaults and retention review.
@@ -19,6 +19,14 @@ Add business / division and Configure division open the five-step guided setup:
 3. Calendar and usage-based preventive maintenance intervals.
 4. Category asset types, custom asset fields and separate pre-hire / post-hire inspection templates.
 5. Review, existing division financial defaults and terms, and save.
+
+Setup uses a fixed step menu and expandable task panels. Category editing shows one category at a time, with separate Details, Fields, and Handover & return panels; individual field definitions expand for editing. The footer stays visible while only the active workspace scrolls.
+
+Branch creation/editing includes the operating services and shows the categories inherited from each service. Branch details and selected service links save together; removing a division disables its branch services. Existing online-request settings are preserved when editing service assignments. Services & hours opens that location's existing operating calendar.
+
+Asset registration uses four short screens: identity and location, specifications, hire and maintenance, and ownership/review. Authorized staff receive branch options from their scoped operating context. Selecting a division/branch/service selects the applicable category, asset type, meter and billing defaults. Vehicle-only fields are hidden for properties, bins and other unpowered assets. Configured chassis/engine/serial/registration fields replace duplicate built-in controls and synchronize their values to the existing asset identifiers. Existing custom values load during edits. Category type can be set in both category editors.
+
+Staff dashboards show their configured services and asset categories, refresh on window focus/configuration changes, and link to the scoped asset register. Existing asset creation permissions are unchanged.
 
 Templates cover vehicles, heavy machinery, generators, forklifts, scaffolding, waste bins, portable toilets, property spaces and ICT / engineering equipment. They create configuration, not fictional operational assets. Category default asset types prevent a new equipment category from inheriting the asset register's vehicle default.
 
@@ -74,6 +82,6 @@ Existing bookings and categories remain valid without backfilling or recreating 
 
 Run the focused SQL test with `CREMS_RUN_ORGANIZATION_SQL_TESTS=1` and a securely configured `CREMS_TEST_SQL_CONNECTION`, or the existing API user-secret connection. No email delivery workers run in that test host.
 
-Run `tests/browser/configurable-organization-browser.cjs` against Vite with `CREMS_TEST_URL` and, if needed, `PLAYWRIGHT_MODULE`. These browser fixtures intercept API writes; the separate SQL/HTTP suite verifies persistence and permissions.
+Run `tests/browser/configurable-organization-browser.cjs` and `tests/browser/configured-asset-entry-browser.cjs` against Vite with `CREMS_TEST_URL` and, if needed, `PLAYWRIGHT_MODULE`. These browser fixtures intercept API writes; the separate SQL/HTTP suite verifies persistence and permissions.
 
 This extends the existing asset-backed hire system. Configuring a merchant does not introduce a banking, retail point-of-sale, or standalone financial-services module.
