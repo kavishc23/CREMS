@@ -7,6 +7,7 @@ import RefreshOutlined from '@mui/icons-material/RefreshOutlined'
 import FilterListOutlined from '@mui/icons-material/FilterListOutlined'
 import { Alert, Autocomplete, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Checkbox, Divider, Grid, InputAdornment, MenuItem, Popover, Stack, Tab, Tabs, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination, TextField, Typography } from '@mui/material'
 import { api } from '../api/client'
+import { PageHeader } from '../components/PageHeader'
 import { MaintenanceStatusDisplay } from './maintenance/MaintenanceStatusDisplay'
 import { MaintenanceServicePlan } from './maintenance/MaintenanceServicePlan'
 import { MaintenanceWorkspace } from './maintenance/MaintenanceWorkspace'
@@ -62,10 +63,7 @@ export function MaintenancePage() {
   const primaryAction = (job: Job) => closed(job) ? job.releasedAt ? 'View history' : 'Safety check' : job.status === 'Open' ? 'Plan work' : 'Continue work'
   const openCreate = (asset: Asset | null = null) => { setInitialAsset(asset); setCreating(true) }
   return <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 1680, mx: 'auto', minWidth: 0 }}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} justifyContent="space-between" alignItems={{ sm: 'center' }} mb={3}>
-      <Box><Typography variant="overline" color="text.secondary">Asset operations</Typography><Typography variant="h4">Maintenance</Typography><Typography color="text.secondary" mt={.5}>Plan the work. Record the repair. Verify the asset is safe to hire.</Typography></Box>
-      <Stack direction="row" gap={1}><Button startIcon={<RefreshOutlined />} onClick={refresh}>Refresh</Button><Button startIcon={<AddOutlined />} variant="contained" onClick={() => openCreate()} disabled={!register}>Log maintenance job</Button></Stack>
-    </Stack>
+    <PageHeader icon={<BuildOutlined />} title="Maintenance" subtitle="Plan service, record repairs and verify each asset is safe to hire." actions={<Stack direction="row" gap={1}><Button startIcon={<RefreshOutlined />} onClick={refresh}>Refresh</Button><Button startIcon={<AddOutlined />} variant="contained" onClick={() => openCreate()} disabled={!register}>Log maintenance job</Button></Stack>} />
     {notice && <Alert severity="success" onClose={() => setNotice('')} sx={{ mb: 2 }}>{notice}</Alert>}
     {error && <Alert severity="error" action={<Button color="inherit" onClick={refresh}>Retry</Button>} sx={{ mb: 2 }}>{error}</Alert>}
     <Grid container spacing={1.5} mb={2.5}>{[

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined'
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined'
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, FormControl, Grid, InputLabel, MenuItem, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, Tabs, TextField, Typography } from '@mui/material'
+import FilterListOutlined from '@mui/icons-material/FilterListOutlined'
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, CircularProgress, FormControl, Grid, InputLabel, MenuItem, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, Tabs, TextField, Typography } from '@mui/material'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
 import { ReportButton } from '../components/ReportButton'
@@ -34,7 +35,7 @@ export function ReportsPage(){
   const [data,setData]=useState<Workspace|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState('')
   const [profitability,setProfitability]=useState<Profitability|null>(null)
   const [management,setManagement]=useState<Management|null>(null),[audit,setAudit]=useState<Audit[]>([])
-  const [tab,setTab]=useState(0),[page,setPage]=useState(0),[search,setSearch]=useState('')
+  const [tab,setTab]=useState(1),[page,setPage]=useState(0),[search,setSearch]=useState(''),[filtersOpen,setFiltersOpen]=useState(false)
   const load=useCallback(async (selection:Filters)=>{
     if(selection.from>selection.to){setError('The start date must be on or before the end date.');return}
     setLoading(true);setError('')
@@ -68,18 +69,20 @@ export function ReportsPage(){
   const profitRows=profitability?.assets.filter(x=>data?.assets.some(asset=>asset.id===x.id))??[]
   const rows=useMemo(()=>(tab===1?data?.assets:tab===2?data?.bookings:tab===3?data?.invoices:tab===4?data?.payments:tab===5?data?.maintenance:tab===6?data?.periodProfitability.assets:tab===7?data?.historicalUtilization.assets:tab===8?data?.exceptions.rows:tab===9?profitRows:[])?.filter(row=>!term||Object.values(row).some(value=>String(value??'').toLowerCase().includes(term)))??[],[data,tab,term,profitRows])
   const reportForTab=reports[tab===0?0:tab===1?1:tab===2?2:tab===3||tab===4?3:tab===5?4:tab===6?5:tab===7?6:tab===8?7:8]
+  const extraFilterCount=[applied.bookingStatus,applied.invoiceStatus,applied.paymentMethod,applied.maintenanceStatus].filter(Boolean).length
   return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1600,mx:'auto'}}>
     <PageHeader icon={<AssessmentOutlined/>} title="Reports & performance" subtitle="Management reporting from scoped CREMS records, with consistent dates and exportable detail." actions={data?<ReportButton label="Export report" reports={reportForTab?[reportForTab,...reports.filter(x=>x!==reportForTab)]:reports}/>:undefined}/>
     {error&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
-    <Card variant="outlined" sx={{mb:2.5,borderTop:4,borderTopColor:'secondary.main'}}><CardContent sx={{p:{xs:2,md:3}}}>
-      <Typography variant="h6" fontWeight={800}>Report filters</Typography><Typography variant="body2" color="text.secondary" mb={2}>Choose a Fiji reporting period and operating scope. Apply filters to refresh every section.</Typography>
+    <Accordion expanded={filtersOpen} onChange={(_,expanded)=>setFiltersOpen(expanded)} sx={{mb:2.5,borderTop:4,borderTopColor:'secondary.main','&:before':{display:'none'}}}>
+      <AccordionSummary expandIcon={<FilterListOutlined/>} aria-controls="report-filters" id="report-filter-heading"><Box><Typography variant="h6" fontWeight={800}>Report filters</Typography><Typography variant="body2" color="text.secondary">{applied.from} – {applied.to} · {scope}{extraFilterCount>0?' · Status filters applied':''}</Typography></Box></AccordionSummary>
+      <AccordionDetails id="report-filters" sx={{pt:0,pb:2.5}}><Typography variant="body2" color="text.secondary" mb={2}>Choose a Fiji reporting period and operating scope, then apply your changes.</Typography>
       <Grid container spacing={1.5} alignItems="center">
         <Grid size={{xs:6,sm:3,lg:2}}><TextField fullWidth size="small" type="date" label="From" value={filters.from} onChange={e=>update('from',e.target.value)} InputLabelProps={{shrink:true}}/></Grid>
         <Grid size={{xs:6,sm:3,lg:2}}><TextField fullWidth size="small" type="date" label="To" value={filters.to} onChange={e=>update('to',e.target.value)} InputLabelProps={{shrink:true}}/></Grid>
         <Grid size={{xs:12,sm:6,lg:2}}><Filter label="Branch" value={filters.branchId} options={options?.branches??[]} onChange={value=>update('branchId',value)}/></Grid>
         <Grid size={{xs:12,sm:6,lg:2}}><Filter label="Division" value={filters.divisionId} options={options?.divisions??[]} onChange={value=>update('divisionId',value)}/></Grid>
         <Grid size={{xs:12,sm:6,lg:3}}><Filter label="Asset" value={filters.assetId} options={assetOptions} onChange={value=>update('assetId',value)}/></Grid>
-        <Grid size={{xs:12,lg:1}}><Button fullWidth variant="contained" onClick={()=>void load(filters)} disabled={loading} sx={{height:40}}>Apply</Button></Grid>
+        <Grid size={{xs:12,lg:1}}><Button fullWidth variant="contained" onClick={()=>{void load(filters);setFiltersOpen(false)}} disabled={loading} sx={{height:40}}>Apply</Button></Grid>
       </Grid>
       <Stack direction="row" gap={1} flexWrap="wrap" mt={2} alignItems="center">
         <Filter label="Booking status" value={filters.bookingStatus} values={['Draft','Confirmed','ConvertedToRental','Completed','Cancelled','Expired']} onChange={value=>update('bookingStatus',value)}/>
@@ -88,7 +91,7 @@ export function ReportsPage(){
         <Filter label="Maintenance status" value={filters.maintenanceStatus} values={['Open','InProgress','WaitingForParts','Completed','Cancelled']} onChange={value=>update('maintenanceStatus',value)}/>
         <Button size="small" onClick={()=>{const reset=initialFilters();setFilters(reset);void load(reset)}}>Reset</Button>
       </Stack>
-    </CardContent></Card>
+    </AccordionDetails></Accordion>
     {loading?<Box sx={{minHeight:360,display:'grid',placeItems:'center'}}><CircularProgress/></Box>:data&&<>
       <Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" gap={1} mb={2}><Box><Typography fontWeight={800}>{scope}</Typography><Typography variant="body2" color="text.secondary">{applied.from} – {applied.to} · Pacific/Fiji</Typography></Box><Button size="small" startIcon={<RefreshOutlined/>} onClick={()=>void load(applied)}>Refresh records</Button></Stack>
       <Grid container spacing={2} mb={2.5}>{[
@@ -99,18 +102,14 @@ export function ReportsPage(){
         ['Current balance due',money(data.summary.outstanding),'For invoices issued in period'],
         ['Operating contribution',money(data.periodProfitability.totals.profit),'Allocated asset income less recorded direct costs'],
       ].map(([label,value,detail])=><Grid key={label} size={{xs:12,sm:6,lg:4}}><Card variant="outlined" sx={{height:'100%',borderTop:3,borderTopColor:label==='Current balance due'&&data.summary.outstanding>0?'warning.main':'secondary.main'}}><CardContent><Typography variant="body2" color="text.secondary">{label}</Typography><Typography variant="h5" fontWeight={850} mt={.75}>{value}</Typography><Typography variant="caption" color="text.secondary">{detail}</Typography></CardContent></Card></Grid>)}</Grid>
-      <Card variant="outlined" sx={{overflow:'hidden'}}><Tabs value={tab} onChange={(_,value)=>{setTab(value);setPage(0);setSearch('')}} variant="scrollable" scrollButtons="auto" sx={{borderBottom:1,borderColor:'divider',px:1}}>{tabs.map(label=><Tab key={label} label={label}/>)}</Tabs>
-        {tab===0?<Box sx={{p:{xs:2,md:3}}}><Typography variant="h6" fontWeight={800}>Management brief</Typography><Typography variant="body2" color="text.secondary" mb={2}>Operational measures, not an audited profit and loss statement.</Typography><Grid container spacing={2}>{[
-          ['Fleet availability',data.summary.fleet?`${Math.round(data.summary.available*100/data.summary.fleet)}%`:'—',`${data.summary.available} of ${data.summary.fleet} active assets available now`],
-          ['Booking completion',data.summary.bookings?`${Math.round(data.summary.completedBookings*100/data.summary.bookings)}%`:'—','Of bookings with pickup in the selected period'],
-          ['Historical utilization',`${data.historicalUtilization.totals.utilizationPercent}%`,`${data.historicalUtilization.totals.hiredDays} hired / ${data.historicalUtilization.totals.capacityDays} capacity days`],
-        ].map(([label,value,detail])=><Grid key={label} size={{xs:12,md:4}}><Box sx={{p:2.5,bgcolor:'grey.50',borderRadius:1,height:'100%'}}><Typography variant="body2" color="text.secondary">{label}</Typography><Typography variant="h4" fontWeight={850} my={1}>{value}</Typography><Typography variant="body2" color="text.secondary">{detail}</Typography></Box></Grid>)}</Grid><Typography variant="subtitle2" fontWeight={800} mt={3} mb={1}>Metric definitions</Typography><Stack gap={.75}>{Object.entries(data.definitions).map(([name,definition])=><Typography key={name} variant="body2" color="text.secondary"><strong>{words(name)}:</strong> {definition}</Typography>)}</Stack><Typography variant="subtitle2" fontWeight={800} mt={3} mb={1}>How to interpret this report</Typography><Stack gap={.75}>{data.notes.map(note=><Typography key={note} variant="body2" color="text.secondary">• {note}</Typography>)}</Stack></Box>:<>
+      <Card variant="outlined" sx={{overflow:'hidden'}}><Tabs value={tab} onChange={(_,value)=>{setTab(value);setPage(0);setSearch('')}} variant="scrollable" scrollButtons="auto" sx={{borderBottom:1,borderColor:'divider',px:1}}>{tabs.slice(1).map((label,index)=><Tab key={label} value={index+1} label={label}/>)}</Tabs>
+        <>
           <Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" alignItems={{sm:'center'}} gap={1} sx={{p:2,borderBottom:1,borderColor:'divider'}}><Box><Typography fontWeight={800}>{tabs[tab]} {tab>=6?'':'activity'}</Typography><Typography variant="body2" color="text.secondary">{rows.length} matching records · export includes the full filtered dataset{tab===9?' · lifetime figures; date and status filters do not apply':''}</Typography></Box><TextField size="small" label="Search displayed records" value={search} onChange={e=>{setSearch(e.target.value);setPage(0)}} sx={{minWidth:{sm:280}}}/></Stack>
           {(tab===6||tab===7)&&<Box sx={{p:2,bgcolor:'grey.50'}}><Typography fontWeight={800} mb={1}>Month-by-month trend</Typography><Stack direction="row" gap={1} flexWrap="wrap">{(tab===6?data.periodProfitability.monthlyTrend:data.historicalUtilization.monthlyTrend).map(point=><Chip key={point.month} variant="outlined" label={tab===6?`${point.month} · ${money('profit' in point?point.profit:0)}`:`${point.month} · ${'utilizationPercent' in point?point.utilizationPercent:0}% utilized`}/>)}</Stack><Typography variant="caption" color="text.secondary">{tab===6?data.periodProfitability.note:data.historicalUtilization.note}</Typography></Box>}
           {tab===8&&<Alert severity="info" sx={{m:2}}>{data.exceptions.note}</Alert>}
           <TableContainer><Table size="small"><TableHead><TableRow sx={{bgcolor:'grey.50'}}>{columns[tab].map(column=><TableCell key={column} sx={{fontWeight:800,whiteSpace:'nowrap'}}>{column==='url'?'Source':words(column)}</TableCell>)}</TableRow></TableHead><TableBody>{rows.slice(page*20,page*20+20).map((row,index)=><TableRow key={String((row as {id?:string}).id??index)} hover>{columns[tab].map(column=>{const value=(row as unknown as Record<string,unknown>)[column];return <TableCell key={column} sx={{whiteSpace:'nowrap'}}>{column==='url'?<Button size="small" href={String(value)}>Open record</Button>:column==='status'||column==='severity'?<Chip size="small" variant="outlined" label={words(String(value))} color={value==='Completed'||value==='Paid'||value==='Available'?'success':value==='Voided'||value==='Cancelled'?'default':'warning'}/>:['actualCost','total','balanceDue','amount','dailyRate','revenue','totalExpense','grossProfit','maintenanceCost','directCost','bookingCost','personnelCost','profit'].includes(column)?value==null?'—':money(Number(value)):['firstPickup','issuedAt','createdAt','reportedAt','occurredAt'].includes(column)?value?day(String(value)):'—':['profitMargin','margin','utilizationPercent'].includes(column)?`${value}%`:typeof value==='boolean'?value?'Yes':'No':value==null?'—':words(String(value))}</TableCell>})}</TableRow>)}{rows.length===0&&<TableRow><TableCell colSpan={columns[tab].length} align="center" sx={{py:7,color:'text.secondary'}}>No records match these filters.</TableCell></TableRow>}</TableBody></Table></TableContainer>
           <TablePagination component="div" count={rows.length} page={page} onPageChange={(_,next)=>setPage(next)} rowsPerPage={20} rowsPerPageOptions={[20]}/>
-        </>}
+        </>
       </Card>
       <Alert severity="info" sx={{mt:2}}>Financial totals use recorded invoices and payments. Refunds and bond refunds are not counted as receipts; invoice balances are current, not historical period-end balances.</Alert>
     </>}
@@ -120,5 +119,5 @@ export function ReportsPage(){
 function Filter({label,value,onChange,options,values}:{label:string;value:string;onChange:(value:string)=>void;options?:Option[];values?:string[]}){
   const items=options??values?.map(name=>({id:name,name:words(name)}))??[]
   const compact=Boolean(values)
-  return <FormControl size="small" sx={{minWidth:compact?160:0,width:compact?'auto':'100%'}}><InputLabel>{label}</InputLabel><Select label={label} value={value} onChange={event=>onChange(event.target.value)}><MenuItem value="">All</MenuItem>{items.map(item=><MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}</Select></FormControl>
+  return <FormControl size="small" sx={{minWidth:compact?220:0,width:compact?{xs:'100%',sm:240}:'100%'}}><InputLabel>{label}</InputLabel><Select label={label} value={value} onChange={event=>onChange(event.target.value)}><MenuItem value="">All</MenuItem>{items.map(item=><MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}</Select></FormControl>
 }

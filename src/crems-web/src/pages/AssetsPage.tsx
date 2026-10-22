@@ -138,7 +138,10 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
   }, [search])
 
   useEffect(() => {
-    if (!canManage) return
+    if (!canManage) {
+      void Promise.all([api.get<Branch[]>('/branches'),api.get<Division[]>('/divisions')]).then(([branchResponse,divisionResponse])=>{setBranches(branchResponse.data.filter(branch=>branch.isActive));setDivisions(divisionResponse.data.filter(division=>division.isActive))}).catch(()=>setError('Unable to load your permitted divisions and branches.'))
+      return
+    }
     const refresh=()=>{void Promise.all([api.get<Branch[]>('/branches'), api.get<Division[]>('/divisions'),api.get<AssetCategory[]>('/asset-categories'),api.get<OperatingLink[]>('/organization/operating-context')]).then(([branchResponse, divisionResponse,categoryResponse,contextResponse]) => {
       setBranches(branchResponse.data.filter(branch => branch.isActive))
       setDivisions(divisionResponse.data.filter(division => division.isActive))

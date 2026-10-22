@@ -61,7 +61,9 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
                     throw new LicenceException("unreadable_pdf", "The first PDF page could not be converted to an image.");
                 content = firstPage.ToArray();
             }
-            if (OperatingSystem.IsMacOS()) return ReadWithMacOsTesseract(content);
+            if (OperatingSystem.IsMacOS())
+                return ReadLocallyWithMacOs(content);
+
             var dataPath = Path.Combine(AppContext.BaseDirectory, "tessdata");
             using var engine = new TesseractOCR.Engine(dataPath, TesseractOCR.Enums.Language.English, TesseractOCR.Enums.EngineMode.Default);
             var readings = new List<string>();
@@ -138,37 +140,97 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
         }
     }
 
-    private static string ReadWithMacOsTesseract(byte[] content)
+    private static string ReadLocallyWithMacOs(byte[] content)
     {
-        var imagePath = Path.Combine(Path.GetTempPath(), $"crems-licence-{Guid.NewGuid():N}.png");
+        var readings = new List<string>();
+        var centreClassReadings = new List<string>();
+        readings.Add(ReadWithMacOsTesseract(content));
+
+        using var source = SkiaSharp.SKBitmap.Decode(content);
+        if (source is not null)
+        {
+            using var enlarged = Resize(source, Math.Max(source.Width, 1600));
+            using var enhanced = Grayscale(enlarged, 1.55f);
+            readings.Add(ReadWithMacOsTesseract(enhanced));
+
+            var regions = new[]
+            {
+                new SkiaSharp.SKRectI(0, enlarged.Height / 12, enlarged.Width * 3 / 4, enlarged.Height / 2),
+                new SkiaSharp.SKRectI(enlarged.Width / 2, enlarged.Height / 12, enlarged.Width, enlarged.Height * 3 / 5),
+                new SkiaSharp.SKRectI(enlarged.Width / 5, enlarged.Height / 5, enlarged.Width * 4 / 5, enlarged.Height * 3 / 4),
+            };
+            foreach (var region in regions)
+            {
+                using var cropped = new SkiaSharp.SKBitmap(region.Width, region.Height);
+                if (enhanced.ExtractSubset(cropped, region))
+                    readings.Add(ReadWithMacOsTesseract(cropped));
+            }
+
+            var classRegion = new SkiaSharp.SKRectI(enlarged.Width / 4, enlarged.Height / 4,
+                enlarged.Width * 2 / 3, enlarged.Height * 3 / 5);
+            using var classCrop = new SkiaSharp.SKBitmap(classRegion.Width, classRegion.Height);
+            if (enhanced.ExtractSubset(classCrop, classRegion))
+            {
+                using var classEnlarged = Resize(classCrop, Math.Max(classCrop.Width, 1600));
+                using var strongerClassContrast = Grayscale(classEnlarged, 1.35f);
+                centreClassReadings.Add(ReadWithMacOsTesseract(strongerClassContrast, 6));
+            }
+        }
+
+        const string passBreak = "\n[[CREMS_PASS_BREAK]]\n";
+        var text = string.Join(passBreak, readings.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var centreText = string.Join(passBreak, centreClassReadings.Where(value => !string.IsNullOrWhiteSpace(value)));
+        if (!string.IsNullOrWhiteSpace(centreText))
+            text += $"\n[[CREMS_CENTRE_BEGIN]]\n{centreText}\n[[CREMS_CENTRE_END]]";
+        if (string.IsNullOrWhiteSpace(text))
+            throw new LicenceException("ocr_no_text", "No readable licence details were found. Try a clearer image.");
+        return text;
+    }
+
+    private static string ReadWithMacOsTesseract(SkiaSharp.SKBitmap bitmap, int pageSegMode = 3)
+    {
+        using var stream = new MemoryStream();
+        if (!bitmap.Encode(stream, SkiaSharp.SKEncodedImageFormat.Png, 100))
+            throw new LicenceException("ocr_service_failed", "The licence image could not be prepared for scanning.");
+        return ReadWithMacOsTesseract(stream.ToArray(), pageSegMode);
+    }
+
+    private static string ReadWithMacOsTesseract(byte[] content, int pageSegMode = 3)
+    {
+        var executable = File.Exists("/opt/homebrew/bin/tesseract")
+            ? "/opt/homebrew/bin/tesseract"
+            : File.Exists("/usr/local/bin/tesseract") ? "/usr/local/bin/tesseract" : "tesseract";
+        var inputPath = Path.Combine(Path.GetTempPath(), $"crems-licence-{Guid.NewGuid():N}.png");
         try
         {
-            File.WriteAllBytes(imagePath, content);
-            var executable = File.Exists("/opt/homebrew/bin/tesseract") ? "/opt/homebrew/bin/tesseract" : "tesseract";
-            var start = new ProcessStartInfo(executable)
+            File.WriteAllBytes(inputPath, content);
+            var startInfo = new ProcessStartInfo
             {
+                FileName = executable,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
             };
-            start.ArgumentList.Add(imagePath);
-            start.ArgumentList.Add("stdout");
-            start.ArgumentList.Add("-l");
-            start.ArgumentList.Add("eng");
-            start.ArgumentList.Add("--psm");
-            start.ArgumentList.Add("6");
-            using var process = Process.Start(start) ?? throw new InvalidOperationException("Tesseract could not be started.");
-            var text = process.StandardOutput.ReadToEnd();
+            startInfo.ArgumentList.Add(inputPath);
+            startInfo.ArgumentList.Add("stdout");
+            startInfo.ArgumentList.Add("-l");
+            startInfo.ArgumentList.Add("eng");
+            startInfo.ArgumentList.Add("--psm");
+            startInfo.ArgumentList.Add(pageSegMode.ToString());
+
+            using var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Tesseract could not be started.");
+            var output = process.StandardOutput.ReadToEnd();
             var error = process.StandardError.ReadToEnd();
             process.WaitForExit();
-            if (process.ExitCode != 0) throw new InvalidOperationException($"Tesseract exited with code {process.ExitCode}: {error}");
-            if (string.IsNullOrWhiteSpace(text)) throw new LicenceException("ocr_no_text", "No readable licence details were found. Try a clearer image.");
-            return text;
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException($"Tesseract exited with code {process.ExitCode}: {error}");
+            return output;
         }
         finally
         {
-            if (File.Exists(imagePath)) File.Delete(imagePath);
+            if (File.Exists(inputPath)) File.Delete(inputPath);
         }
     }
 

@@ -8,7 +8,6 @@ import {
   Card,
   CardContent,
   CircularProgress,
-  Divider,
   FormControl,
   InputLabel,
   InputAdornment,
@@ -40,8 +39,11 @@ const STATUS_PALETTE = {
   available: { label: 'Available', short: 'A', color: '#CFEFDC', textColor: '#14532D', busy: false },
   booked: { label: 'Booked', short: 'B', color: '#CDE7FF', textColor: '#1E3A8A', busy: true },
   maintenance: { label: 'Maintenance', short: 'M', color: '#FFF4D6', textColor: '#8A4B00', busy: true },
+  inspection: { label: 'Inspection', short: 'I', color: '#FFF1E6', textColor: '#9A3412', busy: true },
   transfer: { label: 'Transfer', short: 'T', color: '#F3E8FF', textColor: '#5B21B6', busy: true },
-  closed: { label: 'Closed', short: 'C', color: '#F3F4F6', textColor: '#374151', busy: true },
+  outOfService: { label: 'Out of service', short: 'O', color: '#FEE2E2', textColor: '#991B1B', busy: true },
+  retired: { label: 'Retired', short: 'R', color: '#E5E7EB', textColor: '#374151', busy: true },
+  branchClosed: { label: 'Branch closed', short: 'BC', color: '#F3F4F6', textColor: '#374151', busy: true },
 } as const
 
 function startOfDay(date: Date) {
@@ -82,17 +84,18 @@ function overlapsDate(date: Date, startAt: string, endAt: string) {
 function getAssetStatusForDate(asset: Asset, date: Date, events: Event[]): DayStatus {
   const matches = events.filter((event) => event.assetId === asset.id && overlapsDate(date, event.startAt, event.endAt))
 
-  if (!matches.length) {
-    if (['Reserved', 'Rented'].includes(asset.status)) return STATUS_PALETTE.booked
-    if (asset.status === 'Inspection') return { ...STATUS_PALETTE.maintenance, label: 'Inspection', short: 'I' }
-    if (asset.status === 'Maintenance') return STATUS_PALETTE.maintenance
-    if (['OutOfService', 'Retired'].includes(asset.status)) return STATUS_PALETTE.closed
-    return STATUS_PALETTE.available
-  }
-
   if (matches.some(event => event.type.toLowerCase() === 'maintenance')) return STATUS_PALETTE.maintenance
   if (matches.some(event => event.type.toLowerCase() === 'transfer')) return STATUS_PALETTE.transfer
-  return STATUS_PALETTE.booked
+  if (matches.length) return STATUS_PALETTE.booked
+  // Current asset status is a snapshot, not historical availability.
+  if (toLocalDateKey(date) >= toLocalDateKey(new Date())) {
+    if (toLocalDateKey(date) === toLocalDateKey(new Date()) && ['Reserved', 'Rented'].includes(asset.status)) return STATUS_PALETTE.booked
+    if (asset.status === 'Inspection') return STATUS_PALETTE.inspection
+    if (asset.status === 'Maintenance') return STATUS_PALETTE.maintenance
+    if (asset.status === 'OutOfService') return STATUS_PALETTE.outOfService
+  }
+  if (asset.status === 'Retired') return STATUS_PALETTE.retired
+  return STATUS_PALETTE.available
 }
 
 export function PlanningCalendarPage() {
@@ -101,7 +104,7 @@ export function PlanningCalendarPage() {
   const [rangeStartDate, setRangeStartDate] = useState(() => startOfDay(new Date()))
   const [rangeEndDate, setRangeEndDate] = useState(() => addDays(startOfDay(new Date()), 13))
   const [rangeDays, setRangeDays] = useState(14)
-  const [selectedAssetId, setSelectedAssetId] = useState('all')
+  const [selectedAssetId, setSelectedAssetId] = useState(()=>new URLSearchParams(window.location.search).get('assetId')??'all')
   const [assetSearch, setAssetSearch] = useState('')
   const [branchFilter, setBranchFilter] = useState('all')
   const [divisionFilter, setDivisionFilter] = useState('all')
@@ -110,6 +113,7 @@ export function PlanningCalendarPage() {
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [divisions, setDivisions] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
+  const [assetPage, setAssetPage] = useState(0)
 
   useEffect(() => {
     const from = addDays(rangeStartDate, -7)
@@ -164,16 +168,9 @@ export function PlanningCalendarPage() {
     return new Map(visibleClosures.filter(closure => closure.isClosed).map((closure) => [`${closure.branchId}:${closure.date}`, closure.name]))
   }, [data, visibleClosures])
 
-  const visibleBookingEvents = useMemo(() => {
-    if (!data) return []
-    const rangeEndExclusive = addDays(rangeEndDate, 1)
-    return data.events.filter(event => new Date(event.startAt) < rangeEndExclusive && new Date(event.endAt) > rangeStartDate)
-      .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
-  }, [data, rangeEndDate, rangeStartDate])
-
   const todayKey = toLocalDateKey(new Date())
 
-  const visibleAssets = useMemo(() => {
+  const filteredAssets = useMemo(() => {
     if (!data) return []
 
     return data.assets.filter((asset) => {
@@ -187,20 +184,20 @@ export function PlanningCalendarPage() {
       return !visibleDates.some((date) => closureMap.has(`${asset.branchId}:${toLocalDateKey(date)}`) || getAssetStatusForDate(asset, date, allEvents).busy)
     })
   }, [allEvents, assetSearch, branchFilter, closureMap, data, divisionFilter, selectedAssetId, availableOnly, visibleDates])
+  const maxAssetPage = Math.max(0, Math.ceil(filteredAssets.length / 20) - 1)
+  const currentAssetPage = Math.min(assetPage, maxAssetPage)
+  const visibleAssets = filteredAssets.slice(currentAssetPage * 20, (currentAssetPage + 1) * 20)
 
   const availabilitySummary = useMemo(() => {
-    const summary = { available: 0, booked: 0, maintenance: 0, transfer: 0 }
+    const summary = { available: 0 }
 
     if (!data) return summary
 
     for (const asset of visibleAssets) {
       for (const date of visibleDates) {
-        const status = closureMap.has(`${asset.branchId}:${toLocalDateKey(date)}`) ? STATUS_PALETTE.closed : getAssetStatusForDate(asset, date, allEvents)
+        const status = closureMap.has(`${asset.branchId}:${toLocalDateKey(date)}`) ? STATUS_PALETTE.branchClosed : getAssetStatusForDate(asset, date, allEvents)
 
         if (status.label === 'Available') summary.available += 1
-        else if (status.label === 'Booked' || status.label === 'Personnel') summary.booked += 1
-        else if (status.label === 'Maintenance') summary.maintenance += 1
-        else if (status.label === 'Transfer') summary.transfer += 1
       }
     }
 
@@ -221,7 +218,7 @@ export function PlanningCalendarPage() {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3, lg: 4 } }}>
-      <PageHeader icon={<EventAvailableOutlined />} title="Asset availability calendar" subtitle="Track bookings, maintenance, transfers, and closures across the fleet." actions={
+      <PageHeader icon={<EventAvailableOutlined />} title="Asset availability calendar" subtitle="Live bookings, maintenance, transfers and branch exceptions across your operating scope." actions={
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           {loading && <CircularProgress size={18} thickness={5} />}
           <Button
@@ -373,6 +370,8 @@ export function PlanningCalendarPage() {
         ))}
       </Stack>
 
+      <Alert severity="info" sx={{ mb: 2 }}>Bookings, maintenance and transfers come from CREMS records. Current inspection and out-of-service holds carry forward until their status changes; dates without an event are not a historical condition record. Branch closures are operating-calendar exceptions, not asset states.</Alert>
+
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2.5}>
         <Card variant="outlined" sx={{ flex: 1, bgcolor: '#15140f', color: 'white' }}>
           <CardContent sx={{ py: 1.5 }}>
@@ -383,19 +382,13 @@ export function PlanningCalendarPage() {
         <Card variant="outlined" sx={{ flex: 1 }}>
           <CardContent sx={{ py: 1.5 }}>
             <Typography variant="overline" color="text.secondary">Fleet coverage</Typography>
-            <Typography variant="h6" fontWeight={800}>{visibleAssets.length} assets shown</Typography>
+            <Typography variant="h6" fontWeight={800}>{visibleAssets.length} of {filteredAssets.length} assets shown</Typography>
           </CardContent>
         </Card>
         <Card variant="outlined" sx={{ flex: 1 }}>
           <CardContent sx={{ py: 1.5 }}>
             <Typography variant="overline" color="text.secondary">Available asset-days</Typography>
             <Typography variant="h6" fontWeight={800}>{availabilitySummary.available} of {visibleAssets.length * visibleDates.length}</Typography>
-          </CardContent>
-        </Card>
-        <Card variant="outlined" sx={{ flex: 1 }}>
-          <CardContent sx={{ py: 1.5 }}>
-            <Typography variant="overline" color="text.secondary">Planned closures</Typography>
-            <Typography variant="h6" fontWeight={800}>{visibleClosures.filter(closure => closure.isClosed).length} items</Typography>
           </CardContent>
         </Card>
       </Stack>
@@ -451,10 +444,10 @@ export function PlanningCalendarPage() {
                         const dateKey = toLocalDateKey(date)
                         const closureName = closureMap.get(`${asset.branchId}:${dateKey}`)
                         const status = getAssetStatusForDate(asset, date, allEvents)
-                        const cellColor = closureName ? '#f5f5f5' : status.color
-                        const textColor = closureName ? '#616161' : status.textColor
-                        const cellText = closureName ? 'Closed' : status.short
-                        const cellLabel = closureName ? closureName : status.label
+                        const cellColor = closureName ? STATUS_PALETTE.branchClosed.color : status.color
+                        const textColor = closureName ? STATUS_PALETTE.branchClosed.textColor : status.textColor
+                        const cellText = closureName ? STATUS_PALETTE.branchClosed.short : status.short
+                        const cellLabel = closureName ? `Branch closed: ${closureName}` : status.label
                         const isToday = dateKey === todayKey
 
                         return (
@@ -498,57 +491,7 @@ export function PlanningCalendarPage() {
           </Box>
         </CardContent>
       </Card>
-
-      <Divider sx={{ my: 3 }} />
-
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-        <Card variant="outlined" sx={{ flex: 1 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={800} mb={1}>Upcoming bookings</Typography>
-            {visibleBookingEvents.length === 0 ? (
-              <Typography color="text.secondary">No booking events in the selected range.</Typography>
-            ) : (
-              <Stack spacing={1.25}>
-                {visibleBookingEvents.slice(0, 5).map((event, index) => {
-                  const asset = data.assets.find((item) => item.id === event.assetId)
-                  return (
-                    <Box
-                      key={`${event.assetId}-${event.startAt}-${index}`}
-                      sx={{ p: 1.25, borderRadius: 1, bgcolor: '#f7f7f7', cursor: 'pointer' }}
-                      onClick={() => setDetailAssetId(event.assetId)}
-                    >
-                      <Typography variant="body2" fontWeight={800}>{asset ? `${asset.assetNumber} · ${asset.name}` : event.reference}</Typography>
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        {event.type} · {new Date(event.startAt).toLocaleDateString('en-FJ')} – {new Date(event.endAt).toLocaleDateString('en-FJ')}
-                      </Typography>
-                    </Box>
-                  )
-                })}
-              </Stack>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card variant="outlined" sx={{ flex: 1 }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={800} mb={1}>Branch closures</Typography>
-            {visibleClosures.length === 0 ? (
-              <Typography color="text.secondary">No branch closures in the selected range.</Typography>
-            ) : (
-              <Stack spacing={1.25}>
-                {visibleClosures.slice(0, 5).map((closure) => (
-                  <Box key={closure.id} sx={{ p: 1.25, borderRadius: 1, bgcolor: '#fafafa' }}>
-                    <Typography variant="body2" fontWeight={700}>{closure.name}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(closure.date).toLocaleDateString('en-FJ')} · {closure.isClosed ? 'Closed' : 'Open'}
-                    </Typography>
-                  </Box>
-                ))}
-              </Stack>
-            )}
-          </CardContent>
-        </Card>
-      </Stack>
+      {filteredAssets.length > 20 && <Stack direction="row" justifyContent="flex-end" alignItems="center" gap={1} mt={2}><Typography variant="body2" color="text.secondary">Assets {currentAssetPage * 20 + 1}–{Math.min((currentAssetPage + 1) * 20, filteredAssets.length)} of {filteredAssets.length}</Typography><Button variant="outlined" disabled={currentAssetPage === 0} onClick={() => setAssetPage(currentAssetPage - 1)}>Previous 20</Button><Button variant="outlined" disabled={currentAssetPage === maxAssetPage} onClick={() => setAssetPage(currentAssetPage + 1)}>Next 20</Button></Stack>}
 
       <AssetProfileDialog assetId={detailAssetId} onClose={() => setDetailAssetId(null)} />
     </Box>

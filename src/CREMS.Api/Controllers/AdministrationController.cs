@@ -92,10 +92,32 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
     [HttpGet("templates")]
     public async Task<ActionResult> Templates(CancellationToken token) => Ok(await db.NotificationTemplates.AsNoTracking().OrderBy(x => x.Name).ToListAsync(token));
 
+    [HttpPost("templates")]
+    public async Task<ActionResult> CreateTemplate(CreateTemplateRequest request, CancellationToken token)
+    {
+        var key = request.Key?.Trim().ToLowerInvariant() ?? "";
+        if (!key.StartsWith("manual.", StringComparison.Ordinal) || key.Length <= 7 ||
+            key.Length > 100 || key[7..].Any(c => !char.IsAsciiLetterLower(c) && !char.IsAsciiDigit(c) && c != '-') ||
+            string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 150 ||
+            request.Channel is not ("Email" or "InApp") ||
+            string.IsNullOrWhiteSpace(request.Subject) || request.Subject.Length > 160 ||
+            string.IsNullOrWhiteSpace(request.Body) || request.Body.Length > 2000)
+            return BadRequest(new { message = "Use a unique manual.key, a name, Email or InApp channel, and a subject and message within the limits." });
+        if (await db.NotificationTemplates.AnyAsync(x => x.Key == key, token)) return Conflict(new { message = "A template with this key already exists." });
+        var template = new NotificationTemplate { Key = key, Name = request.Name.Trim(), Channel = request.Channel, Subject = request.Subject.Trim(), Body = request.Body.Trim(), IsActive = request.IsActive };
+        db.NotificationTemplates.Add(template);
+        var scope = await staffScope.GetAsync(User); if (scope is not null) AuditWriter.Record(db, scope, "Notification template created", "NotificationTemplate", template.Id, $"{key} was created.", null);
+        await db.SaveChangesAsync(token);
+        return Ok(template);
+    }
+
     [HttpPut("templates/{id:guid}")]
     public async Task<ActionResult> SaveTemplate(Guid id, TemplateRequest request, CancellationToken token)
     {
         var template = await db.NotificationTemplates.FirstOrDefaultAsync(x => x.Id == id, token); if (template is null) return NotFound();
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 150 || request.Channel is not ("Email" or "InApp" or "Sms") ||
+            string.IsNullOrWhiteSpace(request.Subject) || request.Subject.Length > 160 || string.IsNullOrWhiteSpace(request.Body) || request.Body.Length > 2000)
+            return BadRequest(new { message = "Enter a name, valid channel, subject and message within the allowed limits." });
         template.Name = request.Name.Trim(); template.Channel = request.Channel.Trim(); template.Subject = request.Subject.Trim(); template.Body = request.Body.Trim(); template.IsActive = request.IsActive; template.UpdatedAt = DateTimeOffset.UtcNow;
         var scope = await staffScope.GetAsync(User); if (scope is not null) AuditWriter.Record(db, scope, "Notification template updated", "NotificationTemplate", template.Id, $"{template.Key} was updated.", null);
         await db.SaveChangesAsync(token); return NoContent();
@@ -132,3 +154,4 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
 
 public sealed record SettingRequest(string Value);
 public sealed record TemplateRequest(string Name, string Channel, string Subject, string Body, bool IsActive);
+public sealed record CreateTemplateRequest(string Key, string Name, string Channel, string Subject, string Body, bool IsActive);

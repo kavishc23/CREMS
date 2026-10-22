@@ -28,7 +28,7 @@ using var suppression = db.SuppressNotifications();
 var fiji = TimeZoneInfo.FindSystemTimeZoneById("Pacific/Fiji");
 var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, fiji).DateTime);
 var first = new DateOnly(today.Year, today.Month, 1);
-var marker = $"demo.reporting-{today:yyyy-MM}";
+var marker = $"seed.reporting-{today:yyyy-MM}";
 await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
 if (await db.SystemSettings.AnyAsync(x => x.Key == marker))
 {
@@ -61,10 +61,10 @@ for (var index = 0; index < selected.Count; index++)
     var tax = Math.Round(subtotal * taxRate / 100, 2);
     var total = subtotal + tax;
     var paid = index % 6 == 0 ? 0 : index % 4 == 0 ? Math.Round(total / 2, 2) : total;
-    var reference = $"DEMO-RPT-{today:yyyyMM}-{index + 1:00}";
+    var reference = $"CFG-RPT-{today:yyyyMM}-{index + 1:00}";
     var customer = new Customer
     {
-        CustomerNumber = reference + "-CUS", Name = $"Reporting example customer {index + 1:00} (Demo)",
+        CustomerNumber = reference + "-CUS", Name = new[] { "Pacific Site Contractors", "Litia Vakaloloma", "Sanjay Narayan", "Northern Valley Transport", "Mere Waqa", "Arjun Prasad" }[index % 6],
         Type = index % 3 == 0 ? CustomerType.Business : CustomerType.Individual,
         Email = $"reporting.{today:yyyyMM}.{index + 1:00}@example.invalid",
         Address = "Fictional reporting scenario, Fiji", CreatedAt = pickup.AddDays(-5)
@@ -83,13 +83,13 @@ for (var index = 0; index < selected.Count; index++)
     var invoice = new RentalInvoice
     {
         InvoiceNumber = reference + "-INV", BookingId = booking.Id,
-        LineItemsJson = JsonSerializer.Serialize(new[] { new { description = asset.Name + " hire (demo)", quantity = days, unitPrice = rate } }),
+        LineItemsJson = JsonSerializer.Serialize(new[] { new { description = asset.Name + " hire ", quantity = days, unitPrice = rate } }),
         Subtotal = subtotal, TaxAmount = tax, Total = total, AmountPaid = paid, BalanceDue = total - paid,
         Status = paid == 0 ? InvoiceStatus.Issued : paid == total ? InvoiceStatus.Paid : InvoiceStatus.PartiallyPaid,
         IssuedAt = returnAt, CreatedAt = returnAt
     };
     db.RentalInvoices.Add(invoice);
-    db.InvoiceLines.Add(new InvoiceLine { InvoiceId = invoice.Id, Description = asset.Name + " hire (demo)", Quantity = days, UnitPrice = rate, TaxRate = taxRate });
+    db.InvoiceLines.Add(new InvoiceLine { InvoiceId = invoice.Id, Description = asset.Name + " hire ", Quantity = days, UnitPrice = rate, TaxRate = taxRate });
     invoiceCount++;
     if (paid > 0)
     {
@@ -97,7 +97,7 @@ for (var index = 0; index < selected.Count; index++)
         {
             BookingId = booking.Id, Type = PaymentType.RentalCharge, Method = (PaymentMethod)(index % 3),
             Amount = paid, ReceiptNumber = reference + "-RCT", RecordedByUserId = actor.Id,
-            RecordedByName = "Reporting demo importer", CreatedAt = returnAt.AddHours(1),
+            RecordedByName = "Reporting importer", CreatedAt = returnAt.AddHours(1),
             Note = "Fictional receipt; no money transferred."
         };
         db.RentalPayments.Add(payment);
@@ -111,7 +111,7 @@ for (var index = 0; index < selected.Count; index++)
         Status = completed ? MaintenanceStatus.Completed : MaintenanceStatus.InProgress,
         ServiceType = index % 2 == 0 ? "Scheduled inspection and service" : "Post-hire condition repair",
         FaultDescription = "Fictional workshop reporting example.",
-        Description = "Demonstration record only; no actual workshop work was performed.",
+        Description = "operational record only; no actual workshop work was performed.",
         IsPreventive = index % 2 == 0, EstimatedCost = 95 + index * 20,
         ActualCost = completed ? 80 + index * 20 : null,
         LabourCost = completed ? 80 + index * 20 : 0,
@@ -123,7 +123,7 @@ for (var index = 0; index < selected.Count; index++)
 }
 db.SystemSettings.Add(new SystemSetting
 {
-    Key = marker, Value = now.ToString("O"), Category = "Demo",
+    Key = marker, Value = now.ToString("O"), Category = "Seed",
     Description = "One-time current-month fictional bookings, invoices, payments and maintenance reporting examples."
 });
 await db.SaveChangesAsync();

@@ -29,7 +29,7 @@ api.interceptors.response.use(
   (response) => {
     const method = response.config.method?.toLowerCase()
     const url = response.config.url ?? ''
-    if (method && !['get', 'head', 'options'].includes(method) && !url.includes('/notifications/read') && !url.includes('/auth/') && !url.includes('/session')) {
+    if (method && !['get', 'head', 'options'].includes(method) && !url.includes('/notifications/read') && !url.includes('/auth/') && !url.includes('/session') && !url.includes('/asset-qr/resolve')) {
       window.dispatchEvent(new Event('crems:data-changed'))
       if (!url.includes('/notifications/send')) window.dispatchEvent(new CustomEvent('crems:toast', { detail: { severity: 'success', message: url.includes('/public/booking-requests') ? response.data?.requestType === 'Quotation' ? 'Quotation Request Submitted.' : 'Booking Submitted.' : response.status === 202 ? 'Submitted for review.' : 'Changes saved.' } }))
     }

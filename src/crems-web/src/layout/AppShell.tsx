@@ -229,7 +229,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
         sx={{
           flexGrow: 1,
           minWidth: 0,
-          '& > .staff-page-content': { '& > .MuiBox-root': { maxWidth: '1680px', marginInline:'auto' }, '& .MuiTypography-h4': { fontVariantNumeric:'tabular-nums' }, '& .MuiTableCell-root .MuiButton-root': { whiteSpace:'nowrap' } },
+          '& > .staff-page-content': { '& > .MuiBox-root:not([data-fill-workspace])': { maxWidth: '1680px', marginInline:'auto' }, '& .MuiTypography-h4': { fontVariantNumeric:'tabular-nums' }, '& .MuiTableCell-root .MuiButton-root': { whiteSpace:'nowrap' } },
           width: { xs: '100%', md: `calc(100% - ${activeDrawerWidth}px)` },
           pt: { xs: '56px', sm: '64px' },
           transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
