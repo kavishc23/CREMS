@@ -172,6 +172,8 @@ namespace CREMS.Api.Data.Migrations
 
                     b.HasIndex("ServiceOfferingId");
 
+                    b.HasIndex("IsActive", "Status", "BranchId", "DivisionId");
+
                     b.ToTable("Assets");
                 });
 
@@ -744,9 +746,9 @@ namespace CREMS.Api.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BranchId");
-
                     b.HasIndex("OccurredAt");
+
+                    b.HasIndex("BranchId", "OccurredAt");
 
                     b.ToTable("AuditEvents");
                 });
@@ -1058,6 +1060,8 @@ namespace CREMS.Api.Data.Migrations
                     b.HasIndex("DivisionId", "Code")
                         .IsUnique();
 
+                    b.HasIndex("IsActive", "DivisionId", "ServiceOfferingId", "Category");
+
                     b.ToTable("ChargeDefinitions");
                 });
 
@@ -1141,6 +1145,9 @@ namespace CREMS.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("AllowsQuoteRequests")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -1168,9 +1175,6 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<string>("InspectionRequirementsJson")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("AllowsQuoteRequests")
-                        .HasColumnType("bit");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -2177,11 +2181,6 @@ namespace CREMS.Api.Data.Migrations
                         .HasColumnType("nvarchar(128)")
                         .HasColumnName("HirePreference");
 
-                    b.Property<string>("PreferredServiceIds")
-                        .IsRequired()
-                        .HasMaxLength(4000)
-                        .HasColumnType("nvarchar(4000)");
-
                     b.Property<string>("IdentificationNumber")
                         .HasColumnType("nvarchar(max)");
 
@@ -2193,10 +2192,15 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("Phone")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PreferredServiceIds")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<int>("Type")
                         .HasColumnType("int");
@@ -2208,6 +2212,8 @@ namespace CREMS.Api.Data.Migrations
 
                     b.HasIndex("CustomerNumber")
                         .IsUnique();
+
+                    b.HasIndex("IsActive", "IsBlocked", "Name");
 
                     b.ToTable("Customers");
                 });
@@ -3855,7 +3861,9 @@ namespace CREMS.Api.Data.Migrations
 
                     b.HasIndex("BranchId");
 
-                    b.HasIndex("CustomerId");
+                    b.HasIndex("CustomerId", "CreatedAt");
+
+                    b.HasIndex("Status", "BranchId", "CreatedAt");
 
                     b.ToTable("Bookings");
                 });

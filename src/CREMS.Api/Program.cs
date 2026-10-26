@@ -85,6 +85,7 @@ builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi(ApiDocumentation.Configure);
 builder.Services.AddProblemDetails();
+builder.Services.AddMemoryCache();
 builder.Services.AddResponseCompression(options =>
 {
     options.EnableForHttps = true;

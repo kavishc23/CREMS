@@ -70,12 +70,13 @@ function dateInputValue(offsetDays: number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-function assetPhotoUrls(asset: PublicAsset) {
+function assetPhotoUrls(asset: PublicAsset, thumbnails = false) {
   try {
     const uploaded = JSON.parse(asset.photoUrlsJson || '[]') as string[]
     return uploaded.filter(url => typeof url === 'string' && url.startsWith('/api/public/assets/'))
       // Invalidate missing-image responses cached before catalogue files were restored.
-      .map(url => `${url}${url.includes('?') ? '&' : '?'}v=2`)
+      .map(url => thumbnails && url.endsWith('.webp') ? url.replace(/\.webp$/, '.thumb.webp') : url)
+      .map(url => `${url}${url.includes('?') ? '&' : '?'}v=3`)
   } catch { return [] }
 }
 
@@ -128,14 +129,7 @@ async function loadPublicResource<T>(url: string) {
 function loadPublicCatalogueBootstrap() {
   const now = Date.now()
   if (publicCatalogueCache && publicCatalogueCache.expiresAt > now) return publicCatalogueCache.promise
-  const promise = Promise.all([
-    loadPublicResource<Branch[]>('/public/branches'),
-    loadPublicResource<PublicDivision[]>('/public/divisions'),
-    loadPublicResource<PublicAsset[]>('/public/assets'),
-  ]).then(([branches, divisions, assets]) => {
-    const catalogue = { branches, divisions, assets }
-    return catalogue
-  })
+  const promise = loadPublicResource<PublicCatalogueBootstrap>('/public/catalogue-bootstrap')
   publicCatalogueCache = { expiresAt: now + 30_000, promise }
   promise.catch(() => { publicCatalogueCache = null })
   return promise
@@ -462,7 +456,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   }
 
   function renderRentalCard(asset: PublicAsset) {
-    const photos = assetPhotoUrls(asset)
+    const photos = assetPhotoUrls(asset, true)
     const photoIndex = Math.min(photoIndexes[asset.id] ?? 0, Math.max(photos.length - 1, 0))
     return <Card key={asset.id} variant="outlined" sx={{ width: '100%', minWidth: 0, overflow: 'hidden', borderRadius: 3, bgcolor: '#fff', borderColor: '#deddd6', borderTop: '4px solid', borderTopColor: 'secondary.main' }}>
       <CardContent sx={{ p: 2, pb: 1 }}><Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}><Box><Typography fontWeight={850} lineHeight={1.2}>{asset.name}</Typography><Typography variant="caption" fontWeight={700} color="text.secondary">{asset.category ?? asset.serviceName ?? asset.type} · {asset.assetNumber}</Typography></Box><Chip label={!searched ? 'Preview' : asset.status === 'Rented' ? 'On hire' : asset.isAvailable ? 'Available for dates' : 'Unavailable for dates'} color={searched && asset.isAvailable ? 'success' : 'default'} size="small" /></Stack></CardContent>

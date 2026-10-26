@@ -189,6 +189,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         builder.Entity<ChargeDefinition>(entity =>
         {
             entity.HasIndex(x => new { x.DivisionId, x.Code }).IsUnique();
+            entity.HasIndex(x => new { x.IsActive, x.DivisionId, x.ServiceOfferingId, x.Category });
             entity.Property(x => x.Code).HasMaxLength(50); entity.Property(x => x.Name).HasMaxLength(150);
             entity.Property(x => x.DefaultSellingRate).HasPrecision(18, 2); entity.Property(x => x.DefaultCostRate).HasPrecision(18, 2);
             entity.HasOne(x => x.Division).WithMany().HasForeignKey(x => x.DivisionId).OnDelete(DeleteBehavior.Restrict);
@@ -198,6 +199,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         builder.Entity<Asset>(entity =>
         {
             entity.HasIndex(x => x.AssetNumber).IsUnique();
+            entity.HasIndex(x => new { x.IsActive, x.Status, x.BranchId, x.DivisionId });
             entity.Property(x => x.AssetNumber).HasMaxLength(50);
             entity.Property(x => x.Name).HasMaxLength(150);
             entity.Property(x => x.Category).HasMaxLength(100);
@@ -227,7 +229,9 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         builder.Entity<Customer>(entity =>
         {
             entity.HasIndex(x => x.CustomerNumber).IsUnique();
+            entity.HasIndex(x => new { x.IsActive, x.IsBlocked, x.Name });
             entity.Property(x => x.CustomerNumber).HasMaxLength(50);
+            entity.Property(x => x.Name).HasMaxLength(450);
             entity.Property(x => x.HirePreferences)
                 .HasColumnName("HirePreference")
                 .HasConversion(
@@ -293,6 +297,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         builder.Entity<Booking>(entity =>
         {
             entity.HasIndex(x => x.BookingNumber).IsUnique();
+            entity.HasIndex(x => new { x.Status, x.BranchId, x.CreatedAt });
+            entity.HasIndex(x => new { x.CustomerId, x.CreatedAt });
             entity.Property(x => x.BookingNumber).HasMaxLength(50);
             entity.HasOne(x => x.Customer).WithMany().HasForeignKey(x => x.CustomerId)
                 .OnDelete(DeleteBehavior.Restrict);
@@ -399,6 +405,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         builder.Entity<AuditEvent>(entity =>
         {
             entity.HasIndex(x => x.OccurredAt);
+            entity.HasIndex(x => new { x.BranchId, x.OccurredAt });
             entity.HasOne(x => x.Branch).WithMany().HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.Restrict);
         });
 

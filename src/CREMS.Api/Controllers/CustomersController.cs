@@ -22,7 +22,10 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
     UserManager<ApplicationUser> userManager, IEmailQueue emailQueue, IWebHostEnvironment environment) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<CustomerResponse>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<IReadOnlyList<CustomerResponse>>> GetAll(
+        [FromQuery] string? search, [FromQuery] string? status,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 0,
+        CancellationToken cancellationToken = default)
     {
         var scope = await staffScope.GetAsync(User);
         if (scope is null || (!scope.IsAdministrator && scope.BranchIds.Count == 0)) return Forbid();
@@ -31,6 +34,37 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
             query = query.Where(customer => db.Bookings.Any(booking =>
                 booking.CustomerId == customer.Id && scope.BranchIds.Contains(booking.BranchId) && booking.Items.Any() &&
                 booking.Items.All(i => i.Asset != null && i.Asset.DivisionId.HasValue && scope.DivisionIds.Contains(i.Asset.DivisionId.Value))));
+
+        var scopedQuery = query;
+        Response.Headers["X-Customer-Total"] = (await scopedQuery.CountAsync(cancellationToken)).ToString(CultureInfo.InvariantCulture);
+        Response.Headers["X-Customer-Verified"] = (await scopedQuery.CountAsync(customer =>
+            db.Users.Any(user => user.CustomerId == customer.Id && user.EmailConfirmed), cancellationToken)).ToString(CultureInfo.InvariantCulture);
+        Response.Headers["X-Customer-Pending"] = (await scopedQuery.CountAsync(customer =>
+            db.Users.Any(user => user.CustomerId == customer.Id && !user.EmailConfirmed), cancellationToken)).ToString(CultureInfo.InvariantCulture);
+        Response.Headers["X-Customer-Blocked"] = (await scopedQuery.CountAsync(customer => customer.IsBlocked, cancellationToken)).ToString(CultureInfo.InvariantCulture);
+        Response.Headers["X-Customer-Licence-Verified"] = (await scopedQuery.CountAsync(customer =>
+            db.CustomerLicences.Any(x => x.CustomerId == customer.Id && x.Status == LicenceVerificationStatus.Verified), cancellationToken)).ToString(CultureInfo.InvariantCulture);
+
+        var term = search?.Trim();
+        if (!string.IsNullOrWhiteSpace(term))
+            query = query.Where(customer => customer.CustomerNumber.Contains(term) || customer.Name.Contains(term) ||
+                (customer.Email != null && customer.Email.Contains(term)) || (customer.Phone != null && customer.Phone.Contains(term)) ||
+                (customer.IdentificationNumber != null && customer.IdentificationNumber.Contains(term)));
+        query = status?.ToLowerInvariant() switch
+        {
+            "verified" => query.Where(customer => db.Users.Any(user => user.CustomerId == customer.Id && user.EmailConfirmed)),
+            "pending" => query.Where(customer => db.Users.Any(user => user.CustomerId == customer.Id && !user.EmailConfirmed)),
+            "blocked" => query.Where(customer => customer.IsBlocked),
+            _ => query,
+        };
+        var filteredCount = await query.CountAsync(cancellationToken);
+        Response.Headers["X-Total-Count"] = filteredCount.ToString(CultureInfo.InvariantCulture);
+        if (pageSize > 0)
+        {
+            page = Math.Max(1, page);
+            pageSize = Math.Clamp(pageSize, 1, 100);
+            query = query.Skip((page - 1) * pageSize).Take(pageSize);
+        }
 
         var customers = await query
             .OrderBy(customer => customer.Name)

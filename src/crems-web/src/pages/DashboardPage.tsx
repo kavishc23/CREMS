@@ -57,7 +57,7 @@ export function DashboardPage({ userName, userRoles, onNavigate }: DashboardPage
   const [loadFailed, setLoadFailed] = useState(false)
   const loadSummary = useCallback(async () => {
     setLoading(true); setLoadFailed(false)
-    try { const [summaryResponse,operationsResponse]=await Promise.all([api.get<DashboardSummary>('/dashboard/summary'),canViewOperations?api.get<OperationsSummary>('/dashboard/operations'):Promise.resolve(null)]);setSummary(summaryResponse.data);setOperations(operationsResponse?.data??null) }
+    try { const response=await api.get<{summary:DashboardSummary;operations:OperationsSummary|null}>('/dashboard/bootstrap',{params:{includeOperations:canViewOperations}});setSummary(response.data.summary);setOperations(response.data.operations) }
     catch { setLoadFailed(true) }
     finally { setLoading(false) }
   }, [canViewOperations])
