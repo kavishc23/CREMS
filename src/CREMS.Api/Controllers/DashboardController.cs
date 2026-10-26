@@ -13,8 +13,23 @@ namespace CREMS.Api.Controllers;
 [ApiController]
 [Route("api/dashboard")]
 [Authorize(Policy = SystemPolicies.StaffPortal)]
-public sealed class DashboardController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
+public sealed class DashboardController(ApplicationDbContext db, CurrentStaffScope staffScope, IAuthorizationService? authorization = null) : ControllerBase
 {
+    [HttpGet("bootstrap")]
+    public async Task<ActionResult> GetBootstrap([FromQuery] bool includeOperations, CancellationToken token)
+    {
+        var summaryResult = await GetSummary(token);
+        if (summaryResult.Result is not OkObjectResult summaryOk) return summaryResult.Result ?? StatusCode(503);
+        object? operations = null;
+        if (includeOperations && authorization is not null &&
+            (await authorization.AuthorizeAsync(User, SystemPolicies.ViewReports)).Succeeded)
+        {
+            var operationsResult = await GetOperations(token);
+            if (operationsResult is OkObjectResult operationsOk) operations = operationsOk.Value;
+        }
+        return Ok(new { summary = summaryOk.Value, operations });
+    }
+
     [HttpGet("summary")]
     public async Task<ActionResult<DashboardSummaryResponse>> GetSummary(CancellationToken cancellationToken)
     {

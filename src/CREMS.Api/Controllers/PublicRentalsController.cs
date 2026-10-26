@@ -11,14 +11,48 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Caching.Memory;
 using System.Text.Json;
 
 namespace CREMS.Api.Controllers;
 
 [ApiController]
 [Route("api/public")]
-public sealed class PublicRentalsController(ApplicationDbContext db, UserManager<ApplicationUser> userManager, IEmailQueue emailQueue, IWebHostEnvironment environment) : ControllerBase
+public sealed class PublicRentalsController(ApplicationDbContext db, UserManager<ApplicationUser> userManager, IEmailQueue emailQueue, IWebHostEnvironment environment, IMemoryCache? memoryCache = null) : ControllerBase
 {
+    [HttpGet("catalogue-bootstrap")]
+    [AllowAnonymous]
+    public async Task<ActionResult> GetCatalogueBootstrap(CancellationToken token)
+    {
+        const string cacheKey = "public-catalogue-bootstrap-v1";
+        if (memoryCache?.TryGetValue(cacheKey, out object? cached) == true && cached is not null)
+        {
+            Response.Headers.CacheControl = "public, max-age=30, stale-while-revalidate=60";
+            return Ok(cached);
+        }
+
+        var branches = await db.Branches.AsNoTracking()
+            .Where(branch => branch.IsActive && branch.IsPublic)
+            .OrderBy(branch => branch.Name)
+            .Select(branch => new PublicBranchResponse(branch.Id, branch.Name, branch.Address, branch.Phone))
+            .ToListAsync(token);
+        var divisionRows = await db.Divisions.AsNoTracking().Where(x => x.IsActive && x.IsPublic)
+            .OrderBy(x => x.Name).Select(x => new
+            {
+                x.Id, x.Code, x.Name, x.Description, x.Capabilities, x.BrandingJson,
+                Services = x.ServiceOfferings.Where(s => s.IsActive).OrderBy(s => s.Name).Select(s => new
+                { s.Id, s.Code, s.Name, s.Description, s.Type, s.IsBookableOnline, s.RequiresQuote }).ToList()
+            }).ToListAsync(token);
+        var divisions = divisionRows.Select(x => new { x.Id, x.Code, x.Name, x.Description, x.Capabilities, x.Services, Branding = DivisionPresentation.Read(x.BrandingJson) }).ToList();
+        var assetsResult = await GetAssets(null, null, null, null, null, token);
+        if (assetsResult.Result is not OkObjectResult assetsOk) return StatusCode(StatusCodes.Status503ServiceUnavailable);
+
+        var payload = new { branches, divisions, assets = assetsOk.Value };
+        memoryCache?.Set(cacheKey, payload, TimeSpan.FromSeconds(30));
+        Response.Headers.CacheControl = "public, max-age=30, stale-while-revalidate=60";
+        return Ok(payload);
+    }
+
     [HttpGet("assets/{assetId:guid}/photos/{fileName}")]
     [AllowAnonymous]
 
@@ -26,14 +60,17 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
     {
         var safeName = Path.GetFileName(fileName);
         if (!string.Equals(safeName, fileName, StringComparison.Ordinal)) return BadRequest();
-        var expectedUrl = $"/api/public/assets/{assetId}/photos/{safeName}";
+        var storedName = safeName.EndsWith(".thumb.webp", StringComparison.OrdinalIgnoreCase)
+            ? safeName[..^".thumb.webp".Length] + ".webp"
+            : safeName;
+        var expectedUrl = $"/api/public/assets/{assetId}/photos/{storedName}";
         var json = await db.Assets.AsNoTracking().Where(x => x.Id == assetId && x.IsActive).Select(x => x.PhotoUrlsJson).FirstOrDefaultAsync(token);
         if (json is null || !ParseJsonArray(json).Contains(expectedUrl, StringComparer.Ordinal)) return NotFound();
         var root = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "App_Data", "asset-images", assetId.ToString("N")));
         var path = Path.GetFullPath(Path.Combine(root, safeName));
         if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !System.IO.File.Exists(path)) return NotFound();
         var contentType = Path.GetExtension(path).ToLowerInvariant() switch { ".png" => "image/png", ".webp" => "image/webp", _ => "image/jpeg" };
-        Response.Headers.CacheControl = "public, max-age=3600";
+        Response.Headers.CacheControl = "public, max-age=31536000, immutable";
         return PhysicalFile(path, contentType, enableRangeProcessing: true);
     }
 

@@ -8,14 +8,17 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+using SkiaSharp;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace CREMS.Api.Controllers;
 
 [ApiController]
 [Route("api/assets")]
 [Authorize(Policy = SystemPolicies.ViewAssets)]
-public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope staffScope, IWebHostEnvironment environment) : ControllerBase
+public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope staffScope, IWebHostEnvironment environment, IMemoryCache? memoryCache = null) : ControllerBase
 {
+    private void InvalidatePublicCatalogue() => memoryCache?.Remove("public-catalogue-bootstrap-v1");
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<AssetResponse>>> GetAll(
         [FromQuery] string? search,
@@ -144,6 +147,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         AuditWriter.Record(db, scope, "Asset created", "Asset", asset.Id,
             $"{asset.AssetNumber} was added to {branch.Name}.", asset.BranchId);
         await db.SaveChangesAsync(cancellationToken);
+        InvalidatePublicCatalogue();
         await db.Entry(asset).Reference(x => x.Division).LoadAsync(cancellationToken);
         return CreatedAtAction(nameof(GetAll), ToResponse(asset, branch.Name));
     }
@@ -212,6 +216,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         AuditWriter.Record(db, scope, "Asset updated", "Asset", asset.Id,
             $"{asset.AssetNumber} details were updated.", asset.BranchId);
         await db.SaveChangesAsync(cancellationToken);
+        InvalidatePublicCatalogue();
         await db.Entry(asset).Reference(x => x.Division).LoadAsync(cancellationToken);
         return Ok(ToResponse(asset, branch.Name));
     }
@@ -232,6 +237,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         AuditWriter.Record(db, scope, "Asset status changed", "Asset", asset.Id,
             $"{asset.AssetNumber} changed to {request.Status}.", asset.BranchId);
         await db.SaveChangesAsync(cancellationToken);
+        InvalidatePublicCatalogue();
         return NoContent();
     }
 
@@ -254,17 +260,47 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
 
         var urls = ParsePhotoUrls(asset.PhotoUrlsJson);
         if (urls.Count >= 8) return BadRequest(new { message = "An asset can have up to eight photos. Remove an existing photo first." });
-        var storageName = $"{Guid.NewGuid():N}{extension}";
+        var storageStem = Guid.NewGuid().ToString("N");
+        var storageName = $"{storageStem}.webp";
         var root = Path.Combine(environment.ContentRootPath, "App_Data", "asset-images", asset.Id.ToString("N"));
         Directory.CreateDirectory(root);
         var path = Path.Combine(root, storageName);
-        await System.IO.File.WriteAllBytesAsync(path, bytes, token);
+        var thumbnailPath = Path.Combine(root, $"{storageStem}.thumb.webp");
+        try
+        {
+            await SaveResizedWebp(bytes, path, 1600, 1200, 82, token);
+            await SaveResizedWebp(bytes, thumbnailPath, 480, 360, 72, token);
+        }
+        catch (InvalidDataException)
+        {
+            return BadRequest(new { message = "The uploaded file is not a readable image." });
+        }
         var url = $"/api/public/assets/{asset.Id}/photos/{storageName}";
         urls.Add(url);
         asset.PhotoUrlsJson = JsonSerializer.Serialize(urls);
         AuditWriter.Record(db, scope, "Asset photo uploaded", "Asset", asset.Id, $"A catalogue photo was added to {asset.AssetNumber}.", asset.BranchId);
         await db.SaveChangesAsync(token);
+        InvalidatePublicCatalogue();
         return Ok(new { url, photoUrls = urls });
+    }
+
+    private static async Task SaveResizedWebp(byte[] bytes, string path, int maxWidth, int maxHeight, int quality, CancellationToken token)
+    {
+        using var source = SKBitmap.Decode(bytes) ?? throw new InvalidDataException("Unreadable image.");
+        if ((long)source.Width * source.Height > 40_000_000) throw new InvalidDataException("Image dimensions are too large.");
+        var scale = Math.Min(1d, Math.Min((double)maxWidth / source.Width, (double)maxHeight / source.Height));
+        var width = Math.Max(1, (int)Math.Round(source.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+        using var resized = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using (var canvas = new SKCanvas(resized))
+        {
+            canvas.Clear(SKColors.Transparent);
+            canvas.DrawBitmap(source, new SKRect(0, 0, width, height), new SKSamplingOptions(SKCubicResampler.Mitchell));
+        }
+        using var image = SKImage.FromBitmap(resized);
+        using var encoded = image.Encode(SKEncodedImageFormat.Webp, quality) ?? throw new InvalidDataException("Image encoding failed.");
+        await using var output = System.IO.File.Create(path);
+        await encoded.AsStream().CopyToAsync(output, token);
     }
 
     [HttpDelete("{id:guid}/photos/{fileName}")]
@@ -282,9 +318,12 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         if (!urls.Remove(url)) return NotFound();
         var path = Path.Combine(environment.ContentRootPath, "App_Data", "asset-images", asset.Id.ToString("N"), safeName);
         if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+        var thumbnailPath = Path.Combine(environment.ContentRootPath, "App_Data", "asset-images", asset.Id.ToString("N"), $"{Path.GetFileNameWithoutExtension(safeName)}.thumb.webp");
+        if (System.IO.File.Exists(thumbnailPath)) System.IO.File.Delete(thumbnailPath);
         asset.PhotoUrlsJson = JsonSerializer.Serialize(urls);
         AuditWriter.Record(db, scope, "Asset photo removed", "Asset", asset.Id, $"A catalogue photo was removed from {asset.AssetNumber}.", asset.BranchId);
         await db.SaveChangesAsync(token);
+        InvalidatePublicCatalogue();
         return Ok(new { photoUrls = urls });
     }
 

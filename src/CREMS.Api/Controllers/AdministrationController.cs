@@ -6,13 +6,14 @@ using CREMS.Api.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace CREMS.Api.Controllers;
 
 [ApiController]
 [Route("api/administration")]
 [Authorize(Policy = SystemPolicies.AdministerSystem)]
-public sealed class AdministrationController(ApplicationDbContext db, CurrentStaffScope staffScope, IConfiguration configuration, IWebHostEnvironment environment) : ControllerBase
+public sealed class AdministrationController(ApplicationDbContext db, CurrentStaffScope staffScope, IConfiguration configuration, IWebHostEnvironment environment, IMemoryCache? memoryCache = null) : ControllerBase
 {
     [HttpGet("audit")]
     public async Task<ActionResult> Audit([FromQuery] string? search, [FromQuery] int take = 100, CancellationToken token = default)
@@ -25,12 +26,15 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
     [HttpGet("settings")]
     public async Task<ActionResult> Settings(CancellationToken token)
     {
+        if (memoryCache?.TryGetValue("administration-settings-v1", out object? cached) == true) return Ok(cached);
         var stored = await db.SystemSettings.AsNoTracking().ToDictionaryAsync(x => x.Key, token);
-        return Ok(RentalSettings.Definitions.Select(entry => new {
+        var result = RentalSettings.Definitions.Select(entry => new {
             Id = stored.GetValueOrDefault(entry.Key)?.Id ?? Guid.Empty,
             Key = entry.Key, Value = stored.GetValueOrDefault(entry.Key)?.Value ?? entry.Value.Default,
             entry.Value.Category, entry.Value.Description, IsSecret = false
-        }).OrderBy(x => x.Category).ThenBy(x => x.Key));
+        }).OrderBy(x => x.Category).ThenBy(x => x.Key).ToArray();
+        memoryCache?.Set("administration-settings-v1", result, TimeSpan.FromMinutes(5));
+        return Ok(result);
     }
 
     [HttpPut("settings/{key}")]
@@ -65,6 +69,7 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
         setting.Value = value; setting.Description = definition.Description; setting.UpdatedAt = DateTimeOffset.UtcNow;
         if (scope is not null) AuditWriter.Record(db, scope, "System setting updated", "SystemSetting", setting.Id, $"{setting.Key} was updated.", null, previous, setting.Value);
         await db.SaveChangesAsync(token);
+        memoryCache?.Remove("administration-settings-v1");
         return NoContent();
     }
 
@@ -90,7 +95,13 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
     }
 
     [HttpGet("templates")]
-    public async Task<ActionResult> Templates(CancellationToken token) => Ok(await db.NotificationTemplates.AsNoTracking().OrderBy(x => x.Name).ToListAsync(token));
+    public async Task<ActionResult> Templates(CancellationToken token)
+    {
+        if (memoryCache?.TryGetValue("administration-templates-v1", out object? cached) == true) return Ok(cached);
+        var result = await db.NotificationTemplates.AsNoTracking().OrderBy(x => x.Name).ToListAsync(token);
+        memoryCache?.Set("administration-templates-v1", result, TimeSpan.FromMinutes(5));
+        return Ok(result);
+    }
 
     [HttpPost("templates")]
     public async Task<ActionResult> CreateTemplate(CreateTemplateRequest request, CancellationToken token)
@@ -108,6 +119,7 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
         db.NotificationTemplates.Add(template);
         var scope = await staffScope.GetAsync(User); if (scope is not null) AuditWriter.Record(db, scope, "Notification template created", "NotificationTemplate", template.Id, $"{key} was created.", null);
         await db.SaveChangesAsync(token);
+        memoryCache?.Remove("administration-templates-v1");
         return Ok(template);
     }
 
@@ -120,7 +132,7 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
             return BadRequest(new { message = "Enter a name, valid channel, subject and message within the allowed limits." });
         template.Name = request.Name.Trim(); template.Channel = request.Channel.Trim(); template.Subject = request.Subject.Trim(); template.Body = request.Body.Trim(); template.IsActive = request.IsActive; template.UpdatedAt = DateTimeOffset.UtcNow;
         var scope = await staffScope.GetAsync(User); if (scope is not null) AuditWriter.Record(db, scope, "Notification template updated", "NotificationTemplate", template.Id, $"{template.Key} was updated.", null);
-        await db.SaveChangesAsync(token); return NoContent();
+        await db.SaveChangesAsync(token); memoryCache?.Remove("administration-templates-v1"); return NoContent();
     }
 
     [HttpGet("health")]

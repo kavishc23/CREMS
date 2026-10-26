@@ -1,25 +1,16 @@
 import '@fontsource/inter/latin-400.css'
 import '@fontsource/inter/latin-500.css'
 import '@fontsource/inter/latin-600.css'
+import { lazy, Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CssBaseline, GlobalStyles, ThemeProvider, createTheme } from '@mui/material'
 import App from './App'
 import { ToastHost } from './components/ToastHost'
 import { AuthProvider } from './auth/AuthContext'
 import { StableViewport } from './components/StableViewport'
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      gcTime: 5 * 60_000,
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
-    mutations: { retry: 0 },
-  },
-})
+const StaffQueryBoundary = lazy(() => import('./auth/StaffQueryBoundary'))
+const isStaffRoute = window.location.pathname.startsWith('/staff')
 const theme = createTheme({
   palette: {
     primary: { main: '#111111', dark: '#000000', contrastText: '#ffffff' },
@@ -69,11 +60,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       '@media (max-width: 600px)': { '.customer-site-density': { zoom: 1 } },
       '@media print': { '.customer-site-density': { zoom: 1, width: '100%', minHeight: 0 }, 'body *': { visibility: 'hidden' }, '#crems-qr-label, #crems-qr-label *': { visibility: 'visible' }, '#crems-qr-label': { position: 'absolute', left: 0, top: 0, width: '90mm', border: '2px solid #000 !important' } },
     }} />
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <App />
-        <ToastHost />
-      </AuthProvider>
-    </QueryClientProvider>
+    <AuthProvider>
+      {isStaffRoute
+        ? <Suspense fallback={null}><StaffQueryBoundary><App /></StaffQueryBoundary></Suspense>
+        : <App />}
+      <ToastHost />
+    </AuthProvider>
   </ThemeProvider>,
 )

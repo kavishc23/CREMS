@@ -25,8 +25,9 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const needsStaffSession = window.location.pathname.startsWith('/staff')
   const [user, setUser] = useState<AuthenticatedUser | null>(null)
-  const [checkingSession, setCheckingSession] = useState(true)
+  const [checkingSession, setCheckingSession] = useState(needsStaffSession)
 
   const loadSession = useCallback(async () => {
     try {
@@ -40,10 +41,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    // Public and customer pages use a separate session. Avoid an unnecessary
+    // staff-auth round trip on the latency-sensitive public landing page.
+    if (!needsStaffSession) return
     // Session loading is the external synchronization performed on application startup.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadSession()
-  }, [loadSession])
+  }, [loadSession, needsStaffSession])
 
   useEffect(() => {
     if (!user) return

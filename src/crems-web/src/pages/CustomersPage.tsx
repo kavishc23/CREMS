@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import AddOutlined from '@mui/icons-material/AddOutlined'
 import BlockOutlined from '@mui/icons-material/BlockOutlined'
@@ -88,6 +88,8 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') ?? '')
   const [statusFilter, setStatusFilter] = useState<'All' | 'Verified' | 'Pending' | 'Blocked'>('All')
   const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const [summary, setSummary] = useState({ total: 0, verified: 0, licenceVerified: 0, pending: 0, blocked: 0 })
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [activity, setActivity] = useState<CustomerActivity | null>(null)
@@ -99,14 +101,18 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   const [licenceMode, setLicenceMode] = useState<'scan' | 'manual' | null>(null)
   const [confirmation, setConfirmation] = useState<{ kind: 'block' | 'restore' | 'activation' | 'remove-licence'; customer: Customer } | null>(null)
 
+  const deferredSearch = useDeferredValue(search)
   const loadCustomers = useCallback(async () => {
     setLoading(true)
     try {
-      const response = await api.get<Customer[]>('/customers')
+      const response = await api.get<Customer[]>('/customers', { params: { search: deferredSearch || undefined, status: statusFilter === 'All' ? undefined : statusFilter, page, pageSize: 20 } })
       setCustomers(response.data)
+      const numberHeader = (name: string) => Number(response.headers[name] ?? 0)
+      setTotalCount(numberHeader('x-total-count'))
+      setSummary({ total: numberHeader('x-customer-total'), verified: numberHeader('x-customer-verified'), licenceVerified: numberHeader('x-customer-licence-verified'), pending: numberHeader('x-customer-pending'), blocked: numberHeader('x-customer-blocked') })
     } catch { setError('Unable to load customers. Confirm that the backend is running.') }
     finally { setLoading(false) }
-  }, [])
+  }, [deferredSearch, page, statusFilter])
 
   useEffect(() => {
     // Initial loading synchronizes the register with the API.
@@ -114,28 +120,17 @@ export function CustomersPage({ administrationView = false }: { administrationVi
     void loadCustomers()
   }, [loadCustomers])
 
-  const visibleCustomers = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    return customers.filter((customer) => {
-      const matchesSearch = !term || [customer.customerNumber, customer.name, customer.email, customer.phone, customer.identificationNumber]
-        .some((value) => value?.toLowerCase().includes(term))
-      const matchesStatus = statusFilter === 'All'
-        || (statusFilter === 'Verified' && customer.emailConfirmed)
-        || (statusFilter === 'Pending' && customer.hasOnlineAccount && !customer.emailConfirmed)
-        || (statusFilter === 'Blocked' && customer.isBlocked)
-      return matchesSearch && matchesStatus
-    })
-  }, [customers, search, statusFilter])
-  const customerPageCount = Math.max(1, Math.ceil(visibleCustomers.length / 20))
-  const pagedCustomers = visibleCustomers.slice((page - 1) * 20, page * 20)
+  const visibleCustomers = customers
+  const customerPageCount = Math.max(1, Math.ceil(totalCount / 20))
+  const pagedCustomers = customers
 
   const customerSummary = useMemo(() => [
-    { label: 'Total customers', value: customers.length, color: 'text.primary' },
-    { label: 'Online verified', value: customers.filter((item) => item.emailConfirmed).length, color: 'success.main' },
-    { label: 'Licence verified', value: customers.filter((item) => item.licenceStatus === 'Verified').length, color: 'info.main' },
-    { label: 'Pending activation', value: customers.filter((item) => item.hasOnlineAccount && !item.emailConfirmed).length, color: 'warning.main' },
-    { label: 'Blocked', value: customers.filter((item) => item.isBlocked).length, color: 'error.main' },
-  ], [customers])
+    { label: 'Total customers', value: summary.total, color: 'text.primary' },
+    { label: 'Online verified', value: summary.verified, color: 'success.main' },
+    { label: 'Licence verified', value: summary.licenceVerified, color: 'info.main' },
+    { label: 'Pending activation', value: summary.pending, color: 'warning.main' },
+    { label: 'Blocked', value: summary.blocked, color: 'error.main' },
+  ], [summary])
 
   function openCreate() {
     const next = customers.map(customer => Number(customer.customerNumber.replace(/^CUS-/, '')) || 0).reduce((max, value) => Math.max(max, value), 0) + 1
@@ -270,7 +265,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
             </TableCell>
           </TableRow>)}
         </TableBody></Table></TableContainer>}
-      {visibleCustomers.length > 20 && <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}><Typography variant="body2" color="text.secondary">Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, visibleCustomers.length)} of {visibleCustomers.length}</Typography><Pagination count={customerPageCount} page={page} onChange={(_, value) => setPage(value)} size="small" /></Stack>}
+      {totalCount > 20 && <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}><Typography variant="body2" color="text.secondary">Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, totalCount)} of {totalCount}</Typography><Pagination count={customerPageCount} page={page} onChange={(_, value) => setPage(value)} size="small" /></Stack>}
     </CardContent></Card>
     <Dialog open={open} onClose={() => !saving && setOpen(false)} disableScrollLock fullWidth maxWidth="lg" PaperProps={{ sx: { borderRadius: 2.5 } }}>
       <Box component="form" onSubmit={save}><DialogTitle sx={{ px: 3.5, py: 2.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 26, fontWeight: 850 }}>{editing ? 'Edit customer' : 'Add customer'}<IconButton aria-label="Close" onClick={() => setOpen(false)}><CloseOutlined /></IconButton></DialogTitle><DialogContent dividers sx={{ px: 3.5, py: 2.5 }}>
