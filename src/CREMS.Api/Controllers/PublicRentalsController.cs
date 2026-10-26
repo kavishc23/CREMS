@@ -41,6 +41,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
     [AllowAnonymous]
     public async Task<ActionResult> GetDivisions(CancellationToken cancellationToken)
     {
+        Response.Headers.CacheControl = "public, max-age=300, stale-while-revalidate=60";
         var divisions = await db.Divisions.AsNoTracking().Where(x => x.IsActive && x.IsPublic)
             .OrderBy(x => x.Name).Select(x => new
             {
@@ -56,6 +57,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
     public async Task<ActionResult<IReadOnlyList<PublicBranchResponse>>> GetBranches(
         CancellationToken cancellationToken)
     {
+        Response.Headers.CacheControl = "public, max-age=300, stale-while-revalidate=60";
         var branches = await db.Branches.AsNoTracking()
             .Where(branch => branch.IsActive && branch.IsPublic)
             .OrderBy(branch => branch.Name)
@@ -75,6 +77,11 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         [FromQuery] DateOnly? endDate,
         CancellationToken cancellationToken)
     {
+        // The unfiltered catalogue is safe to reuse briefly. Date-filtered
+        // availability must remain fresh because bookings can change it.
+        if (!startDate.HasValue && !endDate.HasValue)
+            Response.Headers.CacheControl = "public, max-age=30, stale-while-revalidate=60";
+
         if (startDate.HasValue != endDate.HasValue ||
             startDate.HasValue && endDate <= startDate)
         {

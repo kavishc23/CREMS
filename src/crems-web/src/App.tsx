@@ -68,7 +68,6 @@ export default function App() {
   const [staffView, setStaffView] = useState(() => window.location.pathname.startsWith('/staff'))
   const [customerView, setCustomerView] = useState(() => window.location.pathname.startsWith('/account'))
   const [customerSignedIn, setCustomerSignedIn] = useState(false)
-  const [checkingCustomerSession, setCheckingCustomerSession] = useState(() => !window.location.pathname.startsWith('/staff'))
   const { user, checkingSession, logout } = useAuth()
 
   useEffect(() => {
@@ -95,7 +94,6 @@ export default function App() {
         setCustomerSignedIn(false)
         sessionStorage.removeItem('crems.customerName')
       })
-      .finally(() => { if (!cancelled) setCheckingCustomerSession(false) })
     return () => { cancelled = true }
   }, [customerView, staffView])
 
@@ -134,7 +132,9 @@ export default function App() {
     setPage('dashboard')
   }
 
-  if (checkingSession || (checkingCustomerSession && !staffView && !customerView)) return <LoadingScreen />
+  // The public catalogue does not depend on authentication. Render it while the
+  // optional customer-session check runs so tunnel latency never blocks first paint.
+  if (checkingSession && staffView) return <LoadingScreen />
 
   if (customerView) return <Box className="customer-site-density"><Suspense fallback={<LoadingScreen />}><CustomerPortalPage onSessionChange={setCustomerSignedIn} onBack={() => {
     window.history.pushState({}, '', '/')
@@ -180,7 +180,7 @@ export default function App() {
     : activePage === 'divisions' || activePage === 'configuration' ? <OrganizationWorkspacePage userRoles={user.roles} />
     : <BranchesPage userRoles={user.roles} />
 
-  return <AppShell activePage={activePage} onNavigate={navigateStaff} userName={user.fullName || user.email} userRoles={user.roles} divisionName={user.divisionName} branchName={user.branchName} onLogout={logoutStaff}>
+  return <AppShell activePage={activePage} onNavigate={navigateStaff} userKey={user.email} userName={user.fullName || user.email} userRoles={user.roles} divisionName={user.divisionName} branchName={user.branchName} onLogout={logoutStaff}>
     <Suspense fallback={<LoadingScreen />}>{content}</Suspense>
   </AppShell>
 }

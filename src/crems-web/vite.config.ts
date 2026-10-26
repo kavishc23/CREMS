@@ -19,4 +19,13 @@ export default defineConfig({
       '/api': 'http://localhost:5080',
     },
   },
+  preview: {
+    host: '127.0.0.1',
+    port: 4173,
+    strictPort: true,
+    allowedHosts: true,
+    proxy: {
+      '/api': 'http://localhost:5080',
+    },
+  },
 })

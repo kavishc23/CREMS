@@ -186,7 +186,7 @@ public sealed class CustomerAccountController(
         {
             booking.Id, Reference = booking.BookingNumber, booking.Status, booking.CreatedAt, booking.UpdatedAt,
             Branch = new { booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone,
-                booking.Branch.Email, booking.Branch.PickupInstructions, OperatingHours = operatingHours },
+                booking.Branch.Email, booking.Branch.PickupInstructions, booking.Branch.ReturnInstructions, OperatingHours = operatingHours },
             Items = booking.Items.OrderBy(x => x.StartAt).Select(x => new
             {
                 x.AssetId, x.Asset!.Name, x.Asset.Type, x.Asset.Category, x.StartAt, x.EndAt, x.DailyRate,

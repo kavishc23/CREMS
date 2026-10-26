@@ -217,6 +217,17 @@ public static class DatabaseInitializer
                 new NotificationTemplate { Key = "rental.returnReminder", Name = "Return reminder", Channel = "Sms", Subject = "Rental return reminder", Body = "Reminder: {{bookingNumber}} is due for return at {{endAt}}. Contact {{branchPhone}} if you need assistance." },
                 new NotificationTemplate { Key = "invoice.final", Name = "Final invoice", Channel = "Email", Subject = "Final invoice {{invoiceNumber}}", Body = "Your rental is complete. Total {{total}}; balance due {{balanceDue}}." });
         }
+        var reminderTemplates = new[]
+        {
+            new NotificationTemplate { Key = "reminder.quotationExpiry", Name = "Quotation expiring", Channel = "Email", Subject = "Quotation {{quoteNumber}} expires soon", Body = "Your quotation {{quoteNumber}} expires at {{dueAt}}. Contact {{branchName}} if you need help." },
+            new NotificationTemplate { Key = "reminder.pickup", Name = "Upcoming pickup", Channel = "Email", Subject = "Pickup reminder for {{bookingNumber}}", Body = "Your pickup is scheduled for {{dueAt}} at {{branchName}}. {{instructions}}" },
+            new NotificationTemplate { Key = "reminder.overdueReturn", Name = "Overdue return", Channel = "Email", Subject = "Return overdue for {{bookingNumber}}", Body = "Your rental was due at {{dueAt}}. Please contact {{branchName}} to arrange your return." },
+            new NotificationTemplate { Key = "reminder.invoiceDue", Name = "Invoice due", Channel = "Email", Subject = "Invoice {{invoiceNumber}} payment reminder", Body = "The balance of {{balanceDue}} for invoice {{invoiceNumber}} is due. Please contact {{branchName}} if payment has already been made." },
+            new NotificationTemplate { Key = "reminder.maintenanceComplete", Name = "Maintenance completed", Channel = "Email", Subject = "Asset service completed for {{bookingNumber}}", Body = "Maintenance affecting your booking {{bookingNumber}} has been completed. Contact {{branchName}} for pickup or return arrangements." },
+            new NotificationTemplate { Key = "reminder.documentExpiry", Name = "Document expiring", Channel = "Email", Subject = "Your {{documentType}} expires soon", Body = "Your {{documentType}} expires on {{dueAt}}. Please provide an updated document before your next hire." },
+        };
+        var existingReminderKeys = await db.NotificationTemplates.Where(x => x.Key.StartsWith("reminder.")).Select(x => x.Key).ToListAsync(cancellationToken);
+        db.NotificationTemplates.AddRange(reminderTemplates.Where(x => !existingReminderKeys.Contains(x.Key)));
         await db.SaveChangesAsync(cancellationToken);
 
         var divisionSeeds = new[]

@@ -10,6 +10,7 @@ import { MaintenanceStatusDisplay } from './MaintenanceStatusDisplay'
 import { MaintenanceServicePlan } from './MaintenanceServicePlan'
 import { MaintenanceInspectionRecord } from './MaintenanceInspectionRecord'
 import { MaintenancePartsDialog } from '../MaintenancePartsDialog'
+import { RecordTimeline } from '../../components/RecordTimeline'
 import { closed, date, label, money, repairOverdue, type Asset, type Detail, type Job, type Options, type Permissions } from './types'
 
 type Form = { assetId: string; serviceType: string; faultDescription: string; priority: string; isPreventive: boolean; assignedTo: string; assignedPersonnelId: string; supplier: string; supplierId: string; sourceType: string; sourceReference: string; sourceInspectionId: string; expectedReleaseAt: string; completionNotes: string; nextServiceDate: string; nextServiceMeter: string; serviceIntervalMonths: string; meterReading: string; downtimeHours: string; parentFailureJobId: string; warrantyCovered: boolean; warrantyClaimNumber: string; estimatedCost: string; actualCost: string; partsCost: string; labourCost: string; labourHours: string; labourRate: string; transportCost: string; externalServiceCost: string; fuelCost: string; taxCost: string; otherCost: string; invoiceNumber: string; partsUsed: string; useDetailedCosts: boolean }
@@ -182,7 +183,7 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
           </Stack>}
           <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} mt={1}>
             <Typography variant="caption" color="text.secondary" role="status">{dirty ? 'Unsaved changes' : jobId ? 'Record loaded' : 'New job'}</Typography>
-            {job && <Button size="small" disabled={busy || loading} onClick={() => navigate(tab === 'History' ? workflowTab(job) === 'History' ? 'Details' : workflowTab(job) : 'History')}>{tab === 'History' ? 'Back to work' : 'View service record'}</Button>}
+            {job && <Stack direction="row" gap={1}><RecordTimeline entityType="maintenancejob" recordId={job.id}/><Button size="small" disabled={busy || loading} onClick={() => navigate(tab === 'History' ? workflowTab(job) === 'History' ? 'Details' : workflowTab(job) : 'History')}>{tab === 'History' ? 'Back to work' : 'View service record'}</Button></Stack>}
           </Stack>
           {job && <Typography variant="caption" color="text.secondary">Current meter: {job.currentMeterReading ?? '—'} {job.meterUnit}</Typography>}
         </Box>

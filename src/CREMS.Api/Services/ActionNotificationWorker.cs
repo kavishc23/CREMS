@@ -21,10 +21,81 @@ public sealed class ActionNotificationWorker(IServiceScopeFactory scopes, ILogge
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
         do
         {
-            try { await Reminders(token); await Emails(token); }
+            try { await Reminders(token); await CustomerReminders(token); await Emails(token); }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogError(ex, "Action notification cycle failed"); }
         } while (await timer.WaitForNextTickAsync(token));
+    }
+
+    private async Task CustomerReminders(CancellationToken token)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        if (!scope.ServiceProvider.GetRequiredService<IOptions<EmailOptions>>().Value.Enabled) return;
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var emailQueue = scope.ServiceProvider.GetRequiredService<IEmailQueue>();
+        var now = DateTimeOffset.UtcNow;
+        var today = now.ToOffset(TimeSpan.FromHours(12)).Date;
+        var quotationHours = int.Parse(await RentalSettings.Read(db, "reminders.quotationHours", token));
+        var pickupHours = int.Parse(await RentalSettings.Read(db, "reminders.pickupHours", token));
+        var invoiceDueDays = int.Parse(await RentalSettings.Read(db, "reminders.invoiceDueDays", token));
+        var documentDays = int.Parse(await RentalSettings.Read(db, "reminders.documentDays", token));
+        var overdueReturnDays = int.Parse(await RentalSettings.Read(db, "reminders.overdueReturnDays", token));
+        var templates = await db.NotificationTemplates.AsNoTracking().Where(x => x.Key.StartsWith("reminder.") && x.IsActive && x.Channel == "Email")
+            .ToDictionaryAsync(x => x.Key, token);
+        async Task Send(string key, Guid recordId, string? recipient, Dictionary<string, string> values, bool daily = false)
+        {
+            if (string.IsNullOrWhiteSpace(recipient) || !templates.TryGetValue(key, out var template)) return;
+            var category = $"{key}:{recordId:N}:{(daily ? today.ToString("yyyyMMdd") : "once")}";
+            if (await db.OutboundEmails.AnyAsync(x => x.Category == category, token)) return;
+            string Render(string input)
+            {
+                foreach (var value in values) input = input.Replace("{{" + value.Key + "}}", value.Value, StringComparison.OrdinalIgnoreCase);
+                return input;
+            }
+            var subject = Render(template.Subject);
+            var body = Render(template.Body);
+            emailQueue.Queue(db, recipient, subject,
+                EmailTemplate.Branded(template.Name, $"<p>{HtmlEncoder.Default.Encode(body)}</p>"), body, category);
+            await db.SaveChangesAsync(token);
+        }
+        var quotes = await db.SalesQuotes.AsNoTracking().Where(x => x.Status == QuoteStatus.Sent && x.ValidUntil > now && x.ValidUntil <= now.AddHours(quotationHours))
+            .Select(x => new { x.Id, x.QuoteNumber, x.ValidUntil, Email = db.Customers.Where(c => c.Id == x.CustomerId).Select(c => c.Email).FirstOrDefault(), BranchName = db.Branches.Where(b => b.Id == x.BranchId).Select(b => b.Name).FirstOrDefault() }).Take(200).ToListAsync(token);
+        foreach (var quote in quotes) await Send("reminder.quotationExpiry", quote.Id, quote.Email, new() { ["quoteNumber"] = quote.QuoteNumber, ["dueAt"] = quote.ValidUntil.ToOffset(TimeSpan.FromHours(12)).ToString("dd MMM yyyy h:mm tt"), ["branchName"] = quote.BranchName ?? "your branch" });
+
+        var bookings = await db.Bookings.AsNoTracking().Where(x => x.Status == BookingStatus.Confirmed || x.Status == BookingStatus.ConvertedToRental)
+            .Select(x => new { x.Id, x.BookingNumber, x.Status, Email = x.Customer!.Email, BranchName = x.Branch!.Name,
+                Instructions = x.Branch.PickupInstructions, Start = x.Items.Min(i => (DateTimeOffset?)i.StartAt), End = x.Items.Max(i => (DateTimeOffset?)i.EndAt) }).ToListAsync(token);
+        foreach (var booking in bookings)
+        {
+            if (booking.Status == BookingStatus.Confirmed && booking.Start > now && booking.Start <= now.AddHours(pickupHours))
+                await Send("reminder.pickup", booking.Id, booking.Email, new() { ["bookingNumber"] = booking.BookingNumber,
+                    ["dueAt"] = booking.Start.Value.ToOffset(TimeSpan.FromHours(12)).ToString("dd MMM yyyy h:mm tt"),
+                    ["branchName"] = booking.BranchName, ["instructions"] = booking.Instructions ?? "Please bring your required identification and documents." });
+            if (booking.Status == BookingStatus.ConvertedToRental && booking.End < now && booking.End >= now.AddDays(-overdueReturnDays))
+                await Send("reminder.overdueReturn", booking.Id, booking.Email, new() { ["bookingNumber"] = booking.BookingNumber,
+                    ["dueAt"] = booking.End.Value.ToOffset(TimeSpan.FromHours(12)).ToString("dd MMM yyyy h:mm tt"), ["branchName"] = booking.BranchName }, daily: true);
+        }
+        var invoices = await db.RentalInvoices.AsNoTracking().Where(x => (x.Status == InvoiceStatus.Issued || x.Status == InvoiceStatus.PartiallyPaid) &&
+            x.BalanceDue > 0 && x.IssuedAt < now.AddDays(-invoiceDueDays) && x.IssuedAt >= now.AddDays(-invoiceDueDays - 31))
+            .Select(x => new { x.Id, x.InvoiceNumber, x.BalanceDue, Email = x.Booking!.Customer!.Email, BranchName = x.Booking.Branch!.Name }).Take(200).ToListAsync(token);
+        foreach (var invoice in invoices) await Send("reminder.invoiceDue", invoice.Id, invoice.Email, new() { ["invoiceNumber"] = invoice.InvoiceNumber,
+            ["balanceDue"] = $"FJD {invoice.BalanceDue:N2}", ["branchName"] = invoice.BranchName });
+
+        var releasedJobs = await db.MaintenanceJobs.AsNoTracking().Where(x => x.ReleasedAt > now.AddDays(-1))
+            .Select(x => new { x.Id, x.AssetId, x.BranchId }).ToListAsync(token);
+        foreach (var job in releasedJobs)
+        {
+            var related = await db.Bookings.AsNoTracking().Where(x => x.Status == BookingStatus.Confirmed && x.Items.Any(i => i.AssetId == job.AssetId))
+                .Select(x => new { x.Id, x.BookingNumber, Email = x.Customer!.Email, BranchName = x.Branch!.Name }).Take(10).ToListAsync(token);
+            foreach (var booking in related) await Send("reminder.maintenanceComplete", booking.Id, booking.Email,
+                new() { ["bookingNumber"] = booking.BookingNumber, ["branchName"] = booking.BranchName });
+        }
+        var expiryDate = DateOnly.FromDateTime(today.AddDays(documentDays));
+        var documents = await db.DocumentRecords.AsNoTracking().Where(x => x.EntityType == nameof(Domain.Customers.Customer) &&
+            x.ExpiresOn.HasValue && x.ExpiresOn.Value >= DateOnly.FromDateTime(today) && x.ExpiresOn.Value <= expiryDate)
+            .Select(x => new { x.Id, x.EntityId, x.Type, x.ExpiresOn, Email = db.Customers.Where(c => c.Id == x.EntityId).Select(c => c.Email).FirstOrDefault() }).Take(200).ToListAsync(token);
+        foreach (var document in documents) await Send("reminder.documentExpiry", document.Id, document.Email,
+            new() { ["documentType"] = document.Type, ["dueAt"] = document.ExpiresOn!.Value.ToString("dd MMM yyyy") });
     }
 
     private async Task Reminders(CancellationToken token)

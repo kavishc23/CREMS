@@ -1,5 +1,5 @@
 import MonitorHeartOutlined from '@mui/icons-material/MonitorHeartOutlined'
-import { lazy, Suspense, type ReactNode, useState } from 'react'
+import { lazy, Suspense, type ReactNode, useEffect, useRef, useState } from 'react'
 import DashboardOutlined from '@mui/icons-material/DashboardOutlined'
 import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
@@ -14,6 +14,8 @@ import MenuIcon from '@mui/icons-material/Menu'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
 import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined'
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined'
+import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined'
+import FolderOutlined from '@mui/icons-material/FolderOutlined'
 import HomeOutlined from '@mui/icons-material/HomeOutlined'
 import HelpOutlineOutlined from '@mui/icons-material/HelpOutlineOutlined'
 import AccountBalanceWalletOutlined from '@mui/icons-material/AccountBalanceWalletOutlined'
@@ -35,7 +37,7 @@ import {
   useMediaQuery,
   useTheme,
   Chip,
-  ListSubheader,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -66,6 +68,12 @@ const navigation = [
   { label: 'System health & audit', id: 'systemHealth', icon: <MonitorHeartOutlined />, section: 'Administration' },
 ] satisfies { label: string; id: AppPage; icon: ReactNode; section?: string }[]
 const sections = ['Rental operations', 'Asset operations', 'Management', 'Administration']
+const sectionIcons: Record<string, ReactNode> = {
+  'Rental operations': <EventAvailableOutlined />,
+  'Asset operations': <Inventory2Outlined />,
+  Management: <CorporateFareOutlined />,
+  Administration: <ManageAccountsOutlined />,
+}
 const pageHelp: Record<string, { purpose: string; steps: string[] }> = {
   dashboard: { purpose: 'See what needs attention today and start the most common tasks.', steps: ['Check overdue returns and pending requests.', 'Choose a quick action.', 'Use the left menu to move to another area.'] },
   bookings: { purpose: 'Review customer requests and turn approved requests into confirmed bookings.', steps: ['Open a pending request.', 'Confirm the customer, dates, branch and asset.', 'Approve it when everything is correct.'] },
@@ -85,6 +93,7 @@ const pageHelp: Record<string, { purpose: string; steps: string[] }> = {
 type AppShellProps = {
   activePage: string
   onNavigate: (page: AppPage) => void
+  userKey: string
   userName: string
   userRoles: string[]
   divisionName: string | null
@@ -93,14 +102,41 @@ type AppShellProps = {
   children: ReactNode
 }
 
-export function AppShell({ activePage, onNavigate, userName, userRoles, divisionName, branchName, onLogout, children }: AppShellProps) {
+export function AppShell({ activePage, onNavigate, userKey, userName, userRoles, divisionName, branchName, onLogout, children }: AppShellProps) {
   const theme = useTheme()
   const desktop = useMediaQuery(theme.breakpoints.up('md'))
   const [open, setOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('crems.staff.navigation.collapsed') === 'true' } catch { return false } })
   const [helpOpen, setHelpOpen] = useState(false)
+  const activeSection = navigation.find((item) => item.id === activePage)?.section
+  const navigationPreferenceKey = `crems.staff.navigation.groups.${userKey.trim().toLowerCase()}`
+  const navigationListRef = useRef<HTMLUListElement | null>(null)
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
+    const defaults = Object.fromEntries(sections.map((section) => [section, section === activeSection]))
+    try {
+      const saved = JSON.parse(localStorage.getItem(navigationPreferenceKey) ?? '{}') as Record<string, unknown>
+      return Object.fromEntries(sections.map((section) => [section, typeof saved[section] === 'boolean' ? saved[section] : defaults[section]]))
+    } catch { return defaults }
+  })
   const activeDrawerWidth = desktop && collapsed ? collapsedDrawerWidth : drawerWidth
   const currentPageLabel = navigation.find((item) => item.id === activePage)?.label ?? 'Home'
+
+  useEffect(() => {
+    if (!activeSection) return
+    setExpandedSections((current) => ({ ...current, [activeSection]: true }))
+  }, [activeSection])
+
+  useEffect(() => {
+    try { localStorage.setItem(navigationPreferenceKey, JSON.stringify(expandedSections)) } catch { /* Storage may be unavailable. */ }
+  }, [expandedSections, navigationPreferenceKey])
+
+  useEffect(() => {
+    if (!desktop && !open) return
+    const frame = window.requestAnimationFrame(() => {
+      navigationListRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activePage, activeSection, desktop, open])
 
   const drawer = (
     <Box sx={{ height: '100dvh', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#15140f', color: 'white' }}>
@@ -113,24 +149,27 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
         </Box>
       </Toolbar>
       <Box sx={{px:collapsed&&desktop?1:2,pt:1.5,pb:1,display:'flex',justifyContent:collapsed&&desktop?'center':'stretch'}}><Suspense fallback={null}><GlobalSearch collapsed={collapsed && desktop} /></Suspense></Box>
-      <List component="nav" aria-label="Staff workspaces" sx={{ px: 1.25, pt: 1, pb: 2, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', '&::-webkit-scrollbar': { width: 5 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#716a52', borderRadius: 8 }, '&::-webkit-scrollbar-track': { bgcolor: 'transparent' } }}>
+      <List ref={navigationListRef} component="nav" aria-label="Staff workspaces" sx={{ px: { xs: 1.5, md: 1.25 }, pt: 1, pb: 2, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', '&::-webkit-scrollbar': { width: 5 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#716a52', borderRadius: 8 }, '&::-webkit-scrollbar-track': { bgcolor: 'transparent' } }}>
         {(!collapsed || !desktop) && <Box sx={{ mx: .75, mb: 1.25, p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)' }}><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: .8 }}>Working in</Typography><Typography variant="body2" fontWeight={750} noWrap>{divisionName || 'Carpenters Fiji Group'}</Typography><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.62)' }}>{branchName || 'All branches'}</Typography></Box>}
         {sections.map((section) => {
           const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id))
           if (!items.length) return null
-          return <Box key={section}>{!collapsed || !desktop ? <ListSubheader disableSticky sx={{ bgcolor: 'transparent', color: 'rgba(255,255,255,.42)', fontSize: 11, fontWeight: 800, lineHeight: '32px', letterSpacing: 1.1, textTransform: 'uppercase', px: 2, mt: 1 }}>{section}</ListSubheader> : <Box sx={{ height: 12 }} />}{items.map((item) => {
+          const visibleItems = section === 'Rental operations' ? items.filter((item) => item.id !== 'dashboard') : items
+          const dashboard = section === 'Rental operations' ? items.find((item) => item.id === 'dashboard') : undefined
+          const renderItem = (item: typeof navigation[number]) => {
           const button = (
             <ListItemButton
               key={item.id}
               selected={activePage === item.id}
+              aria-current={activePage === item.id ? 'page' : undefined}
               aria-label={item.label}
               onClick={() => {
-                onNavigate(item.id)
                 setOpen(false)
+                onNavigate(item.id)
               }}
               sx={{
                 mb: 0.25,
-                minHeight: 41,
+                minHeight: { xs: 52, md: 41 },
                 px: collapsed && desktop ? 1.5 : 2,
                 justifyContent: collapsed && desktop ? 'center' : 'flex-start',
                 borderRadius: 1.25,
@@ -142,7 +181,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
               }}
             >
               <ListItemIcon sx={{ color: 'inherit', minWidth: collapsed && desktop ? 0 : 40, justifyContent: 'center' }}>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 12.5, fontWeight: activePage === item.id ? 700 : 400 }} sx={{ display: collapsed && desktop ? 'none' : 'block' }} />
+              <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: { xs: 14, md: 12.5 }, fontWeight: activePage === item.id ? 700 : 400 }} sx={{ display: collapsed && desktop ? 'none' : 'block' }} />
             </ListItemButton>
           )
 
@@ -151,7 +190,38 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
               {button}
             </Tooltip>
           ) : button
-        })}</Box>})}
+          }
+
+          if (collapsed && desktop) return <Box key={section} sx={{ mb: .75 }}>{items.map(renderItem)}</Box>
+
+          return <Box key={section} sx={{ mb: .5 }}>
+            {dashboard && renderItem(dashboard)}
+            {visibleItems.length > 0 && <>
+              <ListItemButton
+                aria-expanded={Boolean(expandedSections[section])}
+                aria-controls={`navigation-${section.replaceAll(' ', '-').toLowerCase()}`}
+                onClick={() => setExpandedSections((current) => ({ ...current, [section]: section === activeSection && current[section] ? true : !current[section] }))}
+                sx={{
+                  minHeight: { xs: 52, md: 42 },
+                  mt: dashboard ? .5 : 0,
+                  px: 2,
+                  borderRadius: 1.25,
+                  color: visibleItems.some((item) => item.id === activePage) ? '#ffed00' : 'rgba(255,255,255,.68)',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,.08)', color: '#fff' },
+                }}
+              >
+                <ListItemIcon sx={{ color: 'inherit', minWidth: 40, justifyContent: 'center' }}>{sectionIcons[section] ?? <FolderOutlined />}</ListItemIcon>
+                <ListItemText primary={section} primaryTypographyProps={{ fontSize: { xs: 12.5, md: 11.5 }, fontWeight: 800, letterSpacing: .8, textTransform: 'uppercase' }} />
+                <ExpandMoreOutlined sx={{ fontSize: 20, transform: expandedSections[section] ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} />
+              </ListItemButton>
+              <Collapse in={Boolean(expandedSections[section])} timeout="auto" unmountOnExit>
+                <List id={`navigation-${section.replaceAll(' ', '-').toLowerCase()}`} disablePadding sx={{ pt: .25, pl: 1.25 }}>
+                  {visibleItems.map(renderItem)}
+                </List>
+              </Collapse>
+            </>}
+          </Box>
+        })}
       </List>
       {(!collapsed || !desktop) && <Box sx={{p:2,borderTop:'1px solid rgba(255,255,255,.08)',flexShrink:0,display:'flex',alignItems:'center',gap:1.25}}>
         <Box sx={{width:32,height:32,borderRadius:'50%',bgcolor:'#ffed00',color:'#15140f',display:'grid',placeItems:'center',fontWeight:800,fontSize:13,flexShrink:0}}>{userName.trim().slice(0,1).toUpperCase() || '?'}</Box>
@@ -213,7 +283,7 @@ export function AppShell({ activePage, onNavigate, userName, userRoles, division
           flexShrink: { md: 0 },
           transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
           '& .MuiDrawer-paper': {
-            width: activeDrawerWidth,
+            width: { xs: 'min(88vw, 320px)', md: activeDrawerWidth },
             height: '100dvh',
             border: 0,
             boxSizing: 'border-box',
