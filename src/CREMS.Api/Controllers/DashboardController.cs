@@ -105,6 +105,21 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
         var fleet = await assets.GroupBy(item => new { Division = item.Division != null ? item.Division.Name : "Unassigned", item.Status }).Select(group => new { group.Key.Division, Status = group.Key.Status.ToString(), Count = group.Count() }).ToListAsync(cancellationToken);
         var alerts = new List<object>();
         alerts.AddRange(await bookings.Where(item => item.Status == BookingStatus.ConvertedToRental && item.Items.Any(line => line.EndAt < now)).OrderBy(item => item.BookingNumber).Take(5).Select(item => new { Type = "Overdue return", Detail = item.BookingNumber + " requires return follow-up", Priority = "High", Page = "rentals" }).ToListAsync(cancellationToken));
+        alerts.AddRange(await bookings.Where(item => item.Status == BookingStatus.Completed &&
+            !item.Inspections.Any(inspection => inspection.Type == InspectionType.Return))
+            .OrderByDescending(item => item.UpdatedAt).Take(5)
+            .Select(item => new { Type = "Return inspection missing", Detail = item.BookingNumber + " has no post-hire inspection", Priority = "High", Page = "rentals" }).ToListAsync(cancellationToken));
+        alerts.AddRange(await bookings.Where(item => item.Status == BookingStatus.Completed &&
+            !db.RentalInvoices.Any(invoice => invoice.BookingId == item.Id && invoice.Status != InvoiceStatus.Voided))
+            .OrderByDescending(item => item.UpdatedAt).Take(5)
+            .Select(item => new { Type = "Invoice missing", Detail = item.BookingNumber + " was completed without an invoice", Priority = "High", Page = "finance" }).ToListAsync(cancellationToken));
+        alerts.AddRange(await maintenance.Where(item => item.Status == MaintenanceStatus.Completed && item.ReleasedAt == null)
+            .OrderByDescending(item => item.CompletedAt).Take(5)
+            .Select(item => new { Type = "Safety release pending", Detail = item.JobNumber + " repair is complete", Priority = "High", Page = "maintenance" }).ToListAsync(cancellationToken));
+        alerts.AddRange(await assets.Where(item => item.Status == AssetStatus.Available &&
+            db.BookingItems.Any(line => line.AssetId == item.Id && line.Booking!.Status == BookingStatus.ConvertedToRental && line.StartAt <= now && line.EndAt >= now))
+            .OrderBy(item => item.AssetNumber).Take(5)
+            .Select(item => new { Type = "Asset status conflict", Detail = item.AssetNumber + " is available while on hire", Priority = "High", Page = "assets" }).ToListAsync(cancellationToken));
         alerts.AddRange(await MaintenanceRules.DueAssets(db, assets, MaintenanceRules.LocalDate(now).AddDays(14)).OrderBy(item => item.NextServiceDate).Take(5).Select(item => new { Type = "Maintenance due", Detail = item.AssetNumber + " · " + item.Name, Priority = "Medium", Page = "maintenance" }).ToListAsync(cancellationToken));
         alerts.AddRange(await approvals.Where(item => item.Status == ApprovalStatus.Pending).OrderBy(item => item.CreatedAt).Take(5).Select(item => new { Type = "Approval pending", Detail = item.RequestNumber + " · " + item.Reason, Priority = "Medium", Page = "operations" }).ToListAsync(cancellationToken));
         var activity = await audit.OrderByDescending(item => item.OccurredAt).Take(8).Select(item => new { item.Id, item.Action, item.Summary, item.UserName, item.OccurredAt, BranchName = item.Branch != null ? item.Branch.Name : null }).ToListAsync(cancellationToken);

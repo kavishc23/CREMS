@@ -11,6 +11,19 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // The temporary Cloudflare quick tunnel forwards its public Host header.
+    // This is only used by the local development server; production hosting
+    // should use an explicit hostname allow-list.
+    allowedHosts: true,
+    proxy: {
+      '/api': 'http://localhost:5080',
+    },
+  },
+  preview: {
+    host: '127.0.0.1',
+    port: 4173,
+    strictPort: true,
+    allowedHosts: true,
     proxy: {
       '/api': 'http://localhost:5080',
     },

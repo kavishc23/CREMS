@@ -17,7 +17,12 @@ public static class RentalSettings
         ["rentals.lateFeeMultiplier"] = new("1", "Rental", "Multiplies the agreed daily rate prorated by overdue time. 0 disables calculated late fees; 1 is the normal rate."),
         ["security.lockoutMinutes"] = new("30", "Security", "Minutes for new failed-password lockouts. Existing lockout expiry times are unchanged."),
         ["security.maxFailedAttempts"] = new("5", "Security", "Failed password attempts before lockout. Applies on the next sign-in attempt."),
-        ["data.retentionYears"] = new("7", "Compliance", "Years before closed rentals and audit records are flagged for retention review. Records are not automatically deleted.")
+        ["data.retentionYears"] = new("7", "Compliance", "Years before closed rentals and audit records are flagged for retention review. Records are not automatically deleted."),
+        ["reminders.quotationHours"] = new("24", "Notifications", "Send a quotation expiry reminder this many hours before expiry."),
+        ["reminders.pickupHours"] = new("24", "Notifications", "Send a pickup reminder this many hours before collection."),
+        ["reminders.invoiceDueDays"] = new("14", "Notifications", "Invoice payment term in days from issue, used for reminders when no due-date field is recorded."),
+        ["reminders.documentDays"] = new("30", "Notifications", "Remind customers this many days before a document expires."),
+        ["reminders.overdueReturnDays"] = new("14", "Notifications", "Maximum number of days to send overdue return reminders.")
     };
 
     public static string? Validate(string key, string? value)
@@ -33,7 +38,7 @@ public static class RentalSettings
             return decimal.TryParse(value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var number) && number >= 0 && number <= max
                 ? null : $"Enter a number from 0 to {max}.";
         }
-        var limit = key == "security.lockoutMinutes" ? 1440 : key == "security.maxFailedAttempts" ? 100 : 100;
+        var limit = key == "security.lockoutMinutes" ? 1440 : key.StartsWith("reminders.", StringComparison.Ordinal) ? 365 : 100;
         return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var integer) && integer >= 1 && integer <= limit
             ? null : $"Enter a whole number from 1 to {limit}.";
     }
