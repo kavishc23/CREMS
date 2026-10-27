@@ -297,6 +297,46 @@ public sealed class CustomerJourneyRegressionTests
         Assert.Single(await f.Db.CustomerCases.ToListAsync(TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task Rental_preferences_use_live_configured_categories_and_persist_without_changing_contact_details()
+    {
+        await using var f = await Fixture.Create();
+        var token = TestContext.Current.CancellationToken;
+        var shipping = new Division { Code = "SHIPPING", Name = "Carpenters Shipping", IsPublic = true };
+        var bin = new AssetCategory { DivisionId = shipping.Id, Code = "BIG_BIN", Name = "Big bin" };
+        var toilet = new AssetCategory { DivisionId = shipping.Id, Code = "TOILET", Name = "Portable toilet" };
+        f.Db.AddRange(shipping, bin, toilet);
+        await f.Db.SaveChangesAsync(token);
+        var before = JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(await f.Account.RentalPreferences(token)).Value);
+        Assert.Contains(before.GetProperty("divisions").EnumerateArray(), d => d.GetProperty("Name").GetString() == shipping.Name);
+        Assert.IsType<OkObjectResult>(await f.Account.SaveRentalPreferences(new([bin.Id, bin.Id]), token));
+        f.Db.ChangeTracker.Clear();
+        var persisted = await f.Db.Customers.SingleAsync(x => x.Id == f.Customer.Id, token);
+        Assert.Equal(new[] { bin.Id }, persisted.PreferredAssetCategoryIds);
+        Assert.Equal("1234567", persisted.Phone);
+        var newCategory = new AssetCategory { DivisionId = shipping.Id, Code = "PROJECTOR", Name = "Projector" };
+        f.Db.Add(newCategory); await f.Db.SaveChangesAsync(token);
+        var refreshed = JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(await f.Account.RentalPreferences(token)).Value);
+        Assert.Contains(refreshed.GetProperty("divisions").EnumerateArray().Single(d => d.GetProperty("Id").GetGuid() == shipping.Id).GetProperty("Categories").EnumerateArray(), c => c.GetProperty("Name").GetString() == "Projector");
+        Assert.IsType<OkObjectResult>(await f.Account.SaveRentalPreferences(new([]), token));
+        Assert.Empty(persisted.PreferredAssetCategoryIds);
+    }
+
+    [Fact]
+    public async Task Rental_preferences_reject_private_inactive_and_unknown_categories_without_overwriting_selection()
+    {
+        await using var f = await Fixture.Create();
+        var token = TestContext.Current.CancellationToken;
+        var hidden = new Division { Code = "PRIVATE", Name = "Internal", IsPublic = false };
+        var hiddenCategory = new AssetCategory { DivisionId = hidden.Id, Code = "INTERNAL", Name = "Internal equipment" };
+        f.Db.AddRange(hidden, hiddenCategory); await f.Db.SaveChangesAsync(token);
+        Assert.IsType<BadRequestObjectResult>(await f.Account.SaveRentalPreferences(new([hiddenCategory.Id]), token));
+        Assert.IsType<BadRequestObjectResult>(await f.Account.SaveRentalPreferences(new([Guid.NewGuid()]), token));
+        Assert.Empty(f.Customer.PreferredAssetCategoryIds);
+        var payload = JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(await f.Account.RentalPreferences(token)).Value);
+        Assert.DoesNotContain(payload.GetProperty("divisions").EnumerateArray(), d => d.GetProperty("Id").GetGuid() == hidden.Id);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public const string Password = "Portfolio123!";

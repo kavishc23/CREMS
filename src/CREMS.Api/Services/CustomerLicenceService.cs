@@ -69,11 +69,18 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
             var readings = new List<string>();
             var centreClassReadings = new List<string>();
             var classValueReadings = new List<string>();
+            var anchoredClassValue = string.Empty;
             using (var image = TesseractOCR.Pix.Image.LoadFromMemory(content))
             using (var page = engine.Process(image)) readings.Add(page.Text);
             using var source = SkiaSharp.SKBitmap.Decode(content);
             if (source is not null)
             {
+                try
+                {
+                    using var classEngine = new TesseractOCR.Engine(dataPath, TesseractOCR.Enums.Language.English, TesseractOCR.Enums.EngineMode.Default);
+                    anchoredClassValue = FijiLicenceClassReader.Read(classEngine, source);
+                }
+                catch { /* Retain existing OCR fallback if enhancement is unavailable. */ }
                 // One enhanced full-card pass plus three broad semantic regions is both
                 // faster and more reliable than repeatedly thresholding the whole image.
                 // The regions are intentionally broad so rotated/cropped licence variants
@@ -93,30 +100,33 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
                     if (!enhanced.ExtractSubset(cropped, region)) continue;
                     readings.Add(Read(engine, cropped));
                 }
-                // Keep the complete centre value line, including comma-separated
-                // classes, inside the higher-resolution OCR pass.
-                var classRegion = new SkiaSharp.SKRectI(enlarged.Width / 6, enlarged.Height / 4,
-                    enlarged.Width * 3 / 4, enlarged.Height * 3 / 5);
-                using var classCrop = new SkiaSharp.SKBitmap(classRegion.Width, classRegion.Height);
-                if (enhanced.ExtractSubset(classCrop, classRegion))
+                if (string.IsNullOrWhiteSpace(anchoredClassValue))
                 {
-                    using var classEnlarged = Resize(classCrop, Math.Max(classCrop.Width, 1600));
-                    using var strongerClassContrast = Grayscale(classEnlarged, 1.35f);
-                    centreClassReadings.Add(Read(engine, strongerClassContrast, TesseractOCR.Enums.PageSegMode.SingleBlock));
-                }
-                engine.SetVariable("tessedit_char_whitelist", "0123456789,");
-                foreach (var (left, top, right, bottom, mode) in new[]
-                {
-                    (42, 45, 53, 53, TesseractOCR.Enums.PageSegMode.SingleWord),
-                    (45, 45, 49, 52, TesseractOCR.Enums.PageSegMode.RawLine)
-                })
-                {
-                    var valueRegion = new SkiaSharp.SKRectI(enlarged.Width * left / 100, enlarged.Height * top / 100,
-                        enlarged.Width * right / 100, enlarged.Height * bottom / 100);
-                    using var valueCrop = new SkiaSharp.SKBitmap(valueRegion.Width, valueRegion.Height);
-                    if (!enlarged.ExtractSubset(valueCrop, valueRegion)) continue;
-                    using var valueEnlarged = Resize(valueCrop, Math.Max(valueCrop.Width, 1200));
-                    classValueReadings.Add(Read(engine, valueEnlarged, mode));
+                    // Keep the complete centre value line, including comma-separated
+                    // classes, inside the higher-resolution OCR pass.
+                    var classRegion = new SkiaSharp.SKRectI(enlarged.Width / 6, enlarged.Height / 4,
+                        enlarged.Width * 3 / 4, enlarged.Height * 3 / 5);
+                    using var classCrop = new SkiaSharp.SKBitmap(classRegion.Width, classRegion.Height);
+                    if (enhanced.ExtractSubset(classCrop, classRegion))
+                    {
+                        using var classEnlarged = Resize(classCrop, Math.Max(classCrop.Width, 1600));
+                        using var strongerClassContrast = Grayscale(classEnlarged, 1.35f);
+                        centreClassReadings.Add(Read(engine, strongerClassContrast, TesseractOCR.Enums.PageSegMode.SingleBlock));
+                    }
+                    engine.SetVariable("tessedit_char_whitelist", "0123456789,");
+                    foreach (var (left, top, right, bottom, mode) in new[]
+                    {
+                        (42, 45, 53, 53, TesseractOCR.Enums.PageSegMode.SingleWord),
+                        (45, 45, 49, 52, TesseractOCR.Enums.PageSegMode.RawLine)
+                    })
+                    {
+                        var valueRegion = new SkiaSharp.SKRectI(enlarged.Width * left / 100, enlarged.Height * top / 100,
+                            enlarged.Width * right / 100, enlarged.Height * bottom / 100);
+                        using var valueCrop = new SkiaSharp.SKBitmap(valueRegion.Width, valueRegion.Height);
+                        if (!enlarged.ExtractSubset(valueCrop, valueRegion)) continue;
+                        using var valueEnlarged = Resize(valueCrop, Math.Max(valueCrop.Width, 1200));
+                        classValueReadings.Add(Read(engine, valueEnlarged, mode));
+                    }
                 }
             }
             // Keep OCR passes separated. Without a non-whitespace boundary, a class
@@ -127,6 +137,8 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
             var centreText = string.Join(passBreak, centreClassReadings.Where(value => !string.IsNullOrWhiteSpace(value)));
             if (!string.IsNullOrWhiteSpace(centreText))
                 text += $"\n[[CREMS_CENTRE_BEGIN]]\n{centreText}\n[[CREMS_CENTRE_END]]";
+            if (!string.IsNullOrWhiteSpace(anchoredClassValue))
+                text += $"\n[[CREMS_LABEL_VALUE_BEGIN]]\n{anchoredClassValue}\n[[CREMS_LABEL_VALUE_END]]";
             var valueText = string.Join(passBreak, classValueReadings.Where(value => !string.IsNullOrWhiteSpace(value)));
             text += $"\n[[CREMS_CLASS_VALUE_BEGIN]]\n{valueText}\n[[CREMS_CLASS_VALUE_END]]";
             if (string.IsNullOrWhiteSpace(text))
@@ -433,7 +445,9 @@ public sealed class CustomerLicenceService(ApplicationDbContext db, ILicenceOcrP
                 .SelectMany(match => match.Groups[1].Value.Split(',')
                     .Select(token => int.Parse(token.Trim())))
                 .ToArray();
-        var classes = (isolatedClasses.Length > 0 ? isolatedClasses : labelledClasses.Concat(centreStandaloneClasses))
+        var anchoredValue = Regex.Match(text, @"\[\[CREMS_LABEL_VALUE_BEGIN\]\]\s*([1-9](?:,[1-9])*)\s*\[\[CREMS_LABEL_VALUE_END\]\]").Groups[1].Value;
+        var anchoredClasses = string.IsNullOrWhiteSpace(anchoredValue) ? [] : anchoredValue.Split(',').Select(int.Parse).ToArray();
+        var classes = (anchoredClasses.Length > 0 ? anchoredClasses : isolatedClasses.Length > 0 ? isolatedClasses : labelledClasses.Concat(centreStandaloneClasses))
             .Distinct().Order().ToArray();
         if (string.IsNullOrWhiteSpace(name)) throw new LicenceException("ocr_name_missing", "The full name could not be read. Try a clearer image.");
         if (string.IsNullOrWhiteSpace(number)) throw new LicenceException("ocr_number_missing", "The licence number could not be read. Enter it manually or try another image.");

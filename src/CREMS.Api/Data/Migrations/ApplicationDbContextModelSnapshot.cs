@@ -78,6 +78,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<string>("EngineNumber")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("FulfilmentMode")
+                        .HasColumnType("int");
+
                     b.Property<int>("HireUnit")
                         .HasColumnType("int");
 
@@ -2192,9 +2195,15 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
+                        .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("Phone")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PreferredAssetCategoryIds")
+                        .IsRequired()
+                        .HasMaxLength(40000)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("PreferredServiceIds")

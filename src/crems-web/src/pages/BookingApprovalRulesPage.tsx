@@ -158,7 +158,7 @@ function triggerLabel(rule: Form, preferSummary = true) {
     rule.hireDurationOperator &&
       rule.hireDurationDays != null &&
       `item hire duration ${operatorSymbol(rule.hireDurationOperator)} ${rule.hireDurationDays} days`,
-    rule.triggerForPersonnel && "operator or personnel included",
+    rule.triggerForPersonnel && "driver/operator included",
     rule.triggerForOvertime && "overtime included",
     rule.minimumAmount != null &&
       `booking value ≥ FJD ${rule.minimumAmount.toLocaleString()}`,

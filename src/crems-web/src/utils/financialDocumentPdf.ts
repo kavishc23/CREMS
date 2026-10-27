@@ -1,3 +1,4 @@
+import { downloadRentalFinancialPdf } from './rentalFinancialPdf'
 type InvoiceDocument = {
   invoiceNumber: string; bookingNumber: string; customerName: string; branchName: string
   total: number; amountPaid: number; balanceDue: number; status: string; issuedAt: string
@@ -35,10 +36,11 @@ async function documentShell(title: string, reference: string, lines: [string, s
 }
 
 export function downloadInvoicePdf(invoice: InvoiceDocument) {
-  return documentShell('Tax invoice', invoice.invoiceNumber, [
-    ['Booking', invoice.bookingNumber], ['Customer', invoice.customerName], ['Branch', invoice.branchName], ['Issued', date(invoice.issuedAt)],
-    ['Invoice status', invoice.status], ['Invoice total', money(invoice.total)], ['Payments received', money(invoice.amountPaid)], ['Balance due', money(invoice.balanceDue)],
-  ], `${invoice.invoiceNumber}.pdf`)
+  return downloadRentalFinancialPdf({ kind: 'Invoice', reference: invoice.invoiceNumber,
+    details: [['Booking', invoice.bookingNumber], ['Customer', invoice.customerName], ['Branch', invoice.branchName], ['Issued', date(invoice.issuedAt)], ['Status', invoice.status]],
+    lines: [{ description: 'Recorded rental invoice total (including VAT)', quantity: 1, rate: invoice.total }],
+    totals: [{ label: 'Invoice total', amount: invoice.total, emphasis: true }, { label: 'Payments received', amount: invoice.amountPaid }, { label: 'Balance due', amount: invoice.balanceDue, emphasis: true }],
+    note: 'Summary of the recorded invoice. Contact the issuing branch for the full itemised account and payment arrangements.' })
 }
 
 export function downloadReceiptPdf(receipt: ReceiptDocument) {

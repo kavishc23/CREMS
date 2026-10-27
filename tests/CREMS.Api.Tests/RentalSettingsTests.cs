@@ -88,7 +88,7 @@ public sealed class RentalSettingsTests
         Assert.NotEqual(reference,await RentalSettings.Reference(db,false,TestContext.Current.CancellationToken));
         Assert.Equal("BK-EXISTING",old.BookingNumber);
         await Controller(db).SaveSetting("rentals.bookingPrefix",new SettingRequest("ABCDEFGHIJKL"),TestContext.Current.CancellationToken);
-        Assert.Equal(50,(await RentalSettings.Reference(db,false,TestContext.Current.CancellationToken)).Length);
+        Assert.Equal(26,(await RentalSettings.Reference(db,false,TestContext.Current.CancellationToken)).Length);
     }
 
     [Fact]

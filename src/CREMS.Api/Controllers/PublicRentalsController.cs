@@ -168,8 +168,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 BookingConfigurationJson = asset.Division != null ? asset.Division.CustomerBookingConfigurationJson : "{}",
                 ServiceName = asset.ServiceOffering != null ? asset.ServiceOffering.Name : null,
                 ServiceRequiresQuote = asset.ServiceOffering != null && asset.ServiceOffering.RequiresQuote,
-                asset.ServiceOfferingId, IsBookableOnline = asset.ServiceOffering == null || asset.ServiceOffering.IsBookableOnline, AllowsQuoteRequests = asset.ServiceOffering == null || asset.ServiceOffering.AllowsQuoteRequests,
-                RequiresDelivery = asset.RequiresDelivery,
+                asset.AssetCategoryId, asset.ServiceOfferingId, IsBookableOnline = asset.ServiceOffering == null || asset.ServiceOffering.IsBookableOnline, AllowsQuoteRequests = asset.ServiceOffering == null || asset.ServiceOffering.AllowsQuoteRequests,
+                RequiresDelivery = asset.RequiresDelivery, FulfilmentMode = asset.RequiresDelivery ? AssetFulfilmentMode.DeliveryOnly : asset.FulfilmentMode,
                 asset.PhotoUrlsJson,
                 Attributes = asset.AttributeValues
                     .Where(value => value.AttributeDefinition != null &&
@@ -193,7 +193,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             startDate.HasValue
                 ? asset.Status == AssetStatus.Available && !unavailableAssetIds.Contains(asset.Id)
                 : asset.Status == AssetStatus.Available, asset.InheritBond ? asset.DivisionBondAmount : asset.DefaultBondAmount,
-            DivisionBookingFlow.Parse(asset.BookingConfigurationJson).QuoteMode, asset.HireUnit, asset.UseServiceHireRate, asset.ServiceOfferingId, asset.IsBookableOnline, asset.AllowsQuoteRequests)).ToList());
+            DivisionBookingFlow.Parse(asset.BookingConfigurationJson).QuoteMode, asset.HireUnit, asset.UseServiceHireRate, asset.ServiceOfferingId, asset.IsBookableOnline, asset.AllowsQuoteRequests, asset.AssetCategoryId, asset.FulfilmentMode)).ToList());
     }
 
     [HttpGet("assets/{assetId:guid}")]
@@ -274,7 +274,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.ServiceOffering.Description, asset.ServiceOffering.Type,
                 PersonnelRequirement = AssetCategoryPolicy.Personnel(asset),
                 RequiresQuote = asset.ServiceOffering.RequiresQuote || asset.ServiceOffering.AllowsQuoteRequests && DivisionBookingFlow.For(asset.Division).QuoteMode == "Always", asset.ServiceOffering.IsBookableOnline, asset.ServiceOffering.AllowsQuoteRequests, asset.ServiceOffering.DefaultHireUnit,
-                RequiresDelivery = asset.RequiresDelivery, DefaultDepositAmount = AssetCategoryPolicy.Bond(asset),
+                RequiresDelivery = asset.RequiresDelivery, FulfilmentMode = PublicRentalRequestPolicy.Fulfilment(asset), DefaultDepositAmount = AssetCategoryPolicy.Bond(asset),
                 RequiredDocuments = ParseJsonArray(asset.ServiceOffering.RequiredDocumentsJson),
             },
             Specifications = customerAttributes, Charges = visibleCharges, IsAvailable = isAvailable,
@@ -304,7 +304,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.ServiceOffering is { IsBookableOnline: false, RequiresQuote: false } ||
             asset.Status is AssetStatus.Rented or AssetStatus.Maintenance or AssetStatus.Inspection or AssetStatus.OutOfService or AssetStatus.Retired)
             return NotFound("The selected rental item is no longer available.");
-        if (request.RequestQuotation && asset.ServiceOffering?.AllowsQuoteRequests == false) return BadRequest(new { message = "This service accepts booking requests only." });
+        if (request.RequestQuotation && asset.ServiceOffering?.AllowsQuoteRequests == false && request.Fulfilment != "Delivery" && !request.PersonnelRequested && AssetCategoryPolicy.Personnel(asset) != PersonnelRequirement.Required) return BadRequest(new { message = "This service accepts booking requests only." });
         var flow = DivisionBookingFlow.For(asset.Division);
         if (!flow.OnlineRequestsEnabled) return NotFound("Online requests are disabled for this division.");
         var questions = OrganizationConfiguration.Questions(flow, asset.ServiceOffering, asset.AssetCategory);
@@ -315,7 +315,10 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         { ModelState.AddModelError(nameof(request.EndDate), $"Choose a hire between {flow.MinimumHireDays} and {flow.MaximumHireDays} days."); return ValidationProblem(ModelState); }
         if (request.Fulfilment is not ("Pickup" or "Delivery"))
         { ModelState.AddModelError(nameof(request.Fulfilment), "Choose pickup or delivery."); return ValidationProblem(ModelState); }
-        var deliveryRequired = asset.RequiresDelivery;
+        var fulfilmentMode = PublicRentalRequestPolicy.Fulfilment(asset);
+        if (fulfilmentMode == AssetFulfilmentMode.PickupOnly && request.Fulfilment == "Delivery")
+            return BadRequest(new { message = "This asset is available for branch pickup only." });
+        var deliveryRequired = fulfilmentMode == AssetFulfilmentMode.DeliveryOnly;
         if (deliveryRequired &&
             !string.Equals(request.Fulfilment, "Delivery", StringComparison.OrdinalIgnoreCase))
         {
@@ -369,12 +372,13 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             FullName = activeCustomer.Type == CustomerType.Business && !string.IsNullOrWhiteSpace(signedInUser.FullName)
                 ? signedInUser.FullName : activeCustomer.Name,
             Email = activeCustomer.Email ?? request.Email,
+            Phone = activeCustomer.Phone ?? request.Phone,
             DriverName = licenceRequired ? activeCustomer.Name : request.DriverName,
             DriverLicence = licenceRequired ? licenceNumber : request.DriverLicence,
         };
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Keep the registered identity authoritative while allowing current contact details.
-        activeCustomer.Phone = request.Phone.Trim();
+        // Contact identity is read from the customer profile; checkout does not overwrite it.
         activeCustomer.Address = Normalize(request.Address) ?? activeCustomer.Address;
         if (!licenceRequired)
             activeCustomer.IdentificationNumber = Normalize(request.IdentificationNumber) ?? activeCustomer.IdentificationNumber;
@@ -387,19 +391,17 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (request.PersonnelRequested && !AssetCategoryPolicy.AllowsPersonnel(asset))
             return BadRequest(new { message = "A driver or operator is not applicable to this asset category." });
         var personnelRequested = personnelPolicy == PersonnelRequirement.Required || request.PersonnelRequested;
-        if (personnelRequested && request.PersonnelHours is <= 0 or > 1000)
-        { ModelState.AddModelError(nameof(request.PersonnelHours), "Enter between 1 and 1000 driver or operator hours."); return ValidationProblem(ModelState); }
         var pricedPersonnelAvailable = availableCharges.Any(x =>
             (x.Category is ChargeCategory.Operator or ChargeCategory.Driver) && x.DefaultSellingRate > 0);
         var pricedTransportAvailable = availableCharges.Any(x =>
             x.Category == ChargeCategory.Transport && x.DefaultSellingRate > 0 && x.Unit != ChargeUnit.Hour);
-        var requiresQuote = asset.ServiceOffering?.RequiresQuote == true || asset.ServiceOffering?.AllowsQuoteRequests != false && (
+        var requiresQuote = PublicRentalRequestPolicy.RequiresQuotation(asset, request.Fulfilment == "Delivery", personnelRequested) || asset.ServiceOffering?.RequiresQuote == true || asset.ServiceOffering?.AllowsQuoteRequests != false && (
             (!asset.UseServiceHireRate && asset.DailyRate <= 0) || flow.RequiresQuote(request.RequestQuotation,
             activeCustomer.Type == CustomerType.Business, personnelPolicy, personnelRequested,
             pricedPersonnelAvailable, request.Fulfilment == "Delivery", pricedTransportAvailable));
         var selectedExtras = (request.Extras ?? []).Where(x => x.Quantity > 0 && x.Quantity <= 1000)
             .GroupBy(x => x.ChargeDefinitionId).ToDictionary(x => x.Key, x => x.First().Quantity);
-        var applicableCharges = availableCharges.Where(x => x.Category is not (ChargeCategory.Operator or ChargeCategory.Driver) || personnelRequested)
+        var applicableCharges = availableCharges.Where(x => x.Category is not (ChargeCategory.Operator or ChargeCategory.Driver or ChargeCategory.Transport))
             .Where(x => !(requiresQuote && asset.RequiresDelivery && x.Category == ChargeCategory.Transport) && (x.IsRequired || selectedExtras.ContainsKey(x.Id) ||
                 request.Fulfilment == "Delivery" && x.Category == ChargeCategory.Transport ||
                 personnelRequested && x.Category is ChargeCategory.Operator or ChargeCategory.Driver))
@@ -453,9 +455,11 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             var lineItems = new List<QuoteLine> { new($"{asset.Name} hire", hireQuantity, hireRate.Rate, hireRate.Unit, Category: ChargeCategory.BaseHire, IsTaxable: hireRate.IsTaxable) };
             lineItems.AddRange(charges.Select(x => new QuoteLine(x.Definition.Name, x.Quantity,
                 x.Definition.DefaultSellingRate, x.Definition.Unit, Category: x.Definition.Category, ChargeDefinitionId: x.Definition.Id, IsTaxable: x.Definition.IsTaxable)));
+            if (request.Fulfilment == "Delivery") lineItems.Add(new QuoteLine("Delivery — charge to be confirmed", 1, 0, ChargeUnit.Trip, Category: ChargeCategory.Transport));
+            if (personnelRequested) lineItems.Add(new QuoteLine("Driver/operator included - charge to be confirmed", 1, 0, ChargeUnit.Fixed, Category: ChargeCategory.Operator));
             var quote = new SalesQuote
             {
-                QuoteNumber = $"QUO-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
+                QuoteNumber = $"QUO-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
                 CustomerId = activeCustomer.Id, BranchId = asset.BranchId, DivisionId = asset.DivisionId,
                 Status = QuoteStatus.Draft, ValidUntil = DateTimeOffset.UtcNow.AddDays(flow.QuoteValidityDays),
                 JobSite = Normalize(request.DeliveryAddress), PurchaseOrderNumber = Normalize(request.PurchaseOrderNumber),
@@ -506,6 +510,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             "Submitted through the public rental website.",
             $"Contact person: {request.FullName.Trim()}",
         };
+        if (!string.IsNullOrWhiteSpace(request.SecondaryContact)) details.Add($"Emergency / secondary contact: {request.SecondaryContact.Trim()}");
+        if (request.Fulfilment == "Delivery") details.Add("Delivery charge will be confirmed in the quotation.");
+        if (personnelRequested) details.Add("Operator / driver charges will be confirmed in the quotation.");
         if (request.CustomerType == CustomerType.Business && !string.IsNullOrWhiteSpace(request.CompanyName))
             details.Add($"Registered business: {request.CompanyName.Trim()}");
         if (!string.IsNullOrWhiteSpace(request.Purpose))
@@ -518,7 +525,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (!string.IsNullOrWhiteSpace(request.PurchaseOrderNumber))
             details.Add($"Purchase order: {request.PurchaseOrderNumber.Trim()}");
         if (personnelRequested)
-            details.Add($"Customer requested trained personnel{(request.PersonnelHours.HasValue ? $" for approximately {request.PersonnelHours} hours" : "")}.");
+            details.Add("Driver/operator included. Arrangements and charges to be confirmed by the branch.");
         if (!string.IsNullOrWhiteSpace(request.DriverName))
             details.Add($"Nominated driver: {request.DriverName.Trim()}.");
         if (!string.IsNullOrWhiteSpace(request.DriverLicence))
@@ -608,7 +615,7 @@ public sealed record PublicAssetResponse(
     string? DivisionName, string? Category, string? CategoryCode, PersonnelRequirement PersonnelRequirement,
     string? ServiceName, bool RequiresQuote, bool RequiresDelivery, string PhotoUrlsJson,
     IReadOnlyList<PublicAssetAttributeResponse> Attributes, bool IsAvailable, decimal BondAmount, string QuoteMode,
-    ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, Guid? ServiceOfferingId = null, bool IsBookableOnline = true, bool AllowsQuoteRequests = true);
+    ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, Guid? ServiceOfferingId = null, bool IsBookableOnline = true, bool AllowsQuoteRequests = true, Guid? AssetCategoryId = null, AssetFulfilmentMode FulfilmentMode = AssetFulfilmentMode.PickupOrDelivery);
 public sealed record PublicAssetAttributeResponse(string Code, string Name, string Value, string? Unit);
 public sealed record PublicBookingRequest(
     Guid AssetId,
@@ -633,7 +640,7 @@ public sealed record PublicBookingRequest(
     [MaxLength(100)] string? DriverLicence,
     bool RequestQuotation,
     IReadOnlyList<PublicBookingExtraRequest>? Extras, decimal? HireQuantity = null,
-    IReadOnlyDictionary<string, string>? ConfigurationAnswers = null);
+    IReadOnlyDictionary<string, string>? ConfigurationAnswers = null, [MaxLength(100)] string? SecondaryContact = null);
 public sealed record PublicBookingExtraRequest(Guid ChargeDefinitionId, decimal Quantity);
 public sealed record PublicBookingResponse(
     string Reference, string AssetName, string BranchName,
