@@ -26,8 +26,11 @@ const theme = createTheme({
   shape: { borderRadius: 12 },
   components: {
     MuiDialog: {
+      defaultProps: { disableScrollLock: !isStaffRoute },
       styleOverrides: { paper: { maxHeight: 'calc(100dvh - 32px)' } },
     },
+    MuiMenu: { defaultProps: { disableScrollLock: !isStaffRoute } },
+    MuiDrawer: { defaultProps: { ModalProps: { disableScrollLock: !isStaffRoute } } },
     MuiDialogContent: {
       styleOverrides: { root: { overflowY: 'auto' } },
     },
@@ -43,6 +46,8 @@ const theme = createTheme({
     MuiTableHead: { styleOverrides: { root: { backgroundColor: '#f1f1ec' } } },
     MuiTableCell: { styleOverrides: { head: { fontWeight: 750, color: '#3f3f3b' } } },
     MuiTextField: { defaultProps: { variant: 'outlined' } },
+    MuiContainer: { styleOverrides: { root: { minWidth: 0 } } },
+    MuiTableContainer: { styleOverrides: { root: { maxWidth: '100%', overflowX: 'auto' } } },
   },
 })
 
@@ -51,13 +56,17 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <CssBaseline />
     <StableViewport />
     <GlobalStyles styles={{
-      'html, body': { maxWidth: '100%', overflowX: 'hidden' },
-      '.customer-site-density': { zoom: '90%', width: '100%', minHeight: '100dvh' },
+      'html, body': { maxWidth: '100%' },
+      '#root': { minWidth: 0, minHeight: '100dvh' },
+      '.MuiGrid-root, .MuiDialog-paper, main': { minWidth: 0 },
+      '.MuiDialog-paper': { maxWidth: 'calc(100vw - 24px)' },
+      'img, video, canvas': { maxWidth: '100%' },
+      '.customer-site-density': { width: '100%', minHeight: '100dvh' },
       '.customer-site-density .MuiCard-root, .customer-site-density .MuiGrid-root': { minWidth: 0 },
       '.customer-site-density .MuiInputAdornment-root': { whiteSpace: 'nowrap', flexShrink: 0 },
       '.customer-site-density .MuiInputBase-adornedEnd > .MuiTypography-root': { whiteSpace: 'nowrap', flexShrink: 0, marginLeft: '10px', lineHeight: 1 },
       '.customer-site-density img': { maxWidth: '100%' },
-      '@media (max-width: 600px)': { '.customer-site-density': { zoom: 1 } },
+
       '@media print': { '.customer-site-density': { zoom: 1, width: '100%', minHeight: 0 }, 'body *': { visibility: 'hidden' }, '#crems-qr-label, #crems-qr-label *': { visibility: 'visible' }, '#crems-qr-label': { position: 'absolute', left: 0, top: 0, width: '90mm', border: '2px solid #000 !important' } },
     }} />
     <AuthProvider>

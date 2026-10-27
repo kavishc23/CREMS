@@ -6,6 +6,8 @@ export function StableViewport() {
   return <GlobalStyles styles={{
     '@supports (scrollbar-gutter: stable)': {
       html: { scrollbarGutter: 'stable' },
+      // Customer views use natural page scrolling; short profiles need no blank gutter.
+      'html:has(.customer-site-density)': { scrollbarGutter: 'auto' },
       body: { paddingRight: '0 !important' },
       '.mui-fixed': { paddingRight: '0 !important' },
     },

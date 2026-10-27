@@ -278,7 +278,10 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var hasDamage = !string.IsNullOrWhiteSpace(request.DamageNotes);
         foreach (var item in booking.Items.Where(item => item.Asset is not null))
         {
-            var asset=item.Asset!;if(request.MeterReading.HasValue)asset.MeterUnit=await ConfiguredHireRules.EffectiveMeterUnit(db,asset,cancellationToken);var from=asset.Status;asset.Status=hasDamage || await db.MaintenanceJobs.AnyAsync(x => x.AssetId == asset.Id && x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled, cancellationToken)?AssetStatus.Maintenance:AssetStatus.Available;
+            var asset=item.Asset!;if(request.MeterReading.HasValue)asset.MeterUnit=await ConfiguredHireRules.EffectiveMeterUnit(db,asset,cancellationToken);var from=asset.Status;
+            var hasUnreleasedMaintenance = await db.MaintenanceJobs.AnyAsync(x => x.AssetId == asset.Id &&
+                (x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled || x.ReleasedAt == null), cancellationToken);
+            asset.Status=hasDamage || hasUnreleasedMaintenance ? AssetStatus.Maintenance : AssetStatus.Available;
             db.AssetLifecycleEvents.Add(new AssetLifecycleEvent{AssetId=asset.Id,BookingId=booking.Id,Type=hasDamage?AssetLifecycleEventType.DamageReported:AssetLifecycleEventType.PostHireInspection,FromStatus=from,ToStatus=asset.Status,MeterReading=request.MeterReading,Notes=Normalize(request.DamageNotes)??$"Returned on {booking.BookingNumber}",RecordedByUserId=scope.UserId,RecordedByName=scope.UserName});
             if(request.MeterReading.HasValue){asset.CurrentMeterReading=request.MeterReading;db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=asset.MeterUnit?.Contains("hour",StringComparison.OrdinalIgnoreCase)==true?MeterType.EngineHours:MeterType.Odometer,Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PostHireInspection,RecordedByUserId=scope.UserId});}
             // Preserve a separate traceable job for each newly reported return fault.

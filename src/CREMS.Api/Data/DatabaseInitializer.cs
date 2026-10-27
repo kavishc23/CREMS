@@ -1046,10 +1046,22 @@ public static class DatabaseInitializer
                 MeterReading = asset.CurrentMeterReading, DowntimeHours = seed.Downtime,
                 ReportedAt = DateTimeOffset.UtcNow.AddDays(completed ? -24 : -3),
                 CompletedAt = completed ? DateTimeOffset.UtcNow.AddDays(-23) : null,
+                ReleasedAt = completed ? DateTimeOffset.UtcNow.AddDays(-23) : null,
+                ReleasedByName = completed ? "CREMS Finance Seed" : null,
                 NextServiceDate = DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(completed ? 6 : 1)),
                 NextServiceMeter = asset.CurrentMeterReading + (AssetCategoryPolicy.IsVehicle(asset.Type) ? 10_000 : 500)
             });
             if (!completed) asset.Status = AssetStatus.Maintenance;
+        }
+
+        // Earlier sample data marked workshop jobs complete without releasing the asset.
+        // Repair only these known historical seed records; real jobs still require a safety release.
+        foreach (var job in await db.MaintenanceJobs.Where(x =>
+            (x.JobNumber == "MNT-2026-0101" || x.JobNumber == "MNT-2026-0102" || x.JobNumber == "MNT-2026-0103") &&
+            x.Status == MaintenanceStatus.Completed && x.ReleasedAt == null && x.CompletedAt != null).ToListAsync(token))
+        {
+            job.ReleasedAt = job.CompletedAt;
+            job.ReleasedByName = "CREMS historical seed repair";
         }
 
         if (!await db.AssetCostEntries.AnyAsync(token))

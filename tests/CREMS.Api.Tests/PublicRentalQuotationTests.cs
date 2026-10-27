@@ -38,12 +38,13 @@ public sealed class PublicRentalQuotationTests
         var booking = await fixture.Db.Bookings.Include(x => x.Items).Include(x => x.Charges).SingleAsync(cancellationToken);
         var quote = await fixture.Db.SalesQuotes.SingleAsync(cancellationToken);
         Assert.Equal(booking.Id, quote.ConvertedBookingId);
-        Assert.Equal(9432m, quote.Total);
+        Assert.Equal(7080m, quote.Total);
+        Assert.Contains(QuoteLineSerialization.Deserialize(quote.LineItemsJson), line => line.Category == ChargeCategory.Operator && line.Rate == 0);
+        Assert.Contains(QuoteLineSerialization.Deserialize(quote.LineItemsJson), line => line.Category == ChargeCategory.Transport && line.Rate == 0);
         Assert.Contains("\"unit\":\"Day\"", quote.LineItemsJson);
         Assert.Equal(ChargeUnit.Day, QuoteLineSerialization.Deserialize(quote.LineItemsJson).First().Unit);
         Assert.Single(booking.Items);
-        Assert.Single(booking.Charges);
-        Assert.Equal(56m, booking.Charges.Single().Quantity);
+        Assert.Empty(booking.Charges);
         Assert.Equal(1, await fixture.Db.CustomerCases.CountAsync(cancellationToken));
         Assert.Equal(1, await fixture.Db.OutboundEmails.CountAsync(cancellationToken));
     }
@@ -80,7 +81,7 @@ public sealed class PublicRentalQuotationTests
     }
 
     [Fact]
-    public async Task Booking_only_service_stays_a_booking_even_with_division_quote_default()
+    public async Task Booking_only_service_uses_quotation_when_operator_charges_need_confirmation()
     {
         await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
         var token = TestContext.Current.CancellationToken;
@@ -92,9 +93,48 @@ public sealed class PublicRentalQuotationTests
 
         var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with
         { Fulfilment = "Pickup", DeliveryAddress = null, RequestQuotation = false }, token);
-        var request = Assert.IsType<PublicBookingResponse>(Assert.IsType<OkObjectResult>(response.Result).Value);
-        Assert.Equal("Booking", request.RequestType);
+        Assert.IsType<OkObjectResult>(response.Result);
+        Assert.Single(await fixture.Db.SalesQuotes.ToListAsync(token));
+    }
+
+    [Fact]
+    public async Task Configured_non_vehicle_pickup_can_be_booked_without_quotation()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var asset = await fixture.Db.Assets.Include(x => x.ServiceOffering).Include(x => x.AssetCategory).Include(x => x.Division).SingleAsync(token);
+        asset.Type = AssetType.LightEquipment;
+        asset.RequiresDelivery = false; asset.FulfilmentMode = AssetFulfilmentMode.PickupOnly;
+        asset.PersonnelOverride = PersonnelRequirement.None;
+        asset.PersonnelRequirement = PersonnelRequirement.None;
+        asset.AssetCategory!.PersonnelRequirement = PersonnelRequirement.None;
+        asset.ServiceOffering!.RequiresQuote = false; asset.ServiceOffering.AllowsQuoteRequests = false; asset.ServiceOffering.IsBookableOnline = true;
+        asset.Division!.CustomerBookingConfigurationJson = (DivisionBookingFlow.For(asset.Division) with { QuoteMode = "DirectWhenPriced", PersonnelRequirement = PersonnelRequirement.None }).ToJson();
+        await fixture.Db.SaveChangesAsync(token);
+        var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with { Fulfilment = "Pickup", DeliveryAddress = null, RequestQuotation = false, PersonnelRequested = false }, token);
+        Assert.IsType<OkObjectResult>(response.Result);
+        var booking = await fixture.Db.Bookings.SingleAsync(token);
+        Assert.StartsWith("BK-", booking.BookingNumber);
+        Assert.True(booking.BookingNumber.Length <= 20);
         Assert.Empty(await fixture.Db.SalesQuotes.ToListAsync(token));
+    }
+
+    [Fact]
+    public async Task Driver_operator_request_does_not_require_customer_hours_or_assume_billable_hours()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with { PersonnelHours = null }, token);
+        Assert.IsType<OkObjectResult>(response.Result);
+        var booking = await fixture.Db.Bookings.SingleAsync(token);
+        Assert.Contains("Driver/operator included", booking.Notes);
+        Assert.DoesNotContain("approximately", booking.Notes);
+        var quote = await fixture.Db.SalesQuotes.SingleAsync(token);
+        var line = Assert.Single(QuoteLineSerialization.Deserialize(quote.LineItemsJson), x => x.Category == ChargeCategory.Operator);
+        Assert.Equal(0, line.Rate);
+        Assert.Equal(1, line.Quantity);
+        Assert.Equal(ChargeUnit.Fixed, line.Unit);
+        Assert.Equal(7080m, quote.Total);
     }
 
     [Fact]
@@ -198,6 +238,35 @@ public sealed class PublicRentalQuotationTests
         var result = await fixture.Controller.RequestBooking(fixture.ValidRequest(), token);
         Assert.IsType<BadRequestObjectResult>(result.Result);
         Assert.Empty(await fixture.Db.Bookings.ToListAsync(token));
+    }
+
+    [Fact]
+    public async Task Pickup_only_asset_rejects_delivery_and_preserves_customer_contact()
+    {
+        await using var f = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var asset = await f.Db.Assets.SingleAsync(token);
+        asset.RequiresDelivery = false; asset.FulfilmentMode = AssetFulfilmentMode.PickupOnly;
+        await f.Db.SaveChangesAsync(token);
+        Assert.IsType<BadRequestObjectResult>((await f.Controller.RequestBooking(f.ValidRequest(), token)).Result);
+        var response = await f.Controller.RequestBooking(f.ValidRequest() with { Fulfilment = "Pickup", DeliveryAddress = null, Phone = "SPOOFED", SecondaryContact = "7777777" }, token);
+        Assert.IsType<OkObjectResult>(response.Result);
+        Assert.Equal("9999999", (await f.Db.Customers.SingleAsync(token)).Phone);
+        Assert.Contains("7777777", (await f.Db.Bookings.SingleAsync(token)).Notes);
+    }
+
+    [Theory]
+    [InlineData(AssetFulfilmentMode.PickupOnly)]
+    [InlineData(AssetFulfilmentMode.DeliveryOnly)]
+    [InlineData(AssetFulfilmentMode.PickupOrDelivery)]
+    public async Task Asset_fulfilment_modes_round_trip(AssetFulfilmentMode mode)
+    {
+        await using var f = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var asset = await f.Db.Assets.SingleAsync(token);
+        asset.RequiresDelivery = mode == AssetFulfilmentMode.DeliveryOnly; asset.FulfilmentMode = mode;
+        await f.Db.SaveChangesAsync(token); f.Db.ChangeTracker.Clear();
+        Assert.Equal(mode, PublicRentalRequestPolicy.Fulfilment(await f.Db.Assets.SingleAsync(token)));
     }
 
     private sealed class ThrowingEmailQueue : IEmailQueue
