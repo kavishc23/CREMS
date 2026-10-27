@@ -27,7 +27,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         const string cacheKey = "public-catalogue-bootstrap-v1";
         if (memoryCache?.TryGetValue(cacheKey, out object? cached) == true && cached is not null)
         {
-            Response.Headers.CacheControl = "public, max-age=300, stale-while-revalidate=600";
+            Response.Headers.CacheControl = "public, max-age=30, stale-while-revalidate=60";
             return Ok(cached);
         }
 
@@ -48,8 +48,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (assetsResult.Result is not OkObjectResult assetsOk) return StatusCode(StatusCodes.Status503ServiceUnavailable);
 
         var payload = new { branches, divisions, assets = assetsOk.Value };
-        memoryCache?.Set(cacheKey, payload, TimeSpan.FromMinutes(5));
-        Response.Headers.CacheControl = "public, max-age=300, stale-while-revalidate=600";
+        memoryCache?.Set(cacheKey, payload, TimeSpan.FromSeconds(30));
+        Response.Headers.CacheControl = "public, max-age=30, stale-while-revalidate=60";
         return Ok(payload);
     }
 

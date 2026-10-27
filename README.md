@@ -1,6 +1,6 @@
 # CREMS
 
-Car and Rental Equipment Management System for Carpenters Fiji. This repository contains the approved .NET-stack foundation for the CS400 Industry Experience Project.
+Car and Rental Equipment Management System for Carpenters Fiji. The application provides public rental discovery, customer booking workflows, staff operations, asset management, maintenance, reporting, and administration.
 
 ## Technology
 
@@ -14,7 +14,9 @@ Car and Rental Equipment Management System for Carpenters Fiji. This repository 
 ```text
 src/CREMS.Api/   ASP.NET Core API and domain model
 src/crems-web/   React frontend
-docs/            Project decisions and requirement records
+tests/           API, browser, and end-to-end tests
+ops/             Optional data-seeding and configuration utilities
+docs/            Maintained setup, configuration, and operations guides
 ```
 
 ## Prerequisites
@@ -85,15 +87,15 @@ and `POST /api/auth/logout` (staff) or `POST /api/customer-account/logout` (cust
 A 401 means you need a valid session in this browser window; a 403 means your account
 lacks the necessary role, permission, or resource access.
 
-## Current status
-
-### API session security
+## API session security
 
 Authenticated requests must include an `X-CREMS-Window-Id` header containing a UUID. The web application creates this value in `sessionStorage`. In Postman, add a collection variable such as `windowId` and send `X-CREMS-Window-Id: {{windowId}}` on every request after login.
 
-Security defaults are enforced server-side: a 20-minute idle authentication timeout, an eight-hour absolute window-session limit, one active browser window per user, a 30-second API execution timeout, and global request rate limiting. A new login in another browser window transfers the active session to that window.
+Security defaults are enforced server-side: a 15-minute authentication timeout, an eight-hour absolute window-session limit, one active browser window per user, a 30-second API execution timeout, and global request rate limiting. A new login in another browser window transfers the active session to that window.
 
-The repository contains the technical foundation, responsive application shell, identity configuration, core roles, initial domain entities, SQL Server configuration, and a protected asset endpoint. Feature workflows remain intentionally unimplemented until the client validates the business rules in `docs/requirements-register.md`.
+## Local architecture
+
+Local development uses two processes: the API runs on `http://localhost:5080` and Vite runs on `http://localhost:5173`. Vite proxies `/api` requests to the API. No cloud-hosting configuration or generated frontend bundle is required in the repository.
 
 ## Engineering rules
 
