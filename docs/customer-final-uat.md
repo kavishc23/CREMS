@@ -42,5 +42,20 @@ Backend regression tests use EF InMemory with real Identity services; browser ch
 5. Run a full availability search and confirm other divisions/categories remain discoverable.
 6. Sign out and back in. Confirm saved category choices remain associated with the customer.
 7. Add a public division and active category through configuration, then focus/reopen preferences. Confirm both appear without a code change. Register/publish a matching asset and confirm selecting its category includes it on the homepage.
-8. Clear preferences and save. Confirm the homepage displays all available division rows.
+8. Select Show all rentals and save. Confirm the homepage displays all available division rows.
 9. Check the profile, licence, security and mobile navigation before client acceptance.
+
+## Final customer UI fixes — 27 October 2026
+
+- Catalogue cards now use one shared layout with aligned heading, image, price, action and details sections. Visible cards have equal dimensions; long configured names wrap in full and enlarge the shared sections together instead of being clipped. Photos retain their aspect ratio. Single assets retain the first desktop slot.
+- Search defaults to today's pickup date and an empty return date. An invalidated return date is cleared rather than silently selected for the customer.
+- The different-return-location fields use readable full-width rows. Date controls and location labels are associated accessibly with their inputs.
+- Division changes after search now filter the returned results while retaining dates, pickup location and results mode. Availability requests load all divisions for the chosen location/dates, so the results filter can switch divisions without leaving the results view.
+- Homepage asset details request no dates and display no date-availability claim, date estimate or booking/quotation continuation. Those controls become available only after a successful dated search and an API-confirmed availability response. Long detail content remains scrollable.
+- The profile follows the reference: contact information on the left; compact security and driver licence cards on the right. The permanently reserved scrollbar gutter is removed for customer views, with customer menus and dialogs avoiding unnecessary scroll locking.
+- Preferences now uses compact division/category rows, one short explanation, search, Show all rentals, a selection summary and save/homepage actions. New configured categories still refresh automatically.
+- Automatic generic write toasts are suppressed for customer workflows and licence processing. Inline feedback reports the actual completed step. Staff mutations retain their existing generic feedback. Account messages clear when changing sections.
+
+Verification: production build passed; all 46 frontend tests passed; both customer browser suites passed. The new suite covers default dates, undated and dated asset details, division result filters, equal card geometry with long future category/asset names, untruncated contents, readable return-location fields, profile positioning, simplified preference saves, and no premature email/licence toasts. The existing preference suite also reconfirmed Carptrac-only and Big-bin-only galleries, arrows, single-card sizing and new configured categories. New/changed components pass lint; the three previously documented unused declarations in CustomerPortalPage remain pre-existing findings.
+
+Browser checks ran against the user's existing frontend with fictional intercepted API responses; they did not modify live customer or asset records. No frontend or backend server was started or restarted for these fixes. Screenshots: `tmp/customer-ui-final-uat/` and `tmp/customer-preferences-uat/`. Client acceptance against the real configured register is still required.

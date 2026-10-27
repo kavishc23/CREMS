@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { classifyApiFailure } from './errors'
 import { sessionFailureEvent } from './sessionFailure'
+import { usesContextualFeedback } from './mutationFeedback'
 
 function getWindowSessionId() {
   const key = 'crems.window-session-id'
@@ -31,7 +32,7 @@ api.interceptors.response.use(
     const url = response.config.url ?? ''
     if (method && !['get', 'head', 'options'].includes(method) && !url.includes('/notifications/read') && !url.includes('/auth/') && !url.includes('/session') && !url.includes('/asset-qr/resolve')) {
       window.dispatchEvent(new Event('crems:data-changed'))
-      if (!url.includes('/notifications/send')) window.dispatchEvent(new CustomEvent('crems:toast', { detail: { severity: 'success', message: url.includes('/public/booking-requests') ? response.data?.requestType === 'Quotation' ? 'Quotation Request Submitted.' : 'Booking Submitted.' : response.status === 202 ? 'Submitted for review.' : 'Changes saved.' } }))
+      if (!usesContextualFeedback(url) && !url.includes('/notifications/send')) window.dispatchEvent(new CustomEvent('crems:toast', { detail: { severity: 'success', message: response.status === 202 ? 'Submitted for review.' : 'Changes saved.' } }))
     }
     return response
   },
@@ -42,7 +43,7 @@ api.interceptors.response.use(
       const eventName = sessionFailureEvent(requestUrl, error?.config?.method)
       if (eventName) window.dispatchEvent(new CustomEvent(eventName))
     }
-    if (!axios.isCancel(error) && !['get', 'head'].includes(error?.config?.method ?? 'get') && status !== 401 && !requestUrl.includes('/notifications/read') && !requestUrl.includes('/public/booking-requests')) {
+    if (!axios.isCancel(error) && !['get', 'head'].includes(error?.config?.method ?? 'get') && status !== 401 && !requestUrl.includes('/notifications/read') && !usesContextualFeedback(requestUrl)) {
       const message = classifyApiFailure(error, 'The action could not be completed. Check the details and try again.').message
       window.dispatchEvent(new CustomEvent('crems:toast', { detail: { severity: 'error', message } }))
     }

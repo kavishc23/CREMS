@@ -26,8 +26,11 @@ const theme = createTheme({
   shape: { borderRadius: 12 },
   components: {
     MuiDialog: {
+      defaultProps: { disableScrollLock: !isStaffRoute },
       styleOverrides: { paper: { maxHeight: 'calc(100dvh - 32px)' } },
     },
+    MuiMenu: { defaultProps: { disableScrollLock: !isStaffRoute } },
+    MuiDrawer: { defaultProps: { ModalProps: { disableScrollLock: !isStaffRoute } } },
     MuiDialogContent: {
       styleOverrides: { root: { overflowY: 'auto' } },
     },
