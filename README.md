@@ -27,37 +27,42 @@ docs/            Maintained setup, configuration, and operations guides
 
 ## Run locally
 
-1. Copy `.env.example` to `.env` and replace the example database password.
-2. Update the matching password in the API connection string using user secrets:
+### One-command startup
+
+Copy the environment template, fill in the required values, then start the complete local stack:
+
+```bash
+cp .env.example .env
+./scripts/start-local.sh
+```
+
+The script starts SQL Server, restores dependencies when needed, and runs the API and frontend. Press `Ctrl+C` to stop the local stack. See `docs/CLIENT_HANDOVER.md` for client installation, backup, email, and troubleshooting guidance.
+
+### Manual startup
+
+1. Start SQL Server with a password supplied through the environment:
 
    ```bash
-   dotnet user-secrets init --project src/CREMS.Api
-   dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=localhost,1433;Database=Crems;User Id=sa;Password=YOUR_PASSWORD;TrustServerCertificate=True" --project src/CREMS.Api
+   export CREMS_DB_PASSWORD='replace-with-a-strong-local-password'
+   docker compose up -d sqlserver
    ```
 
-3. Start SQL Server and create the first migration:
+2. Export the API connection and initial administrator settings. These values remain in the process environment and are not stored in tracked configuration:
 
    ```bash
-   docker compose up -d
-   dotnet tool restore
-   dotnet tool run dotnet-ef database update --project src/CREMS.Api
+   export ConnectionStrings__DefaultConnection="Server=localhost,1433;Database=Crems;User Id=sa;Password=${CREMS_DB_PASSWORD};TrustServerCertificate=True"
+   export BootstrapAdmin__Email='admin@example.com'
+   export BootstrapAdmin__Password='replace-with-a-strong-admin-password'
+   export BootstrapAdmin__FullName='System Administrator'
    ```
 
-4. Store the initial administrator securely outside source control:
-
-   ```bash
-   dotnet user-secrets set "BootstrapAdmin:Email" "admin@example.com" --project src/CREMS.Api
-   dotnet user-secrets set "BootstrapAdmin:Password" "REPLACE_WITH_A_STRONG_PASSWORD" --project src/CREMS.Api
-   dotnet user-secrets set "BootstrapAdmin:FullName" "System Administrator" --project src/CREMS.Api
-   ```
-
-5. Start the API. The migration, roles, and administrator are applied automatically:
+3. Start the API. Database migrations, roles, and the initial administrator are applied automatically:
 
    ```bash
    dotnet run --project src/CREMS.Api
    ```
 
-6. In another terminal, start the frontend:
+4. In another terminal, start the frontend:
 
    ```bash
    cd src/crems-web
