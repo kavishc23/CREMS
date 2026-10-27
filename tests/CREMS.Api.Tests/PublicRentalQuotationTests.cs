@@ -81,7 +81,7 @@ public sealed class PublicRentalQuotationTests
     }
 
     [Fact]
-    public async Task Non_vehicle_booking_only_service_rejects_requests_requiring_quotation()
+    public async Task Booking_only_service_uses_quotation_when_operator_charges_need_confirmation()
     {
         await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
         var token = TestContext.Current.CancellationToken;
@@ -93,8 +93,30 @@ public sealed class PublicRentalQuotationTests
 
         var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with
         { Fulfilment = "Pickup", DeliveryAddress = null, RequestQuotation = false }, token);
-        Assert.IsType<BadRequestObjectResult>(response.Result);
-        Assert.Empty(await fixture.Db.Bookings.ToListAsync(token));
+        Assert.IsType<OkObjectResult>(response.Result);
+        Assert.Single(await fixture.Db.SalesQuotes.ToListAsync(token));
+    }
+
+    [Fact]
+    public async Task Configured_non_vehicle_pickup_can_be_booked_without_quotation()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var asset = await fixture.Db.Assets.Include(x => x.ServiceOffering).Include(x => x.AssetCategory).Include(x => x.Division).SingleAsync(token);
+        asset.Type = AssetType.LightEquipment;
+        asset.RequiresDelivery = false; asset.FulfilmentMode = AssetFulfilmentMode.PickupOnly;
+        asset.PersonnelOverride = PersonnelRequirement.None;
+        asset.PersonnelRequirement = PersonnelRequirement.None;
+        asset.AssetCategory!.PersonnelRequirement = PersonnelRequirement.None;
+        asset.ServiceOffering!.RequiresQuote = false; asset.ServiceOffering.AllowsQuoteRequests = false; asset.ServiceOffering.IsBookableOnline = true;
+        asset.Division!.CustomerBookingConfigurationJson = (DivisionBookingFlow.For(asset.Division) with { QuoteMode = "DirectWhenPriced", PersonnelRequirement = PersonnelRequirement.None }).ToJson();
+        await fixture.Db.SaveChangesAsync(token);
+        var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with { Fulfilment = "Pickup", DeliveryAddress = null, RequestQuotation = false, PersonnelRequested = false }, token);
+        Assert.IsType<OkObjectResult>(response.Result);
+        var booking = await fixture.Db.Bookings.SingleAsync(token);
+        Assert.StartsWith("BK-", booking.BookingNumber);
+        Assert.True(booking.BookingNumber.Length <= 20);
+        Assert.Empty(await fixture.Db.SalesQuotes.ToListAsync(token));
     }
 
     [Fact]

@@ -80,3 +80,15 @@ Verification:
 - Remaining CustomerPortalPage lint findings (`uploadCustomerDocument`, `quote`, `BookingCards`) predate these changes.
 
 Runtime handover: No frontend/backend server was started or restarted. Restart the backend yourself in VS Code to load the API changes and apply the new AssetCustomerFulfilmentOptions migration through the existing startup database initializer. The currently running API has not loaded this migration or these new API rules. Browser regression API responses were intercepted, so those tests do not claim live-database integration verification.
+
+### Follow-up corrections — customer request forms
+
+- Removed the incorrect non-vehicle quotation restriction. Configured booking-only and booking/quote services now expose booking for projectors and other eligible assets. Booking-only service choices override division quote defaults; delivery and personnel still use quotation for charges awaiting confirmation.
+- Restored explicit confirmation before changing a pickup booking to delivery quotation, with a Keep pickup booking alternative.
+- Reset request dialog state when opening/closing requests and ignore same-results history events in the navigation guard. Added browser coverage reopening forms without an exit prompt.
+- Condensed request dialogs, stepper, fields and price summaries. Purpose and Additional message share a row; delivery address appears only for delivery. Removed repeated delivery explanations and redundant quotation-required labels.
+- New booking/agreement references have eight-character suffixes with existing-reference collision checks; new public quotation references use the same year/suffix shape. Existing stored references are retained, with compact legacy summary labels and full hover text.
+- Clarified existing service description field: it describes the service and does not control request routing. It predates this follow-up and the preceding customer UI commit.
+- Verification: production frontend build and 46 unit tests passed; focused 49 backend customer journey, quotation, booking and reference tests passed. Browser checks use fictional intercepted data against the existing frontend; include both delivery-confirmation outcomes and no-scroll rental/details steps at 1366×768.
+- An expanded settings test run exposed a pre-existing stale assertion expecting seven settings where the controller returns twelve; no production settings change was made for it.
+- No application server was started/restarted. Reload backend changes through the user's VS Code process before live testing.

@@ -7,5 +7,5 @@ public static class PublicRentalRequestPolicy
     public static AssetFulfilmentMode Fulfilment(Asset asset) => asset.Type == AssetType.PropertyUnit
         ? AssetFulfilmentMode.PickupOnly : asset.RequiresDelivery ? AssetFulfilmentMode.DeliveryOnly : asset.FulfilmentMode;
     public static bool RequiresQuotation(Asset asset, bool delivery, bool personnel) =>
-        !AssetCategoryPolicy.IsVehicle(asset.Type) || delivery || personnel;
+        delivery || personnel;
 }

@@ -12,6 +12,7 @@ export function useSearchNavigationGuard(active: boolean, discard: () => void) {
     const pop = (event: PopStateEvent) => {
       if (restoring.current) { restoring.current = false; event.stopImmediatePropagation(); return }
       if (!active) { if (event.state?.cremsSearchActive) { clearEntry(); discard() }; return }
+      if (event.state?.cremsSearchActive && new URLSearchParams(window.location.search).has('rentalResults')) return
       event.stopImmediatePropagation()
       if (!window.confirm('Leave these rental results? Your search and any unfinished request will be discarded.')) { restoring.current = true; window.history.forward(); return }
       discard(); clearEntry()

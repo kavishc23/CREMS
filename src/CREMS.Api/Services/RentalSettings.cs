@@ -52,7 +52,15 @@ public static class RentalSettings
     public static async Task<string> Reference(ApplicationDbContext db, bool agreement, CancellationToken token = default)
     {
         var prefix = await Read(db, agreement ? "rentals.agreementPrefix" : "rentals.bookingPrefix", token);
-        return $"{prefix}-{DateTime.UtcNow:yyyy}-{Guid.NewGuid():N}".ToUpperInvariant();
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var candidate = $"{prefix}-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8]}".ToUpperInvariant();
+            var exists = agreement
+                ? await db.RentalAgreements.AnyAsync(x => x.AgreementNumber == candidate, token)
+                : await db.Bookings.AnyAsync(x => x.BookingNumber == candidate, token);
+            if (!exists) return candidate;
+        }
+        throw new InvalidOperationException("Unable to allocate a unique rental reference.");
     }
 
     public static async Task<IdentityOptions> LoginOptions(ApplicationDbContext db, IdentityOptions original, CancellationToken token = default)

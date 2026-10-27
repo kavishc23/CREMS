@@ -7,13 +7,14 @@ const names=['BAIC X55 Elite','Hyundai Grand i10 Sedan · Unit 14','Isuzu D-Max 
 const assets=divisions.flatMap(d=>d.categories.flatMap(c=>Array.from({length:c.id==='car'?4:1},(_,i)=>({id:`${c.id}-${i}`,assetNumber:`REGISTER-${c.id}-${i}`,name:c.id==='car'?names[i]:`${c.name} · Unit ${i+1}`,type:c.id==='car'?'PassengerVehicle':'LightEquipment',status:'Available',isAvailable:true,branchId:'suva',branchName:'Suva',divisionId:d.id,divisionName:d.name,assetCategoryId:c.id,category:c.name,categoryCode:c.id,dailyRate:95+i*10,hireUnit:'Day',requiresQuote:c.id!=='car',isBookableOnline:c.id==='car',allowsQuoteRequests:true,personnelRequirement:'None',serviceName:'Hire',photoUrlsJson:'[]',attributes:[]}))));
 const localDate=offset=>{const d=new Date();d.setDate(d.getDate()+offset);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')};
 
+Object.assign(assets.find(asset=>asset.id==='special-0'),{isBookableOnline:true,requiresQuote:false,allowsQuoteRequests:false,fulfilmentMode:'PickupOnly'});
 const rental={id:'booking-uat',reference:'BK-UAT-001',status:'Completed',createdAt:new Date().toISOString(),branchName:'Suva',items:[{name:'Room projector',startAt:localDate(0),endAt:localDate(3),dailyRate:10,divisionName:'Carpenters Event Hire',category:'Projector',type:'LightEquipment',personnelRequirement:'None'}],branch:{name:'Suva',address:'Foster Road',phone:'1234567'},pricing:{total:276},bond:{required:0},invoice:{invoiceNumber:'INV-UAT-001',total:1134.85,amountPaid:0,balanceDue:1134.85,lines:[{description:'Hire',quantity:1,unitPrice:1134.85}]},documents:[{id:'supporting',type:'Other',fileName:'Hire-details.pdf'}],readiness:{},dispatches:[]};
 
 (async()=>{
  fs.mkdirSync(output,{recursive:true});const browser=await chromium.launch({channel:'chrome',headless:true});
  try{
-  const page=await browser.newPage({viewport:{width:1680,height:1000}});const errors=[],detailsQueries=[];let acceptLeave=true;let selected=[],searchCount=0,licence={status:'Required',licenceNumber:null,classes:[],hasImage:false};
-  page.on('dialog',dialog=>acceptLeave?dialog.accept():dialog.dismiss());
+  const page=await browser.newPage({viewport:{width:1680,height:1000}});const errors=[],detailsQueries=[];let acceptLeave=true;const nativeDialogs=[];let selected=[],searchCount=0,licence={status:'Required',licenceNumber:null,classes:[],hasImage:false};
+  page.on('dialog',dialog=>{nativeDialogs.push(dialog.message());return acceptLeave?dialog.accept():dialog.dismiss()});
   page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>{window.uatToasts=[];window.addEventListener('crems:toast',event=>window.uatToasts.push(event.detail))});
   await page.route('**/api/**',async route=>{
@@ -21,7 +22,7 @@ const rental={id:'booking-uat',reference:'BK-UAT-001',status:'Completed',created
    if(p==='/api/customer-account/session')return route.fulfill({json:{fullName:'UAT Customer',email:'uat@example.test',phone:'1234567',address:'Suva',preferredAssetCategoryIds:selected,hirePreferences:[],emailConfirmed:false}});
    if(p==='/api/public/catalogue-bootstrap')return route.fulfill({json:{divisions,branches:[{id:'suva',name:'Suva'},{id:'lautoka',name:'Lautoka'}],assets}});
    if(p==='/api/public/assets'){searchCount++;return route.fulfill({json:assets})}
-   if(p.startsWith('/api/public/assets/')){const asset=assets.find(a=>p.endsWith('/'+a.id));assert(asset);detailsQueries.push(url.search);return route.fulfill({json:{...asset,division:{id:asset.divisionId,name:asset.divisionName},branch:{id:'suva',name:'Suva'},service:{requiresQuote:asset.requiresQuote,isBookableOnline:asset.isBookableOnline,defaultHireUnit:'Day'},specifications:Array.from({length:16},(_,i)=>({name:'Specification '+i,value:'Full configured specification value '+i})),hireRate:{rate:10,unit:'Hour',isTaxable:true},taxRate:15,charges:[],availabilityChecked:url.searchParams.has('startDate')}})}
+   if(p.startsWith('/api/public/assets/')){const asset=assets.find(a=>p.endsWith('/'+a.id));assert(asset);detailsQueries.push(url.search);return route.fulfill({json:{...asset,bookingFlow:asset.id==='special-0'?{quoteMode:'Always',minimumHireDays:1,maximumHireDays:365}:undefined,division:{id:asset.divisionId,name:asset.divisionName},branch:{id:'suva',name:'Suva'},service:{requiresQuote:asset.requiresQuote,isBookableOnline:asset.isBookableOnline,defaultHireUnit:'Day'},specifications:Array.from({length:16},(_,i)=>({name:'Specification '+i,value:'Full configured specification value '+i})),hireRate:{rate:10,unit:'Hour',isTaxable:true},taxRate:15,charges:[],availabilityChecked:url.searchParams.has('startDate')}})}
    if(p==='/api/customer-account/rental-preferences'){if(route.request().method()==='PUT'){selected=route.request().postDataJSON().assetCategoryIds;return route.fulfill({json:{preferredAssetCategoryIds:selected}})}return route.fulfill({json:{divisions,preferredAssetCategoryIds:selected}})}
    if(p==='/api/customer-account/licence')return route.fulfill({json:licence});
    if(p==='/api/customer-account/licence/scan')return route.fulfill({json:{submissionId:'scan-id',fullName:'UAT Customer',licenceNumber:'123456',classes:[2],nameMatches:true}});
@@ -50,17 +51,26 @@ const rental={id:'booking-uat',reference:'BK-UAT-001',status:'Completed',created
 
   await page.locator('[data-testid="rental-catalogue-card"]').first().getByRole('button',{name:'Book now',exact:true}).click();
   await modal.getByRole('heading',{name:'Your rental',exact:true}).waitFor();
+  await modal.getByRole('button',{name:'Cancel',exact:true}).click();
+  const dialogsBeforeReopen=nativeDialogs.length;await page.locator('[data-testid="rental-catalogue-card"]').first().getByRole('button',{name:'Book now',exact:true}).click();await modal.getByRole('heading',{name:'Your rental',exact:true}).waitFor();assert.equal(nativeDialogs.length,dialogsBeforeReopen,'Opening a second form must not trigger an exit prompt');
+  await page.setViewportSize({width:1366,height:768});await screenshot('laptop-request-rental');assert(await modal.locator('.MuiDialogContent-root').evaluate(e=>e.scrollHeight<=e.clientHeight+2),'Laptop rental step must fit without scrolling');
   assert.equal(await modal.locator('.MuiStep-root').count(),3);
   await modal.getByRole('combobox',{name:'Pickup or delivery',exact:true}).click();await page.getByRole('option',{name:'Deliver to my address or worksite',exact:true}).click();
-  await screenshot('checkout-after-delivery');assert(await modal.getByText('Request a quotation',{exact:true}).isVisible());
+  await page.getByRole('dialog').filter({has:page.getByRole('heading',{name:'Request a delivery quotation?',exact:true})}).getByRole('button',{name:'Keep pickup booking',exact:true}).click();
+  await page.getByText('Request a booking',{exact:true}).waitFor();
+  await modal.getByRole('combobox',{name:'Pickup or delivery',exact:true}).click();await page.getByRole('option',{name:'Deliver to my address or worksite',exact:true}).click();
+  await page.getByRole('button',{name:'Continue with quotation',exact:true}).click();await screenshot('checkout-after-delivery');await page.getByText('Request a quotation',{exact:true}).waitFor();
   await modal.getByRole('button',{name:'Continue',exact:true}).click();await modal.getByRole('heading',{name:'Your details',exact:true}).waitFor();
   for(const name of ['Full name','Email','Phone contact'])assert(await modal.getByLabel(name,{exact:true}).evaluate(e=>e.readOnly));
+  await screenshot('laptop-request-details');
+  assert(await modal.locator('.MuiDialogContent-root').evaluate(e=>e.scrollHeight<=e.clientHeight+2),'Laptop details must fit without scrolling');
   await modal.getByLabel('Delivery address',{exact:false}).fill('Test delivery address');await modal.getByLabel('Estimated hire hours',{exact:false}).fill('5');
   assert(await modal.getByText('FJD 57.50',{exact:true}).isVisible());assert(await modal.getByText('Known hire estimate',{exact:true}).isVisible());
   await modal.getByLabel('Emergency / secondary contact (optional)',{exact:true}).fill('7654321');
   await modal.getByRole('button',{name:'Continue',exact:true}).click();await modal.getByRole('heading',{name:'Price and submit',exact:true}).waitFor();
-  assert(await modal.getByRole('button',{name:'Request quotation',exact:true}).isVisible());await screenshot('three-step-delivery-quotation');
+  assert(await modal.getByRole('button',{name:'Request quotation',exact:true}).isVisible());await screenshot('three-step-delivery-quotation');await page.setViewportSize({width:1680,height:1000});
   await modal.getByRole('button',{name:'Cancel request',exact:true}).click();await page.getByRole('dialog').filter({has:page.getByRole('heading',{name:'Cancel this request?',exact:true})}).getByRole('button',{name:'Cancel request',exact:true}).click();
+  const projectorCard=page.locator('[data-testid="rental-catalogue-card"]').last();await projectorCard.getByRole('button',{name:'Book now',exact:true}).click();await page.getByText('Request a booking',{exact:true}).waitFor();assert.equal(await modal.getByRole('combobox',{name:'Pickup or delivery',exact:true}).count(),0);await modal.getByRole('button',{name:'Continue',exact:true}).click();await modal.getByRole('heading',{name:'Your details',exact:true}).waitFor();assert.equal(await modal.getByLabel('Delivery address',{exact:false}).count(),0);await modal.getByRole('button',{name:'Cancel request',exact:true}).click();
   acceptLeave=false;await page.evaluate(()=>history.back());await page.waitForTimeout(300);assert(await page.getByText('YOUR RENTAL SEARCH',{exact:true}).isVisible());
   acceptLeave=true;await page.evaluate(()=>history.back());await page.getByRole('heading',{name:'Find your rental',exact:true}).waitFor();assert.equal(await page.getByText('YOUR RENTAL SEARCH',{exact:true}).count(),0);
   await page.evaluate(()=>history.forward());await page.waitForTimeout(300);assert.equal(await page.getByText('YOUR RENTAL SEARCH',{exact:true}).count(),0);
@@ -77,6 +87,6 @@ const rental={id:'booking-uat',reference:'BK-UAT-001',status:'Completed',created
   await page.getByRole('button',{name:'UAT Customer',exact:true}).click();await page.getByRole('menuitem',{name:'Rental Preferences',exact:true}).click();
 
   for(const width of [1024,390]){await page.setViewportSize({width,height:900});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));await screenshot('preferences-'+width)}
-  assert.deepEqual(errors,[]);console.log('PASS: Three-step checkout, profile readonly fields, live hourly pricing, delivery auto quotation, pending charges, back cancel/accept and no stale result restoration;  today/empty return defaults; preview-only details; searched availability/continue; readable return-location layout; results division filtering; uniform card sizes and untruncated content; reference profile layout; simplified functional preferences; no premature verification/scan toasts; desktop/tablet/mobile widths. Existing servers only; APIs intercepted with fictional data.');
+  assert.deepEqual(errors,[]);console.log('PASS: Three-step checkout, profile readonly fields, live hourly pricing, delivery quotation confirmation (both choices), laptop forms without scrolling, repeated form opening without exit prompts, pending charges, back cancel/accept and no stale result restoration;  today/empty return defaults; preview-only details; searched availability/continue; readable return-location layout; results division filtering; uniform card sizes and untruncated content; reference profile layout; simplified functional preferences; no premature verification/scan toasts; desktop/tablet/mobile widths. Existing servers only; APIs intercepted with fictional data.');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});

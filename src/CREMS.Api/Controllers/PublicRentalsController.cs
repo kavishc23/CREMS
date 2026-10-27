@@ -188,7 +188,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.RegistrationNumber, asset.SerialNumber,
             asset.DivisionId, asset.DivisionName, asset.Category, asset.CategoryCode,
             asset.PersonnelOverride ?? DivisionBookingFlow.Parse(asset.BookingConfigurationJson).PersonnelRequirement,
-            asset.ServiceName, !AssetCategoryPolicy.IsVehicle(asset.Type) || asset.ServiceRequiresQuote || asset.AllowsQuoteRequests && DivisionBookingFlow.Parse(asset.BookingConfigurationJson).QuoteMode == "Always", asset.RequiresDelivery, asset.PhotoUrlsJson,
+            asset.ServiceName, asset.ServiceRequiresQuote || asset.AllowsQuoteRequests && DivisionBookingFlow.Parse(asset.BookingConfigurationJson).QuoteMode == "Always", asset.RequiresDelivery, asset.PhotoUrlsJson,
             asset.Attributes,
             startDate.HasValue
                 ? asset.Status == AssetStatus.Available && !unavailableAssetIds.Contains(asset.Id)
@@ -304,7 +304,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.ServiceOffering is { IsBookableOnline: false, RequiresQuote: false } ||
             asset.Status is AssetStatus.Rented or AssetStatus.Maintenance or AssetStatus.Inspection or AssetStatus.OutOfService or AssetStatus.Retired)
             return NotFound("The selected rental item is no longer available.");
-        if (request.RequestQuotation && asset.ServiceOffering?.AllowsQuoteRequests == false) return BadRequest(new { message = "This service accepts booking requests only." });
+        if (request.RequestQuotation && asset.ServiceOffering?.AllowsQuoteRequests == false && request.Fulfilment != "Delivery" && !request.PersonnelRequested && AssetCategoryPolicy.Personnel(asset) != PersonnelRequirement.Required) return BadRequest(new { message = "This service accepts booking requests only." });
         var flow = DivisionBookingFlow.For(asset.Division);
         if (!flow.OnlineRequestsEnabled) return NotFound("Online requests are disabled for this division.");
         var questions = OrganizationConfiguration.Questions(flow, asset.ServiceOffering, asset.AssetCategory);
@@ -401,8 +401,6 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             (!asset.UseServiceHireRate && asset.DailyRate <= 0) || flow.RequiresQuote(request.RequestQuotation,
             activeCustomer.Type == CustomerType.Business, personnelPolicy, personnelRequested,
             pricedPersonnelAvailable, request.Fulfilment == "Delivery", pricedTransportAvailable));
-        if (requiresQuote && asset.ServiceOffering?.AllowsQuoteRequests == false)
-            return BadRequest(new { message = "This service cannot accept quotation requests online. Contact the branch to arrange delivery or personnel." });
         var selectedExtras = (request.Extras ?? []).Where(x => x.Quantity > 0 && x.Quantity <= 1000)
             .GroupBy(x => x.ChargeDefinitionId).ToDictionary(x => x.Key, x => x.First().Quantity);
         var applicableCharges = availableCharges.Where(x => x.Category is not (ChargeCategory.Operator or ChargeCategory.Driver or ChargeCategory.Transport))
@@ -463,7 +461,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             if (personnelRequested) lineItems.Add(new QuoteLine("Operator / driver — charge to be confirmed", request.PersonnelHours ?? 1, 0, ChargeUnit.Hour, Category: ChargeCategory.Operator));
             var quote = new SalesQuote
             {
-                QuoteNumber = $"QUO-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
+                QuoteNumber = $"QUO-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
                 CustomerId = activeCustomer.Id, BranchId = asset.BranchId, DivisionId = asset.DivisionId,
                 Status = QuoteStatus.Draft, ValidUntil = DateTimeOffset.UtcNow.AddDays(flow.QuoteValidityDays),
                 JobSite = Normalize(request.DeliveryAddress), PurchaseOrderNumber = Normalize(request.PurchaseOrderNumber),
