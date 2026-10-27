@@ -207,7 +207,7 @@ export function AppShell({ activePage, onNavigate, userKey, userName, userRoles,
               <ListItemButton
                 aria-expanded={Boolean(expandedSections[section])}
                 aria-controls={`navigation-${section.replaceAll(' ', '-').toLowerCase()}`}
-                onClick={() => setExpandedSections((current) => ({ ...current, [section]: section === activeSection && current[section] ? true : !current[section] }))}
+                onClick={() => setExpandedSections((current) => ({ ...current, [section]: !current[section] }))}
                 sx={{
                   minHeight: { xs: 52, md: 42 },
                   mt: dashboard ? .5 : 0,

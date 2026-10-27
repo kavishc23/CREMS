@@ -129,5 +129,22 @@ function OperatingServices({onNavigate}:{onNavigate:(page:AppPage)=>void}){
   useEffect(()=>{let active=true;const refresh=()=>{void api.get<OperatingServiceRow[]>('/organization/operating-context').then(r=>{if(active){setRows(r.data);setFailed(false)}}).catch(()=>{if(active)setFailed(true)})};refresh();window.addEventListener('focus',refresh);window.addEventListener('crems:configuration-changed',refresh);return()=>{active=false;window.removeEventListener('focus',refresh);window.removeEventListener('crems:configuration-changed',refresh)}},[])
   if(failed)return <Alert severity="info" sx={{mt:3}}>Operating services are temporarily unavailable. Your other dashboard information remains available.</Alert>
   if(!rows.length)return null
-  return <Card variant="outlined" sx={{mt:3}}><CardContent><Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" gap={1} mb={2}><Box><Typography variant="h6" fontWeight={800}>Your operating services</Typography><Typography variant="body2" color="text.secondary">Services and asset categories configured for your assigned locations.</Typography></Box><Button onClick={()=>onNavigate('assets')} variant="outlined">Open asset register</Button></Stack><Stack gap={2}>{rows.map(row=><Box key={row.branchId+row.divisionId}><Typography fontWeight={750}>{row.divisionName} · {row.branchName}</Typography>{row.services.length?row.services.map(service=><Stack key={service.id} direction="row" alignItems="center" gap={1} flexWrap="wrap" mt={1}><Typography variant="body2">{service.name}</Typography>{service.categories.map(c=><Chip key={c.code} size="small" variant="outlined" label={c.name}/>)}</Stack>):<Typography variant="body2" color="text.secondary">No services are enabled at this location.</Typography>}</Box>)}</Stack></CardContent></Card>
+  const divisions=Array.from(rows.reduce((groups,row)=>{
+    const group=groups.get(row.divisionId)??{id:row.divisionId,name:row.divisionName,branches:new Set<string>(),services:new Map<string,{name:string;categories:Map<string,string>}>()}
+    group.branches.add(row.branchName)
+    row.services.forEach(service=>{const current=group.services.get(service.id)??{name:service.name,categories:new Map<string,string>()};service.categories.forEach(category=>current.categories.set(category.code,category.name));group.services.set(service.id,current)})
+    groups.set(row.divisionId,group);return groups
+  },new Map<string,{id:string;name:string;branches:Set<string>;services:Map<string,{name:string;categories:Map<string,string>}>}>()).values())
+  const serviceCount=new Set(rows.flatMap(row=>row.services.map(service=>service.id))).size
+  return <Card variant="outlined" sx={{mt:3,overflow:'hidden'}}><CardContent sx={{p:{xs:2.5,md:3}}}>
+    <Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" alignItems={{sm:'center'}} gap={2} mb={2.5}>
+      <Box><Typography variant="h6" fontWeight={800}>Operating network</Typography><Typography variant="body2" color="text.secondary">A compact view of the businesses and services available in your scope.</Typography><Stack direction="row" gap={1} mt={1}><Chip size="small" label={`${rows.length} locations`}/><Chip size="small" label={`${serviceCount} service${serviceCount===1?'':'s'}`}/></Stack></Box>
+      <Button onClick={()=>onNavigate('assets')} variant="outlined" startIcon={<Inventory2Outlined/>}>Open asset register</Button>
+    </Stack>
+    <Grid container spacing={2}>{divisions.map(division=><Grid key={division.id} size={{xs:12,md:6,lg:4}}><Box sx={{height:'100%',p:2.25,border:1,borderColor:'divider',borderRadius:2,bgcolor:'#fafaf8',borderTop:4,borderTopColor:'secondary.main'}}>
+      <Stack direction="row" justifyContent="space-between" gap={1} alignItems="flex-start"><Typography fontWeight={850}>{division.name}</Typography><Chip size="small" variant="outlined" label={`${division.branches.size} ${division.branches.size===1?'location':'locations'}`}/></Stack>
+      <Typography variant="caption" color="text.secondary" display="block" mt={.5}>{Array.from(division.branches).sort().join(' · ')}</Typography>
+      <Stack gap={1.5} mt={2}>{Array.from(division.services.values()).map(service=><Box key={service.name}><Typography variant="body2" fontWeight={750}>{service.name}</Typography><Stack direction="row" gap={.75} flexWrap="wrap" mt={.75}>{Array.from(service.categories.entries()).map(([code,name])=><Chip key={code} size="small" label={name} sx={{bgcolor:'background.paper'}}/>)}</Stack></Box>)}</Stack>
+    </Box></Grid>)}</Grid>
+  </CardContent></Card>
 }
