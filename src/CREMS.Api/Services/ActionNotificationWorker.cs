@@ -12,13 +12,13 @@ using Microsoft.Extensions.Options;
 
 namespace CREMS.Api.Services;
 
-public sealed class ActionNotificationWorker(IServiceScopeFactory scopes, ILogger<ActionNotificationWorker> logger) : BackgroundService
+public sealed class ActionNotificationWorker(IServiceScopeFactory scopes, ILogger<ActionNotificationWorker> logger, IHostEnvironment environment) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken token)
     {
         // Let startup migrations finish before opening notification tables.
-        await Task.Delay(TimeSpan.FromSeconds(15), token);
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        await Task.Delay(environment.IsDevelopment() ? TimeSpan.FromSeconds(15) : TimeSpan.FromMinutes(2), token);
+        using var timer = new PeriodicTimer(environment.IsDevelopment() ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(5));
         do
         {
             try { await Reminders(token); await CustomerReminders(token); await Emails(token); }
