@@ -117,3 +117,9 @@ Scope is limited to local OCR implementation and backend tests. No frontend/UI, 
 - The isolated class pass took roughly 2–3 seconds per supplied input during final evaluation. Existing full-document passes still contribute to total upload-scan time.
 - Verification: 100 focused backend tests passed, including OCR parsing, class consensus, photographed-card location, blur rejection, confirmation rules and existing booking/quotation journeys. The test project now explicitly matches the API's existing SkiaSharp 4.153.1 dependency, resolving the test-only image-assembly mismatch.
 - No application servers were started or restarted. Reload the backend in VS Code to use the updated OCR implementation.
+
+## Minor laptop layout polish — 27 October 2026
+- Scoped changes to customer profile and booking/quotation request dialog only.
+- Moved the active step heading above both columns to align selected asset and estimate cards.
+- Reduced vertical spacing at laptop heights; corrected profile minimum-height assumptions without clipping content or disabling necessary scrolling.
+- Frontend production build passed. Customer browser regression suite passed against existing frontend with fictional mocked APIs; delivery plus required driver/operator card alignment and no-scroll layout, and profile no-scroll layout checked at 1280x720, 1366x768 and 1536x864. Screenshots visually reviewed. No servers started or restarted.
