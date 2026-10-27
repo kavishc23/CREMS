@@ -19,7 +19,10 @@ public static class SeedAssetPhotoRepair
             if (!fileName.StartsWith("seed-", StringComparison.Ordinal) ||
                 fileName.Contains('/') || fileName.Contains((char)92) || fileName.Contains(':') ||
                 Path.GetExtension(fileName) is not (".jpg" or ".jpeg" or ".png" or ".webp")) continue;
-            var source = Path.Combine(contentRoot, "..", "crems-web", "public", "catalog", fileName[5..]);
+            var sourceCatalogueRoot = Path.GetFullPath(Path.Combine(contentRoot, "..", "crems-web", "public", "catalog"));
+            var publishedCatalogueRoot = Path.GetFullPath(Path.Combine(contentRoot, "wwwroot", "catalog"));
+            var catalogueRoot = Directory.Exists(sourceCatalogueRoot) ? sourceCatalogueRoot : publishedCatalogueRoot;
+            var source = Path.Combine(catalogueRoot, fileName[5..]);
             var directory = Path.Combine(contentRoot, "App_Data", "asset-images", assetId.ToString("N"));
             var destination = Path.Combine(directory, fileName);
             if (!File.Exists(source) || File.Exists(destination)) continue;

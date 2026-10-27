@@ -328,31 +328,37 @@ public static class DatabaseInitializer
                     var assignment = await db.BranchDivisions.SingleAsync(x => x.BranchId == branch.Id && x.DivisionId == division.Id, cancellationToken);
                     assignment.IsActive = true;
                 }
+
+                foreach (var service in services.Values.Where(x => x.DivisionId == division.Id && x.IsActive))
+                {
+                    var serviceAssignment = await db.BranchDivisionServices.FirstOrDefaultAsync(
+                        x => x.BranchId == branch.Id && x.DivisionId == division.Id &&
+                            x.ServiceOfferingId == service.Id,
+                        cancellationToken);
+                    if (serviceAssignment is null)
+                    {
+                        db.BranchDivisionServices.Add(new BranchDivisionService
+                        {
+                            BranchId = branch.Id,
+                            DivisionId = division.Id,
+                            ServiceOfferingId = service.Id,
+                            IsActive = true,
+                            IsBookable = true,
+                        });
+                    }
+                    else
+                    {
+                        serviceAssignment.IsActive = true;
+                        serviceAssignment.IsBookable = true;
+                    }
+                }
             }
         }
-        var shippingBranchIds = new[] { branches["SUV"].Id, branches["LAU"].Id };
         var obsoleteShippingServiceIds = shippingDivision.ServiceOfferings.Where(x => !x.IsActive).Select(x => x.Id).ToArray();
         var obsoleteShippingBranchServices = await db.BranchDivisionServices
             .Where(x => obsoleteShippingServiceIds.Contains(x.ServiceOfferingId))
             .ToListAsync(cancellationToken);
         foreach (var assignment in obsoleteShippingBranchServices) { assignment.IsActive = false; assignment.IsBookable = false; }
-        foreach (var branchId in shippingBranchIds)
-        {
-            foreach (var service in shippingDivision.ServiceOfferings.Where(x => x.IsActive))
-            {
-                var assignment = await db.BranchDivisionServices.FirstOrDefaultAsync(
-                    x => x.BranchId == branchId && x.DivisionId == shippingDivision.Id && x.ServiceOfferingId == service.Id,
-                    cancellationToken);
-                if (assignment is null)
-                    db.BranchDivisionServices.Add(new BranchDivisionService { BranchId = branchId,
-                        DivisionId = shippingDivision.Id, ServiceOfferingId = service.Id, IsActive = true, IsBookable = true });
-                else
-                {
-                    assignment.IsActive = true;
-                    assignment.IsBookable = true;
-                }
-            }
-        }
         await db.SaveChangesAsync(cancellationToken);
 
         var chargeSeeds = new[]
@@ -1117,7 +1123,9 @@ public static class DatabaseInitializer
         string contentRootPath,
         CancellationToken token)
     {
-        var catalogueRoot = Path.GetFullPath(Path.Combine(contentRootPath, "..", "crems-web", "public", "catalog"));
+        var sourceCatalogueRoot = Path.GetFullPath(Path.Combine(contentRootPath, "..", "crems-web", "public", "catalog"));
+        var publishedCatalogueRoot = Path.GetFullPath(Path.Combine(contentRootPath, "wwwroot", "catalog"));
+        var catalogueRoot = Directory.Exists(sourceCatalogueRoot) ? sourceCatalogueRoot : publishedCatalogueRoot;
         if (!Directory.Exists(catalogueRoot)) return;
         foreach (var asset in assets.Values)
         {
