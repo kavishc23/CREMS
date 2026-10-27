@@ -43,8 +43,10 @@ public static class DatabaseInitializer
         // of re-reading and updating the complete demo dataset on every API restart.
         // Set DevelopmentData:RefreshOnStartup=true only when seed definitions need
         // to be deliberately reapplied to an existing development database.
+        var seedDevelopmentData = app.Environment.IsDevelopment() ||
+            app.Configuration.GetValue<bool>("DevelopmentData:SeedOnEmpty");
         var refreshDevelopmentData = app.Configuration.GetValue<bool>("DevelopmentData:RefreshOnStartup");
-        var developmentDataMissing = app.Environment.IsDevelopment() &&
+        var developmentDataMissing = seedDevelopmentData &&
             (!await db.Divisions.AsNoTracking().AnyAsync(cancellationToken) ||
              !await db.Assets.AsNoTracking().AnyAsync(cancellationToken) ||
              !await db.Assets.AsNoTracking().AnyAsync(asset => asset.IsActive &&
@@ -57,11 +59,11 @@ public static class DatabaseInitializer
                  db.BranchDivisionServices.Any(link => link.BranchId == asset.BranchId &&
                      link.DivisionId == asset.DivisionId && link.ServiceOfferingId == asset.ServiceOfferingId &&
                      link.IsActive && link.IsBookable), cancellationToken));
-        if (app.Environment.IsDevelopment() && (refreshDevelopmentData || developmentDataMissing))
+        if (seedDevelopmentData && (refreshDevelopmentData || developmentDataMissing))
         {
             await SeedDevelopmentDataAsync(db, userManager, app.Environment.ContentRootPath, cancellationToken);
         }
-        if (app.Environment.IsDevelopment())
+        if (seedDevelopmentData)
         {
             var photoAssets = await db.Assets.AsNoTracking()
                 .Select(asset => new { asset.Id, asset.PhotoUrlsJson }).ToListAsync(cancellationToken);
@@ -275,12 +277,11 @@ public static class DatabaseInitializer
                     RequiresQuote = service.RequiresQuote, DefaultHireUnit = service.DefaultHireUnit,
                     RequiresDelivery = service.RequiresDelivery, IsActive = true };
                 db.ServiceOfferings.Add(offering);
-                division.ServiceOfferings.Add(offering);
             }
         }
+        await db.SaveChangesAsync(cancellationToken);
         var shippingDivision = await db.Divisions.Include(x => x.ServiceOfferings)
             .SingleAsync(x => x.Code == "SHIPPING", cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
 
         var branchSeeds = new[]
         {
@@ -763,22 +764,6 @@ public static class DatabaseInitializer
             customer.IsBlocked = false;
         }
 
-        await db.SaveChangesAsync(cancellationToken);
-
-        // Remove superseded development-only customer rows when they have never been used.
-        // Referenced records are retained but disabled so rental history is never orphaned.
-        var supersededCustomerNumbers = new[] { "CUS-000002", "CUS-000003", "CUS-000006" };
-        var supersededCustomers = await db.Customers
-            .Where(x => supersededCustomerNumbers.Contains(x.CustomerNumber))
-            .ToListAsync(cancellationToken);
-        foreach (var customer in supersededCustomers)
-        {
-            var isReferenced = await db.Bookings.AnyAsync(x => x.CustomerId == customer.Id, cancellationToken) ||
-                await db.Users.AnyAsync(x => x.CustomerId == customer.Id, cancellationToken) ||
-                await db.CorporateAccounts.AnyAsync(x => x.CustomerId == customer.Id, cancellationToken);
-            if (isReferenced) { customer.IsActive = false; customer.IsBlocked = true; }
-            else db.Customers.Remove(customer);
-        }
         await db.SaveChangesAsync(cancellationToken);
 
         var seededCustomers = await db.Customers

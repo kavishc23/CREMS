@@ -23,6 +23,13 @@ if (builder.Environment.IsDevelopment())
         .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, ".data-protection")))
         .SetApplicationName("CREMS.Development");
 }
+else
+{
+    var persistentRoot = Environment.GetEnvironmentVariable("HOME") ?? builder.Environment.ContentRootPath;
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(persistentRoot, "data-protection")))
+        .SetApplicationName("CREMS");
+}
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
@@ -213,6 +220,17 @@ if (app.Environment.IsDevelopment())
 // same-origin /api requests to port 5080. Production still enforces HTTPS.
 if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
 app.UseResponseCompression();
+app.UseDefaultFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        if (context.File.Name.Contains('-', StringComparison.Ordinal))
+            context.Context.Response.Headers.CacheControl = "public,max-age=31536000,immutable";
+        else
+            context.Context.Response.Headers.CacheControl = "public,max-age=300";
+    }
+});
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
@@ -231,6 +249,7 @@ app.UseMiddleware<WindowSessionMiddleware>();
 
 app.MapControllers();
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymous();
+app.MapFallbackToFile("index.html");
 
 app.Run();
 
