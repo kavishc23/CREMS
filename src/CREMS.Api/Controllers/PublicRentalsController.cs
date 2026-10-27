@@ -391,8 +391,6 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (request.PersonnelRequested && !AssetCategoryPolicy.AllowsPersonnel(asset))
             return BadRequest(new { message = "A driver or operator is not applicable to this asset category." });
         var personnelRequested = personnelPolicy == PersonnelRequirement.Required || request.PersonnelRequested;
-        if (personnelRequested && request.PersonnelHours is <= 0 or > 1000)
-        { ModelState.AddModelError(nameof(request.PersonnelHours), "Enter between 1 and 1000 driver or operator hours."); return ValidationProblem(ModelState); }
         var pricedPersonnelAvailable = availableCharges.Any(x =>
             (x.Category is ChargeCategory.Operator or ChargeCategory.Driver) && x.DefaultSellingRate > 0);
         var pricedTransportAvailable = availableCharges.Any(x =>
@@ -458,7 +456,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             lineItems.AddRange(charges.Select(x => new QuoteLine(x.Definition.Name, x.Quantity,
                 x.Definition.DefaultSellingRate, x.Definition.Unit, Category: x.Definition.Category, ChargeDefinitionId: x.Definition.Id, IsTaxable: x.Definition.IsTaxable)));
             if (request.Fulfilment == "Delivery") lineItems.Add(new QuoteLine("Delivery — charge to be confirmed", 1, 0, ChargeUnit.Trip, Category: ChargeCategory.Transport));
-            if (personnelRequested) lineItems.Add(new QuoteLine("Operator / driver — charge to be confirmed", request.PersonnelHours ?? 1, 0, ChargeUnit.Hour, Category: ChargeCategory.Operator));
+            if (personnelRequested) lineItems.Add(new QuoteLine("Driver/operator included - charge to be confirmed", 1, 0, ChargeUnit.Fixed, Category: ChargeCategory.Operator));
             var quote = new SalesQuote
             {
                 QuoteNumber = $"QUO-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
@@ -527,7 +525,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (!string.IsNullOrWhiteSpace(request.PurchaseOrderNumber))
             details.Add($"Purchase order: {request.PurchaseOrderNumber.Trim()}");
         if (personnelRequested)
-            details.Add($"Customer requested trained personnel{(request.PersonnelHours.HasValue ? $" for approximately {request.PersonnelHours} hours" : "")}.");
+            details.Add("Driver/operator included. Arrangements and charges to be confirmed by the branch.");
         if (!string.IsNullOrWhiteSpace(request.DriverName))
             details.Add($"Nominated driver: {request.DriverName.Trim()}.");
         if (!string.IsNullOrWhiteSpace(request.DriverLicence))

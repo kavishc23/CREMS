@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NotificationBell } from './NotificationBell'
+import { CustomerNotificationBell } from './CustomerNotificationBell'
 import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
@@ -70,7 +70,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
           </Box>
           <Box sx={{ flexGrow: 1 }} />
           <Box sx={{ display: { xs: 'none', lg: 'block' } }}>{desktopNavigation}</Box>
-          {authenticated && <NotificationBell customer key={accountName} />}
+          {authenticated && <CustomerNotificationBell key={accountName} onOpenBookings={() => onAccountSection ? onAccountSection('bookings') : onAccount()} />}
           <IconButton color="inherit" aria-label="Open navigation" sx={{ display: { lg: 'none' } }} onClick={() => setMobileOpen(true)}><MenuOutlined /></IconButton>
         </Toolbar>
       </Container>

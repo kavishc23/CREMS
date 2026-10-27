@@ -120,6 +120,24 @@ public sealed class PublicRentalQuotationTests
     }
 
     [Fact]
+    public async Task Driver_operator_request_does_not_require_customer_hours_or_assume_billable_hours()
+    {
+        await using var fixture = await QuotationFixture.CreateAsync(new EmailQueue());
+        var token = TestContext.Current.CancellationToken;
+        var response = await fixture.Controller.RequestBooking(fixture.ValidRequest() with { PersonnelHours = null }, token);
+        Assert.IsType<OkObjectResult>(response.Result);
+        var booking = await fixture.Db.Bookings.SingleAsync(token);
+        Assert.Contains("Driver/operator included", booking.Notes);
+        Assert.DoesNotContain("approximately", booking.Notes);
+        var quote = await fixture.Db.SalesQuotes.SingleAsync(token);
+        var line = Assert.Single(QuoteLineSerialization.Deserialize(quote.LineItemsJson), x => x.Category == ChargeCategory.Operator);
+        Assert.Equal(0, line.Rate);
+        Assert.Equal(1, line.Quantity);
+        Assert.Equal(ChargeUnit.Fixed, line.Unit);
+        Assert.Equal(7080m, quote.Total);
+    }
+
+    [Fact]
     public async Task Later_confirmation_failure_does_not_leave_partial_request()
     {
         await using var fixture = await QuotationFixture.CreateAsync(new ThrowingEmailQueue());

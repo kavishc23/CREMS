@@ -1,3 +1,4 @@
+import { downloadRentalFinancialPdf } from '../utils/rentalFinancialPdf'
 import { rentalReference } from '../utils/rentalReference'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import axios from 'axios'
@@ -329,24 +330,12 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
   </Box>
 }
 
-async function downloadQuotePdf(quote:Quote){
-    const {jsPDF}=await import('jspdf'); const pdf=new jsPDF(); let y=18
-    pdf.setFontSize(18);pdf.text('Carpenters Fiji — Rental Quotation',18,y);y+=10
-    pdf.setFontSize(11);pdf.text(`Quotation: ${quote.quoteNumber}  Version ${quote.version}`,18,y);y+=7
-    pdf.text(`${quote.divisionName??'Carpenters Fiji'} — ${quote.branchName}`,18,y);y+=7
-    pdf.text(`Valid until: ${date(quote.validUntil)}`,18,y);y+=12
-    pdf.setFontSize(12);pdf.text('Customer charges',18,y);y+=8;pdf.setFontSize(10)
-    ;(quote.lines??[]).forEach(line=>{pdf.text(`${line.description}  ${line.quantity} x ${money(line.rate)}`,18,y);pdf.text(money(line.quantity*line.rate),190,y,{align:'right'});y+=7})
-    y+=3;pdf.line(18,y,190,y);y+=7
-    pdf.text(`Subtotal: ${money(quote.subtotal)}`,190,y,{align:'right'});y+=7
-    pdf.text(`Discount: -${money(quote.discount)}`,190,y,{align:'right'});y+=7
-    pdf.text(`VAT: ${money(quote.tax)}`,190,y,{align:'right'});y+=7
-    pdf.setFontSize(13);pdf.text(`Total: ${money(quote.total)}`,190,y,{align:'right'});y+=9
-    pdf.setFontSize(10);pdf.text(`Refundable bond required: ${money(quote.depositRequired??0)}`,18,y);y+=7
-    pdf.text(`Hire + refundable bond: ${money(quote.total + (quote.depositRequired ?? 0))}`,18,y);y+=7
-    pdf.text(`Job site: ${quote.jobSite??'Not specified'}`,18,y);y+=7
-    pdf.text(`Purchase order: ${quote.purchaseOrderNumber??'Not supplied'}`,18,y)
-    pdf.save(`${quote.quoteNumber}.pdf`)
+async function downloadQuotePdf(quote: Quote) {
+  await downloadRentalFinancialPdf({ kind: 'Quotation', reference: quote.quoteNumber,
+    details: [['Division', quote.divisionName ?? 'Carpenters Fiji'], ['Branch', quote.branchName], ['Version', String(quote.version)], ['Valid until', date(quote.validUntil)], ...(quote.jobSite ? [['Job site', quote.jobSite] as [string, string]] : []), ...(quote.purchaseOrderNumber ? [['Purchase order', quote.purchaseOrderNumber] as [string, string]] : [])],
+    lines: (quote.lines ?? []).map(line => ({ description: line.description, quantity: line.quantity, rate: line.rate, unit: line.unit })),
+    totals: [{ label: 'Subtotal', amount: quote.subtotal }, ...(quote.discount > 0 ? [{ label: 'Discount', amount: -quote.discount }] : []), { label: 'VAT', amount: quote.tax }, { label: 'Quotation total', amount: quote.total, emphasis: true }, ...(quote.depositRequired > 0 ? [{ label: 'Refundable bond (held separately)', amount: quote.depositRequired }] : [])],
+    note: 'This quotation is valid until the date shown above and remains subject to the stated hire terms. A refundable bond, where required, is held separately.' })
 }
 
 function QuotePrintButton({quote}:{quote:Quote}){return <Button size="small" variant="outlined" startIcon={<DescriptionOutlined/>} onClick={()=>void downloadQuotePdf(quote)}>Print / PDF</Button>}
@@ -419,19 +408,15 @@ function BookingDetailDialog({ booking, agreementOnly = false, onClose, onResend
   }
   async function downloadReceipt() {
     if (!booking?.invoice) return
-    const { jsPDF } = await import('jspdf')
-    const pdf = new jsPDF(); let y = 20
-    pdf.setFontSize(18); pdf.text(booking.invoice.balanceDue > 0 ? 'Carpenters Fiji — Rental Invoice' : 'Carpenters Fiji — Rental Receipt', 20, y); y += 12
-    pdf.setFontSize(11); pdf.text(`Invoice: ${booking.invoice.invoiceNumber}`, 20, y); y += 7
-    pdf.text(`Booking: ${booking.reference}`, 20, y); y += 7
-    pdf.text(`Customer rental: ${item?.name ?? 'Rental service'}`, 20, y); y += 12
-    booking.invoice.lines.forEach(line => { const rows = pdf.splitTextToSize(`${line.description}  ${line.quantity} × ${money(line.unitPrice)}`, 170) as string[]; rows.forEach(row => { if (y > 275) { pdf.addPage(); y = 20 }; pdf.text(row, 20, y); y += 7 }) })
-    if (y > 250) { pdf.addPage(); y = 20 }
-    y += 3; pdf.text(`Total: ${money(booking.invoice!.total)}`, 20, y); y += 7
-    pdf.text(`Paid: ${money(booking.invoice!.amountPaid)}`, 20, y); y += 7
-    pdf.text(`Balance: ${money(booking.invoice!.balanceDue)}`, 20, y)
-    pdf.save(`${booking.invoice.invoiceNumber}.pdf`)
+    try {
+      await downloadRentalFinancialPdf({ kind: booking.invoice.balanceDue > 0 ? 'Invoice' : 'Receipt', reference: booking.invoice.invoiceNumber,
+        details: [['Booking', booking.reference], ['Rental', item?.name ?? 'Rental service'], ['Branch', booking.branch.name], ['Issued', date(booking.invoice.issuedAt)], ['Status', booking.invoice.status]],
+        lines: booking.invoice.lines.map(line => ({ description: line.description, quantity: line.quantity, rate: line.unitPrice })),
+        totals: [{ label: 'Subtotal', amount: booking.invoice.subtotal }, { label: 'VAT', amount: booking.invoice.taxAmount }, { label: 'Invoice total', amount: booking.invoice.total, emphasis: true }, { label: 'Payments received', amount: booking.invoice.amountPaid }, { label: 'Balance due', amount: booking.invoice.balanceDue, emphasis: true }],
+        note: booking.invoice.balanceDue > 0 ? 'Please contact your branch for payment arrangements. This invoice is not proof of payment.' : 'Payment received as recorded above. Thank you for choosing Carpenters Rentals & Hire.' })
+    } catch (reason) { setDocumentError(apiMessage(reason, 'The invoice could not be downloaded.')) }
   }
+
   async function agreementPdf(openInNewTab: boolean) {
     if (!booking?.agreement) return
     try {
@@ -447,7 +432,7 @@ function BookingDetailDialog({ booking, agreementOnly = false, onClose, onResend
     <DialogContent dividers sx={{ p: 2.5 }}><Stack spacing={2.5}>
       {documentError && <Alert severity="error">{documentError}</Alert>}
       {outstanding.length > 0 && ['Confirmed', 'ConvertedToRental'].includes(booking.status) && <Alert severity="warning"><Typography fontWeight={750}>Before collection</Typography>{outstanding.map((entry, index) => <Typography key={index} variant="body2">{entry.label}</Typography>)}</Alert>}
-      <Grid container spacing={2}><Grid size={{ xs: 12, sm: 7 }}><Typography variant="overline" color="text.secondary">Hire details</Typography><Typography fontWeight={750}>{item ? date(item.startAt) + ' – ' + date(item.endAt) : 'Dates to be confirmed'}</Typography><Typography variant="body2" mt={.5}>{item?.divisionName} · {item?.category ?? item?.type}</Typography><Typography variant="body2" color="text.secondary" mt={.5}>{booking.branch.name}{booking.branch.address ? ' · ' + booking.branch.address : ''}</Typography>{item?.personnelRequirement && item.personnelRequirement !== 'None' && <Typography variant="body2" mt={.5}>Operator / driver: {item.personnelRequirement}</Typography>}{booking.items.slice(1).map((entry, index) => <Typography key={index} variant="body2" mt={.5}>{entry.name}</Typography>)}</Grid>
+      <Grid container spacing={2}><Grid size={{ xs: 12, sm: 7 }}><Typography variant="overline" color="text.secondary">Hire details</Typography><Typography fontWeight={750}>{item ? date(item.startAt) + ' – ' + date(item.endAt) : 'Dates to be confirmed'}</Typography><Typography variant="body2" mt={.5}>{item?.divisionName} · {item?.category ?? item?.type}</Typography><Typography variant="body2" color="text.secondary" mt={.5}>{booking.branch.name}{booking.branch.address ? ' · ' + booking.branch.address : ''}</Typography>{item?.personnelRequirement === 'Required' && <Typography variant="body2" mt={.5}>Driver/operator included</Typography>}{booking.items.slice(1).map((entry, index) => <Typography key={index} variant="body2" mt={.5}>{entry.name}</Typography>)}</Grid>
       <Grid size={{ xs: 12, sm: 5 }}><Box sx={{ bgcolor: '#f5f5ef', borderRadius: 2, p: 2 }}><Typography variant="caption" color="text.secondary">{booking.invoice ? 'Invoice total' : 'Estimated hire total'}</Typography><Typography variant="h5" fontWeight={850}>{money(booking.invoice?.total ?? booking.pricing.total)}</Typography>{booking.invoice && <Typography variant="body2" mt={.5}>Paid {money(booking.invoice.amountPaid)} · Due {money(booking.invoice.balanceDue)}</Typography>}{booking.bond.required > 0 && <Typography variant="caption" display="block" mt={.75}>Refundable bond: {money(booking.bond.required)}{booking.bond.held > 0 ? ' · Held ' + money(booking.bond.held) : ''}{booking.bond.refund > 0 ? ' · Refunded ' + money(booking.bond.refund) : ''}{booking.bond.deduction > 0 ? ' · Deducted ' + money(booking.bond.deduction) : ''}</Typography>}</Box></Grid></Grid>
       <Box><Typography fontWeight={800} mb={1}>Documents</Typography><Stack spacing={1}>
         {booking.agreement && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}><Box><Typography variant="body2" fontWeight={750}>Rental agreement</Typography><Typography variant="caption" color="text.secondary">Signed {date(booking.agreement.customerSignedAt)}</Typography></Box><Stack direction="row" gap={1}><Button size="small" onClick={() => void agreementPdf(true)}>View</Button><Button size="small" variant="outlined" startIcon={<DescriptionOutlined />} onClick={() => void agreementPdf(false)}>Download PDF</Button></Stack></Stack>}
