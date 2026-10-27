@@ -5,6 +5,8 @@ import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined'
 import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined'
+import PasswordOutlined from '@mui/icons-material/PasswordOutlined'
+import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined'
 import CorporateFareOutlined from '@mui/icons-material/CorporateFareOutlined'
 import AccountTreeOutlined from '@mui/icons-material/AccountTreeOutlined'
 import QrCodeScannerOutlined from '@mui/icons-material/QrCodeScannerOutlined'
@@ -31,6 +33,8 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Menu,
+  MenuItem,
   Toolbar,
   Tooltip,
   Typography,
@@ -48,6 +52,7 @@ import {
 const GlobalSearch = lazy(() => import('../components/GlobalSearch').then(module => ({ default: module.GlobalSearch })))
 const NotificationBell = lazy(() => import('../components/NotificationBell').then(module => ({ default: module.NotificationBell })))
 import { staffTheme } from './staffTheme'
+import { ChangePasswordDialog } from '../components/ChangePasswordDialog'
 import { canAccessPage, formatRole, getPrimaryRole, type AppPage } from '../auth/access'
 const drawerWidth = 272
 const collapsedDrawerWidth = 76
@@ -108,6 +113,8 @@ export function AppShell({ activePage, onNavigate, userKey, userName, userRoles,
   const [open, setOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('crems.staff.navigation.collapsed') === 'true' } catch { return false } })
   const [helpOpen, setHelpOpen] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const [accountAnchor, setAccountAnchor] = useState<HTMLElement | null>(null)
   const activeSection = navigation.find((item) => item.id === activePage)?.section
   const navigationPreferenceKey = `crems.staff.navigation.groups.${userKey.trim().toLowerCase()}`
   const navigationListRef = useRef<HTMLUListElement | null>(null)
@@ -263,12 +270,14 @@ export function AppShell({ activePage, onNavigate, userKey, userName, userRoles,
           <Box sx={{ flexGrow: 1 }} />
           <Suspense fallback={null}><NotificationBell key={userName} canSend={canAccessPage(userRoles, 'bookings')} /></Suspense>
           <Button size="small" color="inherit" startIcon={<HelpOutlineOutlined />} onClick={() => setHelpOpen(true)} sx={{ mr: 1, display: { xs: 'none', sm: 'inline-flex' } }}>Help</Button>
-          <Typography variant="body2" fontWeight={600} sx={{ display: { xs: 'none', lg: 'block' } }}>{userName}</Typography>
-          <Chip
-            label={formatRole(getPrimaryRole(userRoles))}
-            size="small"
-            sx={{ ml: 1.5, display: { xs: 'none', md: 'flex' }, bgcolor: '#242424', color: '#ffed00', fontWeight: 700, border: '1px solid #ffed00' }}
-          />
+          <Tooltip title="Account settings"><IconButton aria-label="Open account settings" onClick={event => setAccountAnchor(event.currentTarget)} sx={{ display: { xs: 'inline-flex', sm: 'none' } }}><AccountCircleOutlined /></IconButton></Tooltip>
+          <Button color="inherit" onClick={event => setAccountAnchor(event.currentTarget)} aria-haspopup="menu" aria-expanded={Boolean(accountAnchor)} sx={{ display: { xs: 'none', sm: 'inline-flex' }, gap: 1.5, px: 1.25, py: .5, borderRadius: 2, '&:hover': { bgcolor: 'action.hover' } }}>
+            <Typography component="span" variant="body2" fontWeight={700} textTransform="none">{userName}</Typography>
+            <Chip label={formatRole(getPrimaryRole(userRoles))} size="small" sx={{ bgcolor: '#242424', color: '#ffed00', fontWeight: 700, border: '1px solid #ffed00', pointerEvents: 'none' }} />
+          </Button>
+          <Menu anchorEl={accountAnchor} open={Boolean(accountAnchor)} onClose={() => setAccountAnchor(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}>
+            <MenuItem onClick={() => { setAccountAnchor(null); setPasswordOpen(true) }}><ListItemIcon><PasswordOutlined fontSize="small" /></ListItemIcon><ListItemText primary="Change password" secondary="Email verification required" /></MenuItem>
+          </Menu>
           <IconButton aria-label="Sign out" onClick={() => void onLogout()} sx={{ ml: 1 }}>
             <LogoutOutlined />
           </IconButton>
@@ -340,6 +349,7 @@ export function AppShell({ activePage, onNavigate, userKey, userName, userRoles,
         <Box className="staff-page-content" data-workspace={activePage}>{children}</Box>
       </Box>
       <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} fullWidth maxWidth="sm"><DialogTitle>Help with {currentPageLabel}</DialogTitle><DialogContent><Typography color="text.secondary" mb={2}>{pageHelp[activePage]?.purpose ?? 'Use this page to complete your current CREMS task.'}</Typography><Stack spacing={1.25}>{(pageHelp[activePage]?.steps ?? []).map((step, index) => <Stack key={step} direction="row" gap={1.5} alignItems="flex-start"><Box sx={{ width: 28, height: 28, flex: '0 0 auto', display: 'grid', placeItems: 'center', borderRadius: '50%', bgcolor: 'secondary.main', fontWeight: 800 }}>{index + 1}</Box><Typography sx={{ pt: .35 }}>{step}</Typography></Stack>)}</Stack></DialogContent><DialogActions sx={{ p: 3 }}><Button variant="contained" onClick={() => setHelpOpen(false)}>Got it</Button></DialogActions></Dialog>
+      <ChangePasswordDialog open={passwordOpen} endpoint="/auth/change-password" requireOtp onClose={() => setPasswordOpen(false)} />
     </Box></ThemeProvider>
   )
 }

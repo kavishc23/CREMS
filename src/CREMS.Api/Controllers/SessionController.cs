@@ -109,22 +109,73 @@ public sealed class SessionController(
             user.MustChangePassword));
     }
 
-    [HttpPost("change-password")]
+    [HttpPost("change-password/request")]
     [Authorize(Policy = SystemPolicies.StaffPortal)]
-    public async Task<ActionResult> ChangePassword(ChangeOwnPasswordRequest request)
+    [EnableRateLimiting("password-reset")]
+    public async Task<ActionResult> RequestPasswordChange(ChangeOwnPasswordRequest request)
     {
         var user = await userManager.GetUserAsync(User);
         if (user is null || !user.IsActive) return Unauthorized();
+        if (!await userManager.CheckPasswordAsync(user, request.CurrentPassword))
+        {
+            ModelState.AddModelError(nameof(request.CurrentPassword), "The current password is incorrect.");
+            return ValidationProblem(ModelState);
+        }
+        if (await userManager.CheckPasswordAsync(user, request.NewPassword))
+        {
+            ModelState.AddModelError(nameof(request.NewPassword), "Your new password must be different from your current password.");
+            return ValidationProblem(ModelState);
+        }
+        foreach (var validator in userManager.PasswordValidators)
+        {
+            var validation = await validator.ValidateAsync(userManager, user, request.NewPassword);
+            foreach (var error in validation.Errors) ModelState.AddModelError(nameof(request.NewPassword), error.Description);
+        }
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        var challenge = await IssuePasswordChangeMfa(user);
+        return Accepted(new { challengeId = challenge.Id, maskedDestination = Mask(user.Email!), message = "A verification code has been sent to your email address." });
+    }
+
+    [HttpPost("change-password/confirm")]
+    [Authorize(Policy = SystemPolicies.StaffPortal)]
+    [EnableRateLimiting("password-reset")]
+    public async Task<ActionResult> ConfirmPasswordChange(ConfirmOwnPasswordChangeRequest request)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user is null || !user.IsActive) return Unauthorized();
+        var challenge = await db.MfaChallenges.FirstOrDefaultAsync(x => x.Id == request.ChallengeId && x.UserId == user.Id && x.Purpose == "PasswordChange");
+        if (challenge is null || challenge.UsedAt.HasValue || challenge.ExpiresAt <= DateTimeOffset.UtcNow || challenge.FailedAttempts >= 5)
+        {
+            ModelState.AddModelError(nameof(request.Code), "The verification code is invalid or expired.");
+            return ValidationProblem(ModelState);
+        }
+        if (!CryptographicOperations.FixedTimeEquals(Convert.FromHexString(challenge.CodeHash), Convert.FromHexString(Hash(request.Code.Trim(), Convert.FromBase64String(challenge.Salt)))))
+        {
+            challenge.FailedAttempts++;
+            await Record(user.Id, user.Email, SecurityEventType.MfaFailed, false, "Password change verification failed", false);
+            await db.SaveChangesAsync();
+            ModelState.AddModelError(nameof(request.Code), "The verification code is incorrect.");
+            return ValidationProblem(ModelState);
+        }
+        if (await userManager.CheckPasswordAsync(user, request.NewPassword))
+        {
+            ModelState.AddModelError(nameof(request.NewPassword), "Your new password must be different from your current password.");
+            return ValidationProblem(ModelState);
+        }
         var result = await userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
         if (!result.Succeeded)
         {
             foreach (var error in result.Errors) ModelState.AddModelError(string.Empty, error.Description);
             return ValidationProblem(ModelState);
         }
+        challenge.UsedAt = DateTimeOffset.UtcNow;
         user.MustChangePassword = false;
         user.PasswordChangedAt = DateTimeOffset.UtcNow;
         await userManager.UpdateAsync(user);
         await signInManager.RefreshSignInAsync(user);
+        await Record(user.Id, user.Email, SecurityEventType.PasswordChanged, true, "Password changed after email verification", false);
+        await db.SaveChangesAsync();
         return NoContent();
     }
 
@@ -173,6 +224,19 @@ public sealed class SessionController(
         db.MfaChallenges.Add(challenge);emailQueue.Queue(db,user.Email!,"Your CREMS verification code",EmailTemplate.Branded("Verify your CREMS sign-in",$"<p>Your verification code is:</p><p style=\"font-size:32px;font-weight:bold;letter-spacing:8px\">{code}</p><p>It expires in 10 minutes. If you did not attempt to sign in, contact your administrator.</p>"),$"Your CREMS verification code is {code}. It expires in 10 minutes.","Mfa");
         await Record(user.Id,user.Email,SecurityEventType.MfaChallengeIssued,true,"Email login challenge",false);await db.SaveChangesAsync();return challenge;
     }
+    private async Task<MfaChallenge> IssuePasswordChangeMfa(ApplicationUser user)
+    {
+        var active = await db.MfaChallenges.Where(x => x.UserId == user.Id && x.Purpose == "PasswordChange" && x.UsedAt == null).ToListAsync();
+        foreach (var old in active) old.UsedAt = DateTimeOffset.UtcNow;
+        var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
+        var salt = RandomNumberGenerator.GetBytes(16);
+        var challenge = new MfaChallenge { UserId = user.Id, CodeHash = Hash(code, salt), Salt = Convert.ToBase64String(salt), ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10), Purpose = "PasswordChange" };
+        db.MfaChallenges.Add(challenge);
+        emailQueue.Queue(db, user.Email!, "Verify your CREMS password change", EmailTemplate.Branded("Verify your password change", $"<p>Use this verification code to change your CREMS password:</p><p style=\"font-size:32px;font-weight:bold;letter-spacing:8px\">{code}</p><p>It expires in 10 minutes. If you did not request this, keep your current password and contact your administrator.</p>"), $"Your CREMS password-change verification code is {code}. It expires in 10 minutes.", "Security");
+        await Record(user.Id, user.Email, SecurityEventType.MfaChallengeIssued, true, "Password change email challenge", false);
+        await db.SaveChangesAsync();
+        return challenge;
+    }
     private async Task Record(Guid? userId, string? email, SecurityEventType type, bool succeeded, string? detail, bool save = true) { db.SecurityEvents.Add(new SecurityEvent { UserId = userId, Email = email, Type = type, Succeeded = succeeded, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(), UserAgent = Request.Headers.UserAgent.ToString(), WindowId = Request.Headers["X-CREMS-Window-Id"].ToString(), Detail = detail }); if (save) await db.SaveChangesAsync(); }
     private static string Hash(string value, byte[] salt) => Convert.ToHexString(SHA256.HashData(salt.Concat(Encoding.UTF8.GetBytes(value)).ToArray()));
     private static string Mask(string email) { var parts = email.Split('@'); return parts.Length == 2 ? $"{parts[0][0]}***@{parts[1]}" : "your email"; }
@@ -189,6 +253,13 @@ public sealed record SessionResponse(
     string? DivisionName,
     IReadOnlyCollection<string> Roles,
     bool MustChangePassword);
-public sealed record ChangeOwnPasswordRequest(string CurrentPassword, string NewPassword);
+public sealed record ChangeOwnPasswordRequest(
+    [Required] string CurrentPassword,
+    [Required, MinLength(10)] string NewPassword);
+public sealed record ConfirmOwnPasswordChangeRequest(
+    Guid ChallengeId,
+    [Required, RegularExpression("^[0-9]{6}$")] string Code,
+    [Required] string CurrentPassword,
+    [Required, MinLength(10)] string NewPassword);
 public sealed record LoginRequest([Required, EmailAddress] string Email, [Required] string Password);
 public sealed record MfaVerifyRequest(Guid ChallengeId, [Required] string Code);

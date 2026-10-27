@@ -21,6 +21,7 @@ import { RentalPreferencesPage } from './RentalPreferencesPage'
 import { api } from '../api/client'
 import { monitorInactivity } from '../auth/inactivity'
 import { CustomerSiteHeader, type CustomerSiteSection } from '../components/CustomerSiteHeader'
+import { ChangePasswordDialog } from '../components/ChangePasswordDialog'
 import { LicenceWorkflowDialog, type LicenceDetails } from '../components/LicenceWorkflowDialog'
 import { openProtectedFile } from '../utils/openProtectedFile'
 import { downloadRentalAgreementPdf, openRentalAgreementPdf, type RentalAgreementData } from '../utils/rentalAgreementPdf'
@@ -97,6 +98,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
   const [reset, setReset] = useState({ email: '', code: '', password: '', confirmPassword: '', codeSent: false })
   const [verificationCode, setVerificationCode] = useState('')
   const [verificationOpen, setVerificationOpen] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
   const [maskedEmail, setMaskedEmail] = useState('your registered email')
   const [resendSeconds, setResendSeconds] = useState(0)
   const [profile, setProfile] = useState({ fullName: '', phone: '', address: '', identificationNumber: '', hirePreferences: [] as HirePreference[], preferredServiceIds: [] as string[] })
@@ -295,7 +297,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
           <Card variant="outlined" sx={{ borderRadius: 3 }}><CardContent sx={{ p: { xs: 2.5, md: 3 }, '&:last-child': { pb: { xs: 2.5, md: 3 } } }}>
             <Typography variant="h6" fontWeight={800}>Account security</Typography><Typography color="text.secondary" variant="body2" mt={.75}>Keep your account secure and verify your email address.</Typography>
             <Stack direction="row" flexWrap="wrap" gap={1} mt={2}><Chip label={session.emailConfirmed ? 'Email verified' : 'Email not verified'} size="small" sx={{ bgcolor: session.emailConfirmed ? '#e5f4e9' : '#fbe7e5', color: session.emailConfirmed ? '#217b3f' : '#b3241d', fontWeight: 750 }} /><Chip label={licence.status === 'Verified' ? 'Licence verified' : 'Licence required'} size="small" sx={{ bgcolor: licence.status === 'Verified' ? '#e5f4e9' : '#fff1db', color: licence.status === 'Verified' ? '#217b3f' : '#855214', fontWeight: 750 }} /></Stack>
-            {!session.emailConfirmed && <Button variant="contained" disabled={submitting} sx={{ mt: 2, minHeight: 44 }} onClick={() => void requestVerification()}>Verify email address</Button>}
+            <Stack direction="row" flexWrap="wrap" gap={1} mt={2}><Button variant="outlined" sx={{ minHeight: 44 }} onClick={() => setPasswordOpen(true)}>Change password</Button>{!session.emailConfirmed && <Button variant="contained" disabled={submitting} sx={{ minHeight: 44 }} onClick={() => void requestVerification()}>Verify email address</Button>}</Stack>
           </CardContent></Card>
           <Card variant="outlined" sx={{ borderRadius: 3, flex: 1 }}><CardContent sx={{ p: { xs: 2.5, md: 3 }, '&:last-child': { pb: { xs: 2.5, md: 3 } } }}>
             <Typography variant="h6" fontWeight={800}>Driver licence</Typography>
@@ -312,6 +314,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
 
     <BookingDetailDialog booking={selectedBooking} agreementOnly={agreementOnly} onClose={() => { setSelectedBooking(null); setAgreementOnly(false) }} onResend={resendConfirmation} />
     <LicenceWorkflowDialog open={licenceOpen} onClose={() => setLicenceOpen(false)} onSaved={value => { setLicence(value); setNotice('Your driver licence has been verified and saved.') }} />
+    <ChangePasswordDialog open={passwordOpen} endpoint="/customer-account/change-password" onClose={() => setPasswordOpen(false)} onChanged={() => setNotice('Your password has been changed.')} />
     <Dialog open={verificationOpen} onClose={() => !submitting && setVerificationOpen(false)} fullWidth maxWidth="xs" PaperProps={{ sx: { borderRadius: 2.5 } }}><Box component="form" onSubmit={confirmVerification}><DialogTitle sx={{ px: 3.5, py: 2.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 26, fontWeight: 850 }}>Verify your email<IconButton aria-label="Close" onClick={() => setVerificationOpen(false)}><CloseOutlined /></IconButton></DialogTitle><DialogContent dividers sx={{ p: 3.5 }}><Typography color="text.secondary" mb={2}>Enter the six-digit code sent to <b>{maskedEmail}</b>. It expires after 10 minutes.</Typography><Typography variant="caption" fontWeight={800}>Verification code</Typography><TextField fullWidth autoFocus required placeholder="000000" value={verificationCode} onChange={event => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputProps={{ inputMode: 'numeric', maxLength: 6, style: { textAlign: 'center', fontSize: 27, fontWeight: 850, letterSpacing: '.28em' } }} sx={{ mt: .75 }} /><Stack spacing={1.25} mt={2}><Button type="submit" variant="contained" size="large" disabled={submitting || verificationCode.length !== 6}>Verify email</Button><Button variant="outlined" size="large" disabled={submitting || resendSeconds > 0} onClick={() => void requestVerification()}>Send a new code</Button></Stack><Typography variant="caption" color="text.secondary" display="block" textAlign="center" mt={2}>{resendSeconds > 0 ? `Code sent. You can request another in ${resendSeconds} seconds.` : 'You can request another code now.'}</Typography></DialogContent></Box></Dialog>
     <QuoteDetailDialog quote={selectedQuote} submitting={submitting} onClose={() => setSelectedQuote(null)} onAccept={quote => void decideQuote(quote, true)} onDecline={quote => { setSelectedQuote(null); setDeclineQuote(quote); setDeclineReason('') }} />
     <Dialog open={Boolean(changeBooking)} onClose={() => !submitting && setChangeBooking(null)} fullWidth maxWidth="sm">

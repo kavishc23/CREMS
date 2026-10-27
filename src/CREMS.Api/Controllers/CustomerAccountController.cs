@@ -105,6 +105,40 @@ public sealed class CustomerAccountController(
             DriverLicenceNumber = licenceNumber, customer.Type, customer.HirePreferences, customer.PreferredServiceIds, customer.PreferredAssetCategoryIds, user.EmailConfirmed });
     }
 
+    [HttpPost("change-password")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> ChangePassword(ChangeCustomerPasswordRequest request)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user is null || !user.IsActive || !user.CustomerId.HasValue) return Unauthorized();
+        if (await userManager.CheckPasswordAsync(user, request.NewPassword))
+        {
+            ModelState.AddModelError(nameof(request.NewPassword), "Your new password must be different from your current password.");
+            return ValidationProblem(ModelState);
+        }
+
+        var result = await userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        if (!result.Succeeded)
+        {
+            foreach (var error in result.Errors) ModelState.AddModelError(string.Empty, error.Description);
+            return ValidationProblem(ModelState);
+        }
+
+        user.PasswordChangedAt = DateTimeOffset.UtcNow;
+        user.MustChangePassword = false;
+        await userManager.UpdateAsync(user);
+        await SignInCustomer(user);
+
+        if (!string.IsNullOrWhiteSpace(user.Email))
+        {
+            emailQueue.Queue(db, user.Email, "Your CREMS password was changed",
+                EmailTemplate.Branded("Your CREMS password was changed", "<p>Your account password was changed successfully.</p><p>If you did not make this change, contact Carpenters support immediately.</p>"),
+                "Your CREMS password was changed. Contact Carpenters support immediately if this was not you.", "Security");
+            await db.SaveChangesAsync();
+        }
+        return NoContent();
+    }
+
     [HttpGet("bookings")]
     [Authorize(Policy = SystemPolicies.CustomerPortal)]
     public async Task<ActionResult> Bookings(CancellationToken token)
@@ -735,6 +769,9 @@ public sealed class CustomerDocumentUploadRequest
 }
 
 public sealed record VerifyEmailRequest([Required, RegularExpression("^[0-9]{6}$")] string Code);
+public sealed record ChangeCustomerPasswordRequest(
+    [Required] string CurrentPassword,
+    [Required, MinLength(10)] string NewPassword);
 public sealed record CustomerBookingChangeRequest([MaxLength(1000)] string? Reason);
 public sealed record CustomerExtensionRequest(DateTimeOffset RequestedEndAt, [MaxLength(1000)] string? Reason);
 public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required, MaxLength(2000)] string Description, [MaxLength(500)] string? Location, [MaxLength(100)] string? PoliceReference);
