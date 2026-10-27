@@ -3,6 +3,7 @@ import { NotificationBell } from './NotificationBell'
 import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
+import TuneOutlined from '@mui/icons-material/TuneOutlined'
 import MenuOutlined from '@mui/icons-material/MenuOutlined'
 import {
   AppBar, Box, Button, Container, Divider, Drawer, IconButton, Menu, MenuItem, Stack, Toolbar, Typography,
@@ -15,7 +16,7 @@ type CustomerSiteHeaderProps = {
   authenticated?: boolean
   accountName?: string
   onAccount: () => void
-  onAccountSection?: (section: 'overview' | 'bookings') => void
+  onAccountSection?: (section: 'overview' | 'bookings' | 'preferences') => void
   onNavigate: (section: CustomerSiteSection) => void
   onSignOut?: () => void | Promise<void>
 }
@@ -72,6 +73,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
     <Toolbar sx={{ minHeight: { xs: 68, md: 76 } }} />
     <Menu disableScrollLock anchorEl={accountAnchor} open={Boolean(accountAnchor)} onClose={() => setAccountAnchor(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }} slotProps={{ paper: { sx: { mt: .75, width: 270, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', boxShadow: '0 16px 38px rgba(0,0,0,.2)', overflow: 'hidden' } }, list: { sx: { p: 1 } } }}>
       <MenuItem onClick={() => { setAccountAnchor(null); openAccount() }} sx={{ borderRadius: 1.5, px: 1.5, py: 1.35, gap: 1.25, fontWeight: 800, '&:hover': { bgcolor: '#fff8cc' } }}><Box sx={{ width: 34, height: 34, borderRadius: 1.25, bgcolor: 'secondary.main', color: '#111', display: 'grid', placeItems: 'center' }}><AccountCircleOutlined fontSize="small" /></Box><Box><Typography fontWeight={800}>Customer Profile</Typography><Typography variant="caption" color="text.secondary">Manage your account</Typography></Box></MenuItem>
+      <MenuItem onClick={() => { setAccountAnchor(null); setMobileOpen(false); onAccountSection?.('preferences') }} sx={{ borderRadius: 1.5, px: 1.5, py: 1.35, gap: 1.25, '&:hover': { bgcolor: '#fff8cc' } }}><Box sx={{ width: 34, height: 34, borderRadius: 1.25, bgcolor: 'secondary.main', color: '#111', display: 'grid', placeItems: 'center' }}><TuneOutlined fontSize="small" /></Box><Box><Typography fontWeight={800}>Rental Preferences</Typography><Typography variant="caption" color="text.secondary">Personalise your homepage</Typography></Box></MenuItem>
       {onSignOut && <Divider sx={{ my: .75 }} />}
       {onSignOut && <MenuItem sx={{ borderRadius: 1.5, px: 1.5, py: 1.25, gap: 1.25, color: 'error.main', fontWeight: 800, '&:hover': { bgcolor: '#fdeaea' } }} onClick={() => { setAccountAnchor(null); void onSignOut() }}><Box sx={{ width: 34, height: 34, borderRadius: 1.25, bgcolor: '#fdeaea', display: 'grid', placeItems: 'center' }}><LogoutOutlined fontSize="small" /></Box><Box><Typography fontWeight={800}>Log out</Typography><Typography variant="caption" color="text.secondary">End this secure session</Typography></Box></MenuItem>}
     </Menu>
@@ -92,6 +94,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
           {links.map(link => <Button key={link.section} onClick={() => navigate(link.section)} sx={{ justifyContent: 'flex-start', color: 'text.primary', py: 1.2 }}>{link.label}</Button>)}
           <Divider sx={{ my: 1 }} />
           <Button variant="contained" color="secondary" startIcon={<AccountCircleOutlined />} onClick={() => openAccount()} sx={{ justifyContent: 'flex-start', color: '#111' }}>{accountLabel}</Button>
+          {authenticated && <Button onClick={() => { setMobileOpen(false); onAccountSection?.('preferences') }} sx={{ justifyContent: 'flex-start' }}>Rental Preferences</Button>}
           {authenticated && onSignOut && <Button color="inherit" startIcon={<LogoutOutlined />} onClick={() => { setMobileOpen(false); void onSignOut() }} sx={{ justifyContent: 'flex-start' }}>Sign out</Button>}
         </Stack>
       </Box>

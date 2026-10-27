@@ -168,7 +168,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 BookingConfigurationJson = asset.Division != null ? asset.Division.CustomerBookingConfigurationJson : "{}",
                 ServiceName = asset.ServiceOffering != null ? asset.ServiceOffering.Name : null,
                 ServiceRequiresQuote = asset.ServiceOffering != null && asset.ServiceOffering.RequiresQuote,
-                asset.ServiceOfferingId, IsBookableOnline = asset.ServiceOffering == null || asset.ServiceOffering.IsBookableOnline, AllowsQuoteRequests = asset.ServiceOffering == null || asset.ServiceOffering.AllowsQuoteRequests,
+                asset.AssetCategoryId, asset.ServiceOfferingId, IsBookableOnline = asset.ServiceOffering == null || asset.ServiceOffering.IsBookableOnline, AllowsQuoteRequests = asset.ServiceOffering == null || asset.ServiceOffering.AllowsQuoteRequests,
                 RequiresDelivery = asset.RequiresDelivery,
                 asset.PhotoUrlsJson,
                 Attributes = asset.AttributeValues
@@ -193,7 +193,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             startDate.HasValue
                 ? asset.Status == AssetStatus.Available && !unavailableAssetIds.Contains(asset.Id)
                 : asset.Status == AssetStatus.Available, asset.InheritBond ? asset.DivisionBondAmount : asset.DefaultBondAmount,
-            DivisionBookingFlow.Parse(asset.BookingConfigurationJson).QuoteMode, asset.HireUnit, asset.UseServiceHireRate, asset.ServiceOfferingId, asset.IsBookableOnline, asset.AllowsQuoteRequests)).ToList());
+            DivisionBookingFlow.Parse(asset.BookingConfigurationJson).QuoteMode, asset.HireUnit, asset.UseServiceHireRate, asset.ServiceOfferingId, asset.IsBookableOnline, asset.AllowsQuoteRequests, asset.AssetCategoryId)).ToList());
     }
 
     [HttpGet("assets/{assetId:guid}")]
@@ -608,7 +608,7 @@ public sealed record PublicAssetResponse(
     string? DivisionName, string? Category, string? CategoryCode, PersonnelRequirement PersonnelRequirement,
     string? ServiceName, bool RequiresQuote, bool RequiresDelivery, string PhotoUrlsJson,
     IReadOnlyList<PublicAssetAttributeResponse> Attributes, bool IsAvailable, decimal BondAmount, string QuoteMode,
-    ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, Guid? ServiceOfferingId = null, bool IsBookableOnline = true, bool AllowsQuoteRequests = true);
+    ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, Guid? ServiceOfferingId = null, bool IsBookableOnline = true, bool AllowsQuoteRequests = true, Guid? AssetCategoryId = null);
 public sealed record PublicAssetAttributeResponse(string Code, string Name, string Value, string? Unit);
 public sealed record PublicBookingRequest(
     Guid AssetId,

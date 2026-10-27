@@ -102,7 +102,7 @@ public sealed class CustomerAccountController(
             .OrderByDescending(x => x.ConfirmedAt).Select(x => x.LicenceNumber).FirstOrDefaultAsync();
         return Ok(new { user.Id, user.Email, user.FullName, user.CustomerId, customer.CustomerNumber,
             CustomerName = customer.Name, customer.Phone, customer.Address, customer.IdentificationNumber,
-            DriverLicenceNumber = licenceNumber, customer.Type, customer.HirePreferences, customer.PreferredServiceIds, user.EmailConfirmed });
+            DriverLicenceNumber = licenceNumber, customer.Type, customer.HirePreferences, customer.PreferredServiceIds, customer.PreferredAssetCategoryIds, user.EmailConfirmed });
     }
 
     [HttpGet("bookings")]
@@ -447,6 +447,43 @@ public sealed class CustomerAccountController(
         return PhysicalFile(path, contentType, record.FileName);
     }
 
+    [HttpGet("rental-preferences")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> RentalPreferences(CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null || !user.IsActive) return Unauthorized();
+        var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == user.CustomerId, token);
+        if (customer is null || !customer.IsActive || customer.IsBlocked) return Forbid();
+        var divisions = await db.Divisions.AsNoTracking().Where(x => x.IsActive && x.IsPublic)
+            .OrderBy(x => x.Name).Select(x => new {
+                x.Id, x.Name, x.Description,
+                Categories = db.AssetCategories.Where(c => c.DivisionId == x.Id && c.IsActive)
+                    .OrderBy(c => c.Name).Select(c => new { c.Id, c.Name }).ToList()
+            }).ToListAsync(token);
+        Response.Headers.CacheControl = "no-store";
+        return Ok(new { divisions, customer.PreferredAssetCategoryIds });
+    }
+
+    [HttpPut("rental-preferences")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> SaveRentalPreferences(CustomerRentalPreferencesRequest request, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null || !user.IsActive) return Unauthorized();
+        var customer = await db.Customers.FirstOrDefaultAsync(x => x.Id == user.CustomerId, token);
+        if (customer is null || !customer.IsActive || customer.IsBlocked) return Forbid();
+        var ids = request.AssetCategoryIds.Distinct().ToArray();
+        var allowed = await db.AssetCategories.AsNoTracking().Where(c => ids.Contains(c.Id) && c.IsActive && c.Division!.IsActive && c.Division.IsPublic)
+            .Select(c => c.Id).ToListAsync(token);
+        if (allowed.Count != ids.Length) return BadRequest(new { message = "Some categories are no longer available. Refresh the page and try again." });
+        customer.PreferredAssetCategoryIds = allowed;
+        customer.PreferredServiceIds = [];
+        customer.HirePreferences = [];
+        await db.SaveChangesAsync(token);
+        return Ok(new { customer.PreferredAssetCategoryIds });
+    }
+
     [HttpPut("profile")]
     [Authorize(Policy = SystemPolicies.CustomerPortal)]
     public async Task<ActionResult> UpdateProfile(CustomerProfileRequest request, CancellationToken token)
@@ -715,3 +752,5 @@ public sealed record RegisterCustomerRequest(
     [Required, MaxLength(50)] string Phone,
     [MaxLength(500)] string? Address,
     [Required, MinLength(10)] string Password);
+
+public sealed record CustomerRentalPreferencesRequest([Required, MaxLength(1000)] Guid[] AssetCategoryIds);

@@ -12,6 +12,7 @@ public sealed class Customer : Entity
     public string? Address { get; set; }
     public string? IdentificationNumber { get; set; }
     public List<CustomerHirePreference> HirePreferences { get; set; } = [];
+    public List<Guid> PreferredAssetCategoryIds { get; set; } = [];
     public List<Guid> PreferredServiceIds { get; set; } = [];
     public bool IsBlocked { get; set; }
     public bool IsActive { get; set; } = true;

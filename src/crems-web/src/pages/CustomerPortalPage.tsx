@@ -9,10 +9,11 @@ import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
 import VisibilityOffOutlined from '@mui/icons-material/VisibilityOffOutlined'
 import {
-  Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Container,
-  Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, FormControlLabel, FormGroup, Grid,
+  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Container,
+  Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, Grid,
   IconButton, InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography,
 } from '@mui/material'
+import { RentalPreferencesPage } from './RentalPreferencesPage'
 import { api } from '../api/client'
 import { monitorInactivity } from '../auth/inactivity'
 import { CustomerSiteHeader, type CustomerSiteSection } from '../components/CustomerSiteHeader'
@@ -22,7 +23,6 @@ import { downloadRentalAgreementPdf, openRentalAgreementPdf, type RentalAgreemen
 
 type HirePreference = 'Vehicles' | 'Equipment' | 'WasteAndSiteHire'
 type LegacyHirePreference = HirePreference | 'NoPreference'
-type PreferenceDivision = { id: string; name: string; services: { id: string; name: string; isBookableOnline: boolean; requiresQuote: boolean }[] }
 type CustomerSession = { preferredServiceIds?: string[]; email: string; fullName: string; customerNumber: string; customerName: string; phone: string | null; address: string | null; identificationNumber: string | null; hirePreferences?: HirePreference[]; hirePreference?: LegacyHirePreference; emailConfirmed: boolean }
 type BookingItem = { name: string; startAt: string; endAt: string; dailyRate: number; divisionName: string | null }
 type Booking = { id: string; reference: string; status: string; createdAt: string; branchName: string; items: BookingItem[] }
@@ -60,7 +60,7 @@ function sessionPreferences(session: CustomerSession): HirePreference[] {
   return session.hirePreference && session.hirePreference !== 'NoPreference' ? [session.hirePreference] : []
 }
 const emptyRegistration = { fullName: '', email: '', phone: '', address: '', password: '', confirmPassword: '' }
-type PortalSection = 'overview' | 'bookings' | 'quotes' | 'documents' | 'receipts' | 'account'
+type PortalSection = 'overview' | 'bookings' | 'quotes' | 'documents' | 'receipts' | 'account' | 'preferences'
 type AuthMode = 'login' | 'register' | 'activate' | 'reset'
 const bookingStages = ['Request received', 'Confirmed', 'On hire', 'Returned']
 const money = (value: number) => `FJD ${value.toLocaleString('en-FJ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -71,22 +71,18 @@ function statusColor(status: string): 'default' | 'info' | 'success' | 'warning'
 function statusAccent(status: string) { return statusColor(status) === 'success' ? 'success.main' : statusColor(status) === 'warning' ? 'warning.main' : statusColor(status) === 'error' ? 'error.main' : statusColor(status) === 'info' ? 'info.main' : 'secondary.main' }
 function apiMessage(reason: unknown, fallback: string) { const data = axios.isAxiosError(reason) ? reason.response?.data : undefined; const errors = data?.errors as Record<string, string[]> | undefined; return errors ? Object.values(errors).flat().join(' ') : data?.message ?? data?.detail ?? fallback }
 
-function PreferenceCheckboxes({ divisions, values, onChange }: { divisions: PreferenceDivision[]; values: string[]; onChange: (values: string[]) => void }) {
-  return <FormGroup>{divisions.flatMap(division => division.services).filter(service => service.isBookableOnline || service.requiresQuote).map(service => <FormControlLabel key={service.id} control={<Checkbox size="small" checked={values.includes(service.id)} onChange={event => onChange(event.target.checked ? [...values, service.id] : values.filter(value => value !== service.id))} />} label={service.name} />)}{divisions.length === 0 && <Typography color="text.secondary">No customer services are published yet.</Typography>}</FormGroup>
-}
-
 const accountSections: { value: PortalSection; label: string; icon: ReactNode }[] = [
+  { value: 'preferences', label: 'Rental preferences', icon: <DashboardOutlined /> },
   { value: 'overview', label: 'My account', icon: <DashboardOutlined /> },
   { value: 'bookings', label: 'Manage bookings', icon: <EventAvailableOutlined /> },
 ]
 
 export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => void; onSessionChange?: (signedIn: boolean) => void }) {
   const [session, setSession] = useState<CustomerSession | null>(null)
-  const [preferenceDivisions, setPreferenceDivisions] = useState<PreferenceDivision[]>([])
   const [bookings, setBookings] = useState<Booking[]>([])
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [documents, setDocuments] = useState<PortalDocuments>({ registered: [], agreements: [], invoices: [] })
-  const [section, setSection] = useState<PortalSection>(() => new URLSearchParams(window.location.search).has('reference') || sessionStorage.getItem('crems.customerSection') === 'bookings' ? 'bookings' : 'overview')
+  const [section, setSection] = useState<PortalSection>(() => new URLSearchParams(window.location.search).has('reference') || sessionStorage.getItem('crems.customerSection') === 'bookings' ? 'bookings' : sessionStorage.getItem('crems.customerSection') === 'preferences' ? 'preferences' : 'overview')
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [checking, setChecking] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -137,7 +133,6 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
     } catch { setSession(null); onSessionChange?.(false); return false }
     finally { setChecking(false) }
   }
-  useEffect(() => { void api.get<PreferenceDivision[]>('/public/divisions').then(response => setPreferenceDivisions(response.data.filter(division => division.services.some(service => service.isBookableOnline || service.requiresQuote)))).catch(() => setPreferenceDivisions([])) }, [])
   // Hydrate the browser-window customer session once when the portal opens.
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void loadSession() }, [])
@@ -175,12 +170,11 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
   async function requestVerification() { setSubmitting(true); setError(''); try { const response = await api.post<{ message: string; maskedDestination?: string; resendAfterSeconds?: number }>('/customer-account/verification/request'); setMaskedEmail(response.data.maskedDestination ?? 'your registered email'); setResendSeconds(response.data.resendAfterSeconds ?? 60); setVerificationOpen(true) } catch { setError('Unable to send a verification code right now.') } finally { setSubmitting(false) } }
   async function confirmVerification(event: FormEvent) { event.preventDefault(); setSubmitting(true); setError(''); try { await api.post('/customer-account/verification/confirm', { code: verificationCode }); setNotice('Email verified successfully.'); setVerificationCode(''); setVerificationOpen(false); await loadSession() } catch (reason) { setError(apiMessage(reason, 'The verification code is invalid or expired.')) } finally { setSubmitting(false) } }
   async function updateProfile() {
-    const response = await api.put<{ hirePreferences?: HirePreference[] }>('/customer-account/profile', { phone: profile.phone, address: profile.address, hirePreferences: profile.hirePreferences, preferredServiceIds: profile.preferredServiceIds })
+    const response = await api.put<{ hirePreferences?: HirePreference[] }>('/customer-account/profile', { phone: profile.phone, address: profile.address, hirePreferences: [] })
     if (!Array.isArray(response.data.hirePreferences)) throw new Error('The customer API must be restarted to enable multiple rental preferences.')
   }
   function profileError(reason: unknown, fallback: string) { return reason instanceof Error && reason.message.startsWith('The customer API') ? reason.message : apiMessage(reason, fallback) }
   async function saveProfile(event: FormEvent) { event.preventDefault(); setSubmitting(true); setError(''); try { await updateProfile(); setNotice('Your contact details have been updated.'); await loadSession() } catch (reason) { setError(profileError(reason, 'Unable to update your profile.')) } finally { setSubmitting(false) } }
-  async function savePreference() { setSubmitting(true); setError(''); try { await updateProfile(); setNotice('Your rental preferences have been updated.'); await loadSession() } catch (reason) { setError(profileError(reason, 'Unable to update your preference.')) } finally { setSubmitting(false) } }
   async function openBooking(id: string, openAgreementOnly = false) { setLoadingBooking(true); setError(''); try { setAgreementOnly(openAgreementOnly); setSelectedBooking((await api.get<BookingDetails>(`/customer-account/bookings/${id}`)).data) } catch { setError('Unable to load this booking.') } finally { setLoadingBooking(false) } }
   function openChange(booking: Booking, type: 'dates' | 'cancel' | 'extend' | 'incident') { setChangeBooking(booking); setChangeType(type); setChangeReason(''); setRequestedStart(booking.items[0]?.startAt.slice(0, 10) ?? ''); setRequestedEnd(booking.items[0]?.endAt.slice(0, 10) ?? ''); setIncident({ type: 'Breakdown', location: '', policeReference: '' }); setError('') }
   async function submitChange() {
@@ -269,6 +263,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
       {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" sx={{ mb: 3 }} onClose={() => setNotice('')}>{notice}</Alert>}
 
+      {section === 'preferences' && <RentalPreferencesPage onBrowse={onBack} />}
       {section === 'bookings' && <RentalJourneys bookings={bookings} quotes={quotes} search={referenceSearch} filter={activityFilter} sort={journeySort} page={journeyPage} expanded={expandedJourney} loading={loadingBooking} onSearch={value => { setReferenceSearch(value); sessionStorage.setItem('crems.customerReferenceSearch', value); setJourneyPage(0) }} onFilter={value => { setActivityFilter(value); setJourneyPage(0) }} onSort={value => { setJourneySort(value); setJourneyPage(0) }} onPage={setJourneyPage} onExpand={setExpandedJourney} onOpenBooking={openBooking} onChangeBooking={openChange} onViewQuote={setSelectedQuote} onBrowse={onBack} />}
 
       {section === 'quotes' && <Box><Typography color="text.secondary" mb={3}>Review prices, validity dates and customer charges before accepting or declining an offer.</Typography><CustomerQuoteCards quotes={quotes} onView={setSelectedQuote} /></Box>}
@@ -278,7 +273,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
 
       {section === 'overview' && <Grid container spacing={2.5} alignItems="stretch" sx={{  }}>
         <Grid size={{ xs: 12, lg: 8 }}><Stack spacing={2.25} height="100%"><Card variant="outlined" sx={{ borderRadius: 2.5, flex: 1.25, minHeight: { lg: 360 } }}><CardContent sx={{ p: { xs: 2.25, md: 2.5 } }}><Typography variant="h6" fontWeight={800}>Personal details</Typography><Box component="form" onSubmit={saveProfile} mt={1.5}><Grid container spacing={1.4}><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth size="small" label="Full name" value={session.fullName} InputProps={{ readOnly: true }} helperText="Contact Carpenters to change the account holder's name." /></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth size="small" label="Account email" value={session.email} InputProps={{ readOnly: true, endAdornment: !session.emailConfirmed ? <Typography variant="caption" color="error" fontWeight={900}>NOT VERIFIED</Typography> : undefined }} /></Grid><Grid size={{ xs: 12, sm: 4 }}><TextField fullWidth size="small" required label="Phone" value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} /></Grid><Grid size={{ xs: 12, sm: 4 }}><TextField fullWidth size="small" label="Driver licence number" value={licence.licenceNumber ?? 'Not scanned'} InputProps={{ readOnly: true }} helperText="Updated from the latest uploaded licence." /></Grid><Grid size={{ xs: 12, sm: 4 }}><TextField fullWidth size="small" label="Licence class" value={licence.classes.length ? licence.classes.join(', ') : 'Not scanned'} InputProps={{ readOnly: true }} helperText="Updated from the latest uploaded licence." /></Grid><Grid size={12}><TextField fullWidth size="small" multiline minRows={1} label="Address" placeholder="Residential or business address" value={profile.address} onChange={e => setProfile({ ...profile, address: e.target.value })} sx={{ '& textarea': { resize: 'none' } }} /></Grid></Grid><Box textAlign="left" pt={1.25}><Button type="submit" variant="contained" disabled={submitting}>Save details</Button></Box></Box></CardContent></Card><Card variant="outlined" sx={{ borderRadius: 2.5, flex: .75, minHeight: { lg: 185 } }}><CardContent sx={{ p: { xs: 2.25, md: 2.5 }, display: 'block' }}><Box><Typography variant="h6" fontWeight={800}>Driver licence</Typography><Typography color="text.secondary" mt={.5}>Verify your licence before driving a rental vehicle. CREMS will scan the document and ask you to confirm the extracted details.</Typography><Typography variant="body2" mt={1}>{licence.hasImage ? 'Licence document securely stored.' : 'No licence document uploaded.'}</Typography></Box><Stack direction={{ xs: 'column', sm: 'row' }} gap={1.25} mt={1.5}><Button variant="contained" onClick={() => setLicenceOpen(true)}>{licence.hasImage ? 'Replace driver licence' : 'Verify driver licence'}</Button>{licence.hasImage && <Button variant="outlined" onClick={() => void openProtectedFile('/customer-account/licence/image')}>View licence</Button>}</Stack></CardContent></Card></Stack></Grid>
-        <Grid size={{ xs: 12, lg: 4 }}><Stack spacing={2.25} height="100%"><Card variant="outlined" sx={{ borderRadius: 2.5, flex: .75, minHeight: { lg: 215 }, overflow: 'visible' }}><CardContent sx={{ p: { xs: 2.25, md: 2.5 } }}><Typography variant="h6" fontWeight={800}>Account security</Typography><Typography color="text.secondary" mt={.5}>Secure your account and sign out on shared devices.</Typography><Stack direction="row" flexWrap="wrap" gap={1} mt={1.25}><Chip label={session.emailConfirmed ? 'Email verified' : 'Email not verified'} color={session.emailConfirmed ? 'success' : 'error'} /><Chip label={licence.status === 'Verified' ? 'Licence verified' : 'Licence required'} color={licence.status === 'Verified' ? 'success' : 'error'} /></Stack>{!session.emailConfirmed && <Button variant="contained" sx={{ mt: 1.25 }} onClick={() => void requestVerification()}>Verify email address</Button>}</CardContent></Card><Card variant="outlined" sx={{ borderRadius: 2.5,  }}><CardContent sx={{ p: { xs: 2.25, md: 2.5 },  }}><Typography variant="h6" fontWeight={800}>Rental preferences</Typography><Typography color="text.secondary" mt={.5} mb={1}>Choose services you use most often. Leave everything clear to browse all services.</Typography><PreferenceCheckboxes divisions={preferenceDivisions} values={profile.preferredServiceIds} onChange={preferredServiceIds => setProfile({ ...profile, preferredServiceIds })} /><Box textAlign="right" mt={1.5}><Button variant="contained" disabled={submitting} onClick={() => void savePreference()}>Save preferences</Button></Box></CardContent></Card></Stack></Grid>
+        <Grid size={{ xs: 12, lg: 4 }}><Stack spacing={2.25} height="100%"><Card variant="outlined" sx={{ borderRadius: 2.5, flex: .75, minHeight: { lg: 215 }, overflow: 'visible' }}><CardContent sx={{ p: { xs: 2.25, md: 2.5 } }}><Typography variant="h6" fontWeight={800}>Account security</Typography><Typography color="text.secondary" mt={.5}>Secure your account and sign out on shared devices.</Typography><Stack direction="row" flexWrap="wrap" gap={1} mt={1.25}><Chip label={session.emailConfirmed ? 'Email verified' : 'Email not verified'} color={session.emailConfirmed ? 'success' : 'error'} /><Chip label={licence.status === 'Verified' ? 'Licence verified' : 'Licence required'} color={licence.status === 'Verified' ? 'success' : 'error'} /></Stack>{!session.emailConfirmed && <Button variant="contained" sx={{ mt: 1.25 }} onClick={() => void requestVerification()}>Verify email address</Button>}</CardContent></Card></Stack></Grid>
       </Grid>}
         </Box>
       </Paper>

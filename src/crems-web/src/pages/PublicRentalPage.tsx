@@ -1,3 +1,4 @@
+import { matchesHomepagePreferences } from '../utils/customerPreferences'
 import { hireQuantity, measuredUnit } from '../utils/hirePricing'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
@@ -31,15 +32,15 @@ type AssetType = 'Vehicle'|'Equipment'|'PassengerVehicle'|'CommercialVehicle'|'H
 type PublicAsset = {
   id: string; assetNumber: string; name: string; type: AssetType; status: string
   branchId: string; branchName: string; dailyRate: number; hireUnit?:string; useServiceHireRate?:boolean; isAvailable: boolean
-  divisionId: string | null; divisionName: string | null; category: string | null; categoryCode: string | null
+  assetCategoryId?: string | null; divisionId: string | null; divisionName: string | null; category: string | null; categoryCode: string | null
   bondAmount: number
   personnelRequirement: 'None' | 'Optional' | 'Required'
   serviceName: string | null; serviceOfferingId?: string | null; isBookableOnline?: boolean; allowsQuoteRequests?: boolean; requiresQuote: boolean; quoteMode: 'Automatic'|'Always'|'DirectWhenPriced'; requiresDelivery: boolean
   photoUrlsJson: string
   attributes: { code: string; name: string; value: string; unit: string | null }[]
 }
-type CustomerPreference = 'Vehicles' | 'Equipment' | 'WasteAndSiteHire'
-type CustomerPreferenceSession = { preferredServiceIds?: string[]; hirePreferences?: CustomerPreference[]; hirePreference?: CustomerPreference | 'NoPreference' }
+type CustomerPreferenceSession = { preferredAssetCategoryIds?: string[] }
+
 type CatalogueSort = 'recommended' | 'price-low' | 'price-high'
 type CheckoutDetail = {
   customerQuestions?: CustomerQuestion[]
@@ -135,7 +136,7 @@ function loadPublicCatalogueBootstrap() {
   return promise
 }
 
-export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, customerAuthenticated = false, customerName }: { onCustomerAccount: (section?: 'overview' | 'bookings') => void; onCustomerSignOut?: () => void | Promise<void>; customerAuthenticated?: boolean; customerName?: string }) {
+export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, customerAuthenticated = false, customerName }: { onCustomerAccount: (section?: 'overview' | 'bookings' | 'preferences') => void; onCustomerSignOut?: () => void | Promise<void>; customerAuthenticated?: boolean; customerName?: string }) {
   const [trackingReference, setTrackingReference] = useState('')
   const [savedCatalogue] = useState(readCatalogueState)
   const [assets, setAssets] = useState<PublicAsset[]>([])
@@ -173,7 +174,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [photoIndexes, setPhotoIndexes] = useState<Record<string, number>>({})
   const [galleryOffsets, setGalleryOffsets] = useState<Record<string, number>>({})
-  const [hirePreferences, setHirePreferences] = useState<string[]>([])
+  const [preferredCategoryIds, setPreferredCategoryIds] = useState<string[]>([])
   const [showModifySearch, setShowModifySearch] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [requestBaseline, setRequestBaseline] = useState('')
@@ -272,19 +273,11 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const categoryOptions = useMemo(() => [...new Set(catalogueAssets.filter(asset => !divisionId || asset.divisionId === divisionId).map(asset => asset.category || asset.serviceName || asset.type))].sort(), [catalogueAssets, divisionId])
   const seatOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'SEATS')).filter(Boolean).map(Number))].sort((a, b) => a - b), [catalogueAssets])
   const transmissionOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'TRANSMISSION')).filter(Boolean))].sort(), [catalogueAssets])
-  const preferenceScore = useCallback((asset: PublicAsset) => {
-    if (hirePreferences.length === 0) return 0
-    if (asset.serviceOfferingId && hirePreferences.includes(asset.serviceOfferingId)) return 4
-    if (hirePreferences.includes('Vehicles') && /carpenters motors/i.test(asset.divisionName ?? '')) return 3
-    if (hirePreferences.includes('Equipment') && /carptrac/i.test(asset.divisionName ?? '')) return 2
-    if (hirePreferences.includes('WasteAndSiteHire') && /carpenters shipping/i.test(asset.divisionName ?? '')) return 1
-    return 0
-  }, [hirePreferences])
   const sortedAssets = useMemo(() => [...displayedAssets].sort((left, right) => {
     if (sort === 'price-low') return left.dailyRate - right.dailyRate
     if (sort === 'price-high') return right.dailyRate - left.dailyRate
-    return (searched ? 0 : preferenceScore(right) - preferenceScore(left)) || Number(right.isAvailable) - Number(left.isAvailable) || left.dailyRate - right.dailyRate
-  }), [displayedAssets, preferenceScore, searched, sort])
+    return Number(right.isAvailable) - Number(left.isAvailable) || left.dailyRate - right.dailyRate
+  }), [displayedAssets, sort])
   const rentalDays = Math.max(1, Math.ceil((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86400000))
   const checkoutCharges = useMemo(() => (checkoutDetail?.charges ?? []).filter(charge => !['Operator', 'Driver'].includes(charge.category) || booking.personnelRequested).filter(charge => charge.isRequired ||
     (selectedExtras[charge.id] ?? 0) > 0 || booking.fulfilment === 'Delivery' && charge.category === 'Transport' ||
@@ -400,9 +393,8 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     let active = true
     const request = customerAuthenticated ? api.get<CustomerPreferenceSession>('/customer-account/session').then(({data}) => data) : Promise.resolve<CustomerPreferenceSession>({})
     void request.then(data => {
-      const preferences = Array.isArray(data.hirePreferences) ? data.hirePreferences : data.hirePreference && data.hirePreference !== 'NoPreference' ? [data.hirePreference] : []
-      if (active) setHirePreferences(data.preferredServiceIds?.length ? data.preferredServiceIds : preferences.filter(value => ['Vehicles', 'Equipment', 'WasteAndSiteHire'].includes(value)))
-    }).catch(() => { if (active) setHirePreferences([]) })
+      if (active) setPreferredCategoryIds(data.preferredAssetCategoryIds ?? [])
+    }).catch(() => { if (active) setPreferredCategoryIds([]) })
     return () => { active = false }
   }, [customerAuthenticated])
 
@@ -422,20 +414,12 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
 
   const allDivisionGalleries = useMemo(() => divisions.map(division => ({
     key: division.id,
-    preference: /carpenters motors/i.test(division.name) ? 'Vehicles' as CustomerPreference
-      : /carptrac/i.test(division.name) ? 'Equipment' as CustomerPreference
-      : /carpenters shipping/i.test(division.name) ? 'WasteAndSiteHire' as CustomerPreference
-      : undefined,
     title: division.branding?.displayName || division.name,
     branding: division.branding,
     matches: (asset: PublicAsset) => asset.divisionId === division.id,
   })), [divisions])
-  const preferredDivisionGalleries = useMemo(() => {
-    if (hirePreferences.length === 0 || hirePreferences.length === allDivisionGalleries.length) return allDivisionGalleries
-    if (hirePreferences.some(value => !['Vehicles','Equipment','WasteAndSiteHire'].includes(value))) return [...allDivisionGalleries].sort((a,b) => Number(sortedAssets.some(asset => b.matches(asset) && asset.serviceOfferingId && hirePreferences.includes(asset.serviceOfferingId))) - Number(sortedAssets.some(asset => a.matches(asset) && asset.serviceOfferingId && hirePreferences.includes(asset.serviceOfferingId))))
-    return allDivisionGalleries.filter(gallery => !gallery.preference || hirePreferences.includes(gallery.preference))
-      .sort((left, right) => (left.preference ? hirePreferences.indexOf(left.preference) : Number.MAX_SAFE_INTEGER) - (right.preference ? hirePreferences.indexOf(right.preference) : Number.MAX_SAFE_INTEGER))
-  }, [allDivisionGalleries, hirePreferences, sortedAssets])
+  const homepageAssets = useMemo(() => sortedAssets.filter(asset => matchesHomepagePreferences(asset, preferredCategoryIds)), [sortedAssets, preferredCategoryIds])
+  const preferredDivisionGalleries = allDivisionGalleries.filter(gallery => homepageAssets.some(gallery.matches))
 
   function moveGallery(key: string, total: number, direction: number) {
     setGalleryOffsets(current => ({ ...current, [key]: Math.max(0, Math.min((current[key] ?? 0) + direction, Math.max(0, total - 4))) }))
@@ -504,13 +488,13 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
           return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length} matching rental{divisionAssets.length === 1 ? '' : 's'}</Typography></Stack><Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}><IconButton aria-label={`Previous ${gallery.title} results`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, divisionAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Box sx={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 2 }}>{visibleAssets.map(asset => <Box key={asset.id} sx={{ minWidth: 0 }}>{renderRentalCard(asset)}</Box>)}</Box><IconButton aria-label={`Next ${gallery.title} results`} disabled={offset >= Math.max(0, divisionAssets.length - 4)} onClick={() => moveGallery(gallery.key, divisionAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack></Box>
         })}
       </>)}
+      {!searched && !loading && preferredCategoryIds.length > 0 && homepageAssets.length === 0 && <Alert severity="info" action={<Button onClick={() => onCustomerAccount('preferences')}>Edit preferences</Button>}>No rentals are currently listed for your selected categories. You can still search all rentals above.</Alert>}
       {!searched && !loading && preferredDivisionGalleries.map(gallery => {
-        const galleryAssets = sortedAssets.filter(gallery.matches)
+        const galleryAssets = homepageAssets.filter(gallery.matches)
         const offset = Math.min(galleryOffsets[gallery.key] ?? 0, Math.max(0, galleryAssets.length - 4))
         const visibleAssets = galleryAssets.slice(offset, offset + 4)
         if (galleryAssets.length === 0) return null
-        if (hirePreferences.length === 1) return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length} rental{galleryAssets.length === 1 ? '' : 's'} to explore</Typography></Stack><Grid container spacing={2}>{galleryAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 3 }}>{renderRentalCard(asset)}</Grid>)}</Grid></Box>
-        return <Box key={gallery.key} sx={{ mb: 5 }}><Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}><Box><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length ? `${galleryAssets.length} rental${galleryAssets.length === 1 ? '' : 's'} to explore` : 'Rental preview'}</Typography></Box></Stack>{visibleAssets.length ? <Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}><IconButton aria-label={`Previous ${gallery.title} rentals`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, galleryAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>{visibleAssets.map(asset => <Box key={asset.id} sx={{ width: { xs: '100%', sm: 'calc((100% - 48px) / 4)' }, minWidth: 0, flex: { sm: '0 0 calc((100% - 48px) / 4)' } }}>{renderRentalCard(asset)}</Box>)}</Stack><IconButton aria-label={`Next ${gallery.title} rentals`} disabled={offset >= Math.max(0, galleryAssets.length - 4)} onClick={() => moveGallery(gallery.key, galleryAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals are currently listed for this division.</Typography></CardContent></Card>}</Box>
+        return <Box key={gallery.key} sx={{ mb: 5 }}><Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}><Box><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{galleryAssets.length ? `${galleryAssets.length} rental${galleryAssets.length === 1 ? '' : 's'} to explore` : 'Rental preview'}</Typography></Box></Stack>{visibleAssets.length ? <Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}><IconButton aria-label={`Previous ${gallery.title} rentals`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, galleryAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Box sx={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 2 }}>{visibleAssets.map(asset => <Box key={asset.id} sx={{ minWidth: 0 }}>{renderRentalCard(asset)}</Box>)}</Box><IconButton aria-label={`Next ${gallery.title} rentals`} disabled={offset >= Math.max(0, galleryAssets.length - 4)} onClick={() => moveGallery(gallery.key, galleryAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals are currently listed for this division.</Typography></CardContent></Card>}</Box>
       })}
     </Container>
 
