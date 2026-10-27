@@ -89,7 +89,24 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
     public async Task<ActionResult> CreateDispatch(DispatchRequest request, CancellationToken token) { var scope = await ScopeFor(request.BranchId); if (scope is null) return Forbid(); var job = new DispatchJob { DispatchNumber = Number("DSP"), BookingId = request.BookingId, BranchId = request.BranchId, Type = request.Type, ScheduledAt = request.ScheduledAt, Address = Clean(request.Address), AssignedDriver = Clean(request.AssignedDriver), TransportVehicle = Clean(request.TransportVehicle), DeliveryZoneId = request.DeliveryZoneId, DistanceKilometres = request.DistanceKilometres, InternalTransportCost = request.InternalTransportCost, FailedDeliveryCharge = request.FailedDeliveryCharge, DeliveryCharge = request.DeliveryCharge }; db.DispatchJobs.Add(job); await SaveAudit(scope, "Dispatch job created", job.Id, job.DispatchNumber, job.BranchId, token); return Ok(job); }
 
     [HttpPost("transfers")]
-    public async Task<ActionResult> CreateTransfer(TransferRequest request, CancellationToken token) { var scope = await ScopeFor(request.FromBranchId); if (scope is null) return Forbid(); if (!scope.IsAdministrator && request.ToBranchId == request.FromBranchId) return BadRequest(); var transfer = new AssetTransfer { TransferNumber = Number("TRF"), AssetId = request.AssetId, FromBranchId = request.FromBranchId, ToBranchId = request.ToBranchId, Reason = request.Reason.Trim(), RequestedByUserId = scope.UserId, TransferCost = request.TransferCost }; db.AssetTransfers.Add(transfer); await SaveAudit(scope, "Asset transfer requested", transfer.Id, transfer.TransferNumber, request.FromBranchId, token); return Ok(transfer); }
+    public async Task<ActionResult> CreateTransfer(TransferRequest request, CancellationToken token)
+    {
+        await using var transaction = await MaintenanceRules.BeginAsync(db, token);
+        var scope = await ScopeFor(request.FromBranchId);
+        var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == request.AssetId, token);
+        if (asset is null) return NotFound();
+        if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId) || !scope.HasBranchAccess(request.ToBranchId)) return Forbid();
+        if (string.IsNullOrWhiteSpace(request.Reason) || request.TransferCost < 0) return BadRequest(new { message = "Enter a reason and a non-negative transfer cost." });
+        if (!asset.IsActive || asset.Status != AssetStatus.Available) return BadRequest(new { message = "Only available assets can be transferred." });
+        var error = await AssetTransferRules.Validate(db, asset, request.FromBranchId, request.ToBranchId, null, token);
+        if (error is not null) return BadRequest(new { message = error });
+        var transfer = new AssetTransfer { TransferNumber = Number("TRF"), AssetId = asset.Id, FromBranchId = request.FromBranchId, ToBranchId = request.ToBranchId, Reason = request.Reason.Trim(), RequestedByUserId = scope.UserId, TransferCost = request.TransferCost };
+        db.AssetTransfers.Add(transfer);
+        AuditWriter.Record(db, scope, "Asset transfer requested", nameof(Asset), asset.Id, transfer.TransferNumber, asset.BranchId);
+        await SaveAudit(scope, "Asset transfer requested", transfer.Id, transfer.TransferNumber, request.FromBranchId, token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return Ok(transfer);
+    }
 
     [HttpPost("pricing")]
     [Authorize(Policy = SystemPolicies.ManageBranch)]
@@ -330,10 +347,22 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
             (TransferStatus.Approved, TransferStatus.InTransit) => true,
             (TransferStatus.InTransit, TransferStatus.Received) => true,
             (TransferStatus.Received, TransferStatus.Inspected) => true,
-            (_, TransferStatus.Cancelled) => true, _ => false };
+            (TransferStatus.Requested or TransferStatus.Approved, TransferStatus.Cancelled) => true, _ => false };
         if (!valid) return BadRequest(new { message = $"A {item.Status} transfer cannot change to {request.Status}." });
         if (request.Status != TransferStatus.Cancelled)
         {
+            var transferError = await AssetTransferRules.Validate(db, asset, item.FromBranchId, item.ToBranchId, item.Id, token);
+            if (transferError is not null) return BadRequest(new { message = transferError });
+            if (item.Status == TransferStatus.Requested && asset.Status != AssetStatus.Available)
+                return BadRequest(new { message = "Only available assets can be approved for transfer." });
+            if (request.MeterReading is < 0 or > 10000000)
+                return BadRequest(new { message = "Meter reading must be between 0 and 10,000,000." });
+            if (request.MeterReading.HasValue && request.MeterReading < (item.ArrivalMeter ?? item.DepartureMeter))
+                return BadRequest(new { message = "The reading cannot be lower than the previous transfer reading." });
+            if (!string.IsNullOrWhiteSpace(request.DamageNotes))
+                return BadRequest(new { message = "Resolve transfer damage through maintenance before completing the transfer." });
+            if (request.Status == TransferStatus.Inspected && string.IsNullOrWhiteSpace(request.ConditionNotes))
+                return BadRequest(new { message = "Record the receiving inspection result before completing the transfer." });
             if (asset.BranchId != item.FromBranchId) return Validation("assetId", "The asset is no longer at the transfer's source branch.");
             if (await db.MaintenanceJobs.AnyAsync(job => job.AssetId == asset.Id
                 && job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled, token))
@@ -343,12 +372,36 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
             if (request.MeterReading.HasValue && request.MeterReading < asset.CurrentMeterReading)
                 return Validation("meterReading", "A cumulative meter reading cannot decrease.");
         }
+        var previousStatus = asset.Status;
+        var previousTransferStatus = item.Status;
         item.Status = request.Status;
+        item.UpdatedAt = DateTimeOffset.UtcNow;
         item.InspectionJson = JsonSerializer.Serialize(new { request.MeterReading, request.ConditionNotes, request.DamageNotes, request.EvidenceDataUrls });
         if (request.Status == TransferStatus.Approved) item.ApprovedByUserId = scope.UserId;
         if (request.Status == TransferStatus.InTransit) { item.DepartedAt = DateTimeOffset.UtcNow; item.DepartureMeter = request.MeterReading; }
         if (request.Status == TransferStatus.Received) { item.ReceivedAt = DateTimeOffset.UtcNow; item.ArrivalMeter = request.MeterReading; }
-        if (request.Status == TransferStatus.Inspected) asset.BranchId = item.ToBranchId;
+        var destination = await db.Branches.FirstOrDefaultAsync(x => x.Id == item.ToBranchId, token);
+        if (request.Status == TransferStatus.Approved) asset.Status = AssetStatus.OutOfService;
+        if (request.Status == TransferStatus.InTransit) asset.CurrentLocation = $"In transit to {destination!.Name}";
+        if (request.Status == TransferStatus.Received) { asset.CurrentLocation = destination!.Name; asset.Status = AssetStatus.Inspection; }
+        if (request.Status == TransferStatus.Cancelled && previousTransferStatus == TransferStatus.Approved) asset.Status = AssetStatus.Available;
+        if (request.Status == TransferStatus.Inspected)
+        {
+            asset.BranchId = item.ToBranchId; asset.CurrentLocation = destination!.Name;
+            asset.Status = AssetStatus.Available;
+        }
+        if (request.MeterReading.HasValue && request.Status != TransferStatus.Cancelled)
+        {
+            asset.CurrentMeterReading = request.MeterReading;
+            db.AssetMeterReadings.Add(new AssetMeterReading { AssetId = asset.Id, Reading = request.MeterReading.Value,
+                Unit = asset.MeterUnit ?? "unit", Type = asset.MeterUnit?.Contains("hour", StringComparison.OrdinalIgnoreCase) == true ? MeterType.EngineHours : MeterType.Odometer,
+                Source = MeterReadingSource.Transfer, RecordedByUserId = scope.UserId });
+        }
+        db.AssetLifecycleEvents.Add(new AssetLifecycleEvent { AssetId = asset.Id, Type = AssetLifecycleEventType.Transferred,
+            FromStatus = previousStatus, ToStatus = asset.Status, MeterReading = request.MeterReading,
+            Notes = $"{item.TransferNumber}: {previousTransferStatus} → {item.Status}. {request.ConditionNotes} {request.DamageNotes}",
+            EvidenceJson = JsonSerializer.Serialize(request.EvidenceDataUrls ?? []), RecordedByUserId = scope.UserId, RecordedByName = scope.UserName });
+        AuditWriter.Record(db, scope, "Asset transfer " + item.Status, nameof(Asset), asset.Id, $"{item.TransferNumber}: {asset.CurrentLocation}", asset.BranchId);
         await SaveAudit(scope, "Asset transfer status changed", item.Id, $"{item.TransferNumber}: {item.Status}", item.ToBranchId, token);
         if (transaction is not null) await transaction.CommitAsync(token);
         return Ok(item);
