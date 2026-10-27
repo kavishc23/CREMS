@@ -3,6 +3,7 @@ import { NotificationBell } from './NotificationBell'
 import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
+import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined'
 import TuneOutlined from '@mui/icons-material/TuneOutlined'
 import MenuOutlined from '@mui/icons-material/MenuOutlined'
 import {
@@ -47,6 +48,10 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
       variant="contained"
       color="secondary"
       startIcon={<AccountCircleOutlined />}
+      endIcon={authenticated ? <ExpandMoreOutlined sx={{ transform: accountAnchor ? 'rotate(180deg)' : undefined }} /> : undefined}
+      aria-haspopup={authenticated ? 'menu' : undefined}
+      aria-expanded={authenticated ? Boolean(accountAnchor) : undefined}
+      aria-controls={accountAnchor ? 'customer-account-menu' : undefined}
       onClick={event => authenticated ? setAccountAnchor(event.currentTarget) : openAccount()}
       aria-current={accountActive ? 'page' : undefined}
       sx={{ ml: 1, color: '#111', boxShadow: accountActive ? '0 0 0 2px #fff' : 'none' }}
@@ -71,11 +76,11 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
       </Container>
     </AppBar>
     <Toolbar sx={{ minHeight: { xs: 68, md: 76 } }} />
-    <Menu disableScrollLock anchorEl={accountAnchor} open={Boolean(accountAnchor)} onClose={() => setAccountAnchor(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }} slotProps={{ paper: { sx: { mt: .75, width: 270, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', boxShadow: '0 16px 38px rgba(0,0,0,.2)', overflow: 'hidden' } }, list: { sx: { p: 1 } } }}>
-      <MenuItem onClick={() => { setAccountAnchor(null); openAccount() }} sx={{ borderRadius: 1.5, px: 1.5, py: 1.35, gap: 1.25, fontWeight: 800, '&:hover': { bgcolor: '#fff8cc' } }}><Box sx={{ width: 34, height: 34, borderRadius: 1.25, bgcolor: 'secondary.main', color: '#111', display: 'grid', placeItems: 'center' }}><AccountCircleOutlined fontSize="small" /></Box><Box><Typography fontWeight={800}>Customer Profile</Typography><Typography variant="caption" color="text.secondary">Manage your account</Typography></Box></MenuItem>
-      <MenuItem onClick={() => { setAccountAnchor(null); setMobileOpen(false); onAccountSection?.('preferences') }} sx={{ borderRadius: 1.5, px: 1.5, py: 1.35, gap: 1.25, '&:hover': { bgcolor: '#fff8cc' } }}><Box sx={{ width: 34, height: 34, borderRadius: 1.25, bgcolor: 'secondary.main', color: '#111', display: 'grid', placeItems: 'center' }}><TuneOutlined fontSize="small" /></Box><Box><Typography fontWeight={800}>Rental Preferences</Typography><Typography variant="caption" color="text.secondary">Personalise your homepage</Typography></Box></MenuItem>
+    <Menu id="customer-account-menu" disableScrollLock anchorEl={accountAnchor} open={Boolean(accountAnchor)} onClose={() => setAccountAnchor(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }} slotProps={{ paper: { sx: { mt: .75, width: 238, borderRadius: 1.5, border: '1px solid', borderColor: 'divider', boxShadow: '0 16px 38px rgba(0,0,0,.2)', overflow: 'hidden' } }, list: { sx: { p: .5 } } }}>
+      <MenuItem onClick={() => { setAccountAnchor(null); openAccount() }} sx={{ borderRadius: 1.5, px: 1.25, py: 1, gap: 1, fontWeight: 800, '&:hover': { bgcolor: '#fff8cc' } }}><Box sx={{ width: 28, height: 28, borderRadius: 1.25, bgcolor: 'secondary.main', color: '#111', display: 'grid', placeItems: 'center' }}><AccountCircleOutlined fontSize="small" /></Box><Box><Typography fontWeight={700} fontSize={14}>Customer Profile</Typography></Box></MenuItem>
+      <MenuItem onClick={() => { setAccountAnchor(null); setMobileOpen(false); onAccountSection?.('preferences') }} sx={{ borderRadius: 1.5, px: 1.25, py: 1, gap: 1, '&:hover': { bgcolor: '#fff8cc' } }}><Box sx={{ width: 28, height: 28, borderRadius: 1.25, bgcolor: 'secondary.main', color: '#111', display: 'grid', placeItems: 'center' }}><TuneOutlined fontSize="small" /></Box><Box><Typography fontWeight={700} fontSize={14}>Rental Preferences</Typography></Box></MenuItem>
       {onSignOut && <Divider sx={{ my: .75 }} />}
-      {onSignOut && <MenuItem sx={{ borderRadius: 1.5, px: 1.5, py: 1.25, gap: 1.25, color: 'error.main', fontWeight: 800, '&:hover': { bgcolor: '#fdeaea' } }} onClick={() => { setAccountAnchor(null); void onSignOut() }}><Box sx={{ width: 34, height: 34, borderRadius: 1.25, bgcolor: '#fdeaea', display: 'grid', placeItems: 'center' }}><LogoutOutlined fontSize="small" /></Box><Box><Typography fontWeight={800}>Log out</Typography><Typography variant="caption" color="text.secondary">End this secure session</Typography></Box></MenuItem>}
+      {onSignOut && <MenuItem sx={{ borderRadius: 1.5, px: 1.25, py: 1, gap: 1, color: 'error.main', fontWeight: 800, '&:hover': { bgcolor: '#fdeaea' } }} onClick={() => { setAccountAnchor(null); void onSignOut() }}><Box sx={{ width: 28, height: 28, borderRadius: 1.25, bgcolor: '#fdeaea', display: 'grid', placeItems: 'center' }}><LogoutOutlined fontSize="small" /></Box><Box><Typography fontWeight={700} fontSize={14}>Log out</Typography></Box></MenuItem>}
     </Menu>
 
     <Drawer anchor="right" open={mobileOpen} onClose={() => setMobileOpen(false)}>
@@ -83,7 +88,7 @@ export function CustomerSiteHeader({ accountActive = false, authenticated = fals
         <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
           <Stack direction="row" alignItems="center" gap={1.25}>
             <Box component="img" src="/brand/carpenters-logo.png" alt="" sx={{ width: 40, height: 40 }} />
-            <Box><Typography fontWeight={800}>Rentals &amp; Hire</Typography><Typography variant="caption" color="text.secondary">Carpenters Fiji</Typography></Box>
+            <Box><Typography fontWeight={700} fontSize={14}>Rentals &amp; Hire</Typography><Typography variant="caption" color="text.secondary">Carpenters Fiji</Typography></Box>
           </Stack>
           <IconButton aria-label="Close navigation" onClick={() => setMobileOpen(false)}><CloseOutlined /></IconButton>
         </Stack>

@@ -37,7 +37,7 @@ export function RentalCatalogueCard({ asset, photos, photoIndex, searched, start
         </Box>
         <Stack direction="row" gap={1} flexWrap="wrap" sx={{ '& .MuiButton-root': { minHeight: 40, whiteSpace: 'normal' } }}>
           {!searched ? <Button size="small" variant="contained" onClick={onChooseDates}>Choose dates</Button> : <>
-            {asset.isBookableOnline !== false && !asset.requiresQuote && asset.personnelRequirement !== 'Required' && <Button size="small" variant="contained" disabled={!asset.isAvailable} onClick={() => onBook(false)}>Book now</Button>}
+            {vehicle && asset.isBookableOnline !== false && !asset.requiresQuote && asset.personnelRequirement !== 'Required' && <Button size="small" variant="contained" disabled={!asset.isAvailable} onClick={() => onBook(false)}>Book now</Button>}
             {asset.allowsQuoteRequests !== false && <Button size="small" variant={vehicle ? 'outlined' : 'contained'} disabled={!asset.isAvailable} onClick={() => onBook(true)}>Get quote</Button>}
           </>}
         </Stack>

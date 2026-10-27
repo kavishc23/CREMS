@@ -10,6 +10,7 @@ const localDate=offset=>{const d=new Date();d.setDate(d.getDate()+offset);return
  fs.mkdirSync(output,{recursive:true});const browser=await chromium.launch({channel:'chrome',headless:true});
  try{
   const page=await browser.newPage({viewport:{width:1680,height:1000}});const errors=[],detailsQueries=[];let selected=[],searchCount=0,licence={status:'Required',licenceNumber:null,classes:[],hasImage:false};
+  page.on('dialog',dialog=>dialog.accept());
   page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>{window.uatToasts=[];window.addEventListener('crems:toast',event=>window.uatToasts.push(event.detail))});
   await page.route('**/api/**',async route=>{

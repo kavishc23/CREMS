@@ -134,7 +134,8 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             PhotoUrlsJson = request.PhotoUrlsJson ?? "[]",
             IsActive = true,
             PersonnelRequirement = request.PersonnelOverride ?? PersonnelRequirement.None,
-            RequiresDelivery = request.Type != AssetType.PropertyUnit && request.RequiresDelivery,
+            RequiresDelivery = request.Type != AssetType.PropertyUnit && (request.FulfilmentMode == AssetFulfilmentMode.DeliveryOnly || request.FulfilmentMode is null && request.RequiresDelivery),
+            FulfilmentMode = request.Type == AssetType.PropertyUnit ? AssetFulfilmentMode.PickupOnly : request.FulfilmentMode ?? (request.RequiresDelivery ? AssetFulfilmentMode.DeliveryOnly : AssetFulfilmentMode.PickupOrDelivery),
         };
         if (asset.UseServiceHireRate)
         {
@@ -191,7 +192,8 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.ServiceOfferingId = request.ServiceOfferingId;
         asset.AssetCategoryId = request.AssetCategoryId;
         asset.PersonnelRequirement = request.PersonnelOverride ?? PersonnelRequirement.None;
-        asset.RequiresDelivery = request.Type != AssetType.PropertyUnit && request.RequiresDelivery;
+        asset.FulfilmentMode = request.Type == AssetType.PropertyUnit ? AssetFulfilmentMode.PickupOnly : request.FulfilmentMode ?? (request.RequiresDelivery ? AssetFulfilmentMode.DeliveryOnly : AssetFulfilmentMode.PickupOrDelivery);
+        asset.RequiresDelivery = asset.FulfilmentMode == AssetFulfilmentMode.DeliveryOnly;
         asset.BranchId = branch.Id;
         asset.RegistrationNumber = Normalize(request.RegistrationNumber);
         asset.SerialNumber = Normalize(request.SerialNumber);
@@ -419,7 +421,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.BranchId, branchName, asset.RegistrationNumber, asset.SerialNumber,
         asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear, asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
         asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType, asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, AssetCategoryPolicy.Personnel(asset), asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride, asset.HireUnit, asset.UseServiceHireRate);
+        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, AssetCategoryPolicy.Personnel(asset), asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride, asset.HireUnit, asset.UseServiceHireRate, PublicRentalRequestPolicy.Fulfilment(asset));
 }
 
 public sealed record SaveAssetRequest(
@@ -456,7 +458,7 @@ public sealed record SaveAssetRequest(
     PersonnelRequirement? PersonnelRequirement = null,
     bool RequiresDelivery = false, bool InheritBond = false,
     [EnumDataType(typeof(PersonnelRequirement))] PersonnelRequirement? PersonnelOverride = null,
-    [EnumDataType(typeof(ChargeUnit))] ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, IReadOnlyDictionary<string, string>? CategoryAttributes = null);
+    [EnumDataType(typeof(ChargeUnit))] ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, IReadOnlyDictionary<string, string>? CategoryAttributes = null, [EnumDataType(typeof(AssetFulfilmentMode))] AssetFulfilmentMode? FulfilmentMode = null);
 
 public sealed record SetAssetStatusRequest(AssetStatus Status, bool IsActive);
 public sealed record AssetResponse(
@@ -465,5 +467,5 @@ public sealed record AssetResponse(
     Guid BranchId, string BranchName, string? RegistrationNumber, string? SerialNumber,
     string? Category, string? Manufacturer, string? Model, int? ModelYear, string? VinOrChassisNumber, string? EngineNumber, string? MeterUnit, decimal? CurrentMeterReading,
     DateOnly? AcquisitionDate, decimal AcquisitionCost, decimal? CurrentBookValue, string? OwnershipType, string? InsurancePolicyNumber, DateOnly? InsuranceExpiry, DateOnly? WarrantyExpiry,
-    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, PersonnelRequirement PersonnelRequirement, bool RequiresDelivery, string? CurrentLocation, string PhotoUrlsJson, bool InheritBond, PersonnelRequirement? PersonnelOverride, ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false);
+    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, PersonnelRequirement PersonnelRequirement, bool RequiresDelivery, string? CurrentLocation, string PhotoUrlsJson, bool InheritBond, PersonnelRequirement? PersonnelOverride, ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, AssetFulfilmentMode FulfilmentMode = AssetFulfilmentMode.PickupOrDelivery);
 public sealed record SaveAssetCostRequest(Guid? BookingId, AssetCostCategory Category, [Required, MaxLength(300)] string Description, [Range(0.01, 100000000)] decimal Amount, DateOnly OccurredOn, string? Supplier, string? ReferenceNumber);

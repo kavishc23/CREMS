@@ -78,6 +78,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<string>("EngineNumber")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("FulfilmentMode")
+                        .HasColumnType("int");
+
                     b.Property<int>("HireUnit")
                         .HasColumnType("int");
 

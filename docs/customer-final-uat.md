@@ -59,3 +59,24 @@ Backend regression tests use EF InMemory with real Identity services; browser ch
 Verification: production build passed; all 46 frontend tests passed; both customer browser suites passed. The new suite covers default dates, undated and dated asset details, division result filters, equal card geometry with long future category/asset names, untruncated contents, readable return-location fields, profile positioning, simplified preference saves, and no premature email/licence toasts. The existing preference suite also reconfirmed Carptrac-only and Big-bin-only galleries, arrows, single-card sizing and new configured categories. New/changed components pass lint; the three previously documented unused declarations in CustomerPortalPage remain pre-existing findings.
 
 Browser checks ran against the user's existing frontend with fictional intercepted API responses; they did not modify live customer or asset records. No frontend or backend server was started or restarted for these fixes. Screenshots: `tmp/customer-ui-final-uat/` and `tmp/customer-preferences-uat/`. Client acceptance against the real configured register is still required.
+
+## Final customer website UI testing — 27 October 2026
+
+Branch: `final-customer-website-ui-testing`.
+
+- Customer page headers now use the shared CREMS page header. Account trigger has a visible dropdown arrow, and menu spacing is compact.
+- Rental preferences use separate division cards and selectable category chips, with configuration-driven categories and existing persistence/homepage filtering retained.
+- Asset fulfilment supports Pickup only, Delivery only, and Pickup or delivery. API validation enforces these choices. Existing delivery flags are migrated to Delivery only.
+- Booking/quotation checkout has three steps: rental and dates; customer details and configured service requirements; price and submit. Profile identity and contact details are read-only, including server-side phone authority. Secondary contact is optional.
+- Hourly hire edits update the estimate immediately. Delivery or personnel requests always require quotation; their charges are deferred for staff confirmation and excluded from the known hire estimate.
+- Search results occupy a temporary history entry. Leaving requires confirmation, cancelling preserves the search, and history navigation does not restore discarded results.
+- Rental summary focuses on hire details, issued invoice/balance, bond where relevant, and downloadable documents. Invoice PDF text wraps and paginates.
+
+Verification:
+- Production frontend build passed; 46 frontend unit tests passed.
+- 47 focused backend quotation and customer journey tests passed using isolated CustomerUat configuration.
+- Existing browser UI regression suite passed with intercepted fictional API data against the already-running frontend.
+- Added checkout/navigation browser coverage for three steps, read-only identity fields, live hourly estimates, delivery quotation switching, Back confirmation, stale-result disposal, and compact summary/document downloads.
+- Remaining CustomerPortalPage lint findings (`uploadCustomerDocument`, `quote`, `BookingCards`) predate these changes.
+
+Runtime handover: No frontend/backend server was started or restarted. Restart the backend yourself in VS Code to load the API changes and apply the new AssetCustomerFulfilmentOptions migration through the existing startup database initializer. The currently running API has not loaded this migration or these new API rules. Browser regression API responses were intercepted, so those tests do not claim live-database integration verification.

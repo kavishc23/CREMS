@@ -114,6 +114,6 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
         </Grid>
       </Grid>}
     </DialogContent>
-    <DialogActions sx={{ p: { xs: 2.5, md: 3 }, pt: 0, flexShrink: 0, bgcolor: 'background.paper' }}><Button onClick={onClose}>Close</Button><Box sx={{ flex: 1 }} />{datesChecked && <Button variant="contained" disabled={!available} onClick={() => asset && onContinue(asset)}>{details?.service?.requiresQuote || details?.service?.isBookableOnline === false ? 'Continue to quotation' : 'Continue to booking'}</Button>}</DialogActions>
+    <DialogActions sx={{ p: { xs: 2.5, md: 3 }, pt: 0, flexShrink: 0, bgcolor: 'background.paper' }}><Button onClick={onClose}>Close</Button><Box sx={{ flex: 1 }} />{datesChecked && <Button variant="contained" disabled={!available} onClick={() => asset && onContinue(asset)}>{!['Vehicle','PassengerVehicle','CommercialVehicle'].includes(details?.type ?? '') || details?.service?.requiresQuote || details?.service?.isBookableOnline === false ? 'Continue to quotation' : 'Continue to booking'}</Button>}</DialogActions>
   </Dialog>
 }
