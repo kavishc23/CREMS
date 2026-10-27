@@ -39,7 +39,10 @@ public sealed class AssetProfilesController(ApplicationDbContext db, CurrentStaf
                 x.IdentificationVerified, x.DriverLicenceVerified, x.PaymentVerified,
                 x.SignatureName }).ToListAsync(token);
         var lifecycle=await db.AssetLifecycleEvents.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.OccurredAt).Take(historyLimit).ToListAsync(token);
-        var meters=await db.AssetMeterReadings.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.RecordedAt).Take(historyLimit).ToListAsync(token);
+        var meters=await db.AssetMeterReadings.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.RecordedAt).Take(historyLimit)
+            .Select(x => new { x.Id, x.Reading, x.Unit, x.FuelPercent, x.RecordedAt,
+                RecordedByName = db.Users.Where(u => u.Id == x.RecordedByUserId).Select(u => u.FullName).FirstOrDefault() ?? "Unknown user",
+                x.Source, x.Type, x.RecordedByUserId }).ToListAsync(token);
         var transfers=await db.AssetTransfers.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.CreatedAt).Take(50).ToListAsync(token);
         var documents=await db.DocumentRecords.AsNoTracking().Where(x=>x.EntityType==nameof(Asset)&&x.EntityId==assetId).OrderByDescending(x=>x.CreatedAt).Take(historyLimit).ToListAsync(token);
         var audits=await db.AuditEvents.AsNoTracking().Where(x=>x.EntityType==nameof(Asset)&&x.EntityId==assetId).OrderByDescending(x=>x.OccurredAt).Take(historyLimit).ToListAsync(token);
@@ -105,7 +108,38 @@ public sealed class AssetProfilesController(ApplicationDbContext db, CurrentStaf
 
     [HttpPost("meters"),Authorize(Policy=SystemPermissions.AssetsRecordMeter)]
     public async Task<ActionResult> Meter(Guid assetId,AssetMeterInput request,CancellationToken token)
-    {await using var transaction = await MaintenanceRules.BeginAsync(db, token);var result=await AssetForScope(assetId,token);if(result.Result is not null)return result.Result;var asset=result.Value!;if(asset.CurrentMeterReading.HasValue&&request.Reading<asset.CurrentMeterReading)return BadRequest(new{message="A cumulative meter reading cannot decrease."});var scope=(await staffScope.GetAsync(User))!;var reading=new AssetMeterReading{AssetId=assetId,BookingId=request.BookingId,Type=request.Type,Unit=request.Unit.Trim(),Reading=request.Reading,FuelPercent=request.FuelPercent,Source=request.Source,RecordedByUserId=scope.UserId};asset.CurrentMeterReading=request.Reading;asset.MeterUnit=request.Unit.Trim();db.AssetMeterReadings.Add(reading);await MaintenanceRules.GenerateMeterJobAsync(db,asset,token);AuditWriter.Record(db,scope,"Asset meter recorded",nameof(Asset),asset.Id,$"{request.Reading} {request.Unit}",asset.BranchId);await db.SaveChangesAsync(token);if(transaction is not null)await transaction.CommitAsync(token);return Ok(reading);}
+    {
+        await using var transaction = await MaintenanceRules.BeginAsync(db, token);
+        var result = await AssetForScope(assetId, token);
+        if (result.Result is not null) return result.Result;
+        var asset = result.Value!;
+        if (request.Reading is < 0 or > 10000000)
+            return BadRequest(new { message = "Meter reading must be between 0 and 10,000,000." });
+        if (request.FuelPercent is < 0 or > 100)
+            return BadRequest(new { message = "Fuel must be between 0 and 100 percent." });
+        if (string.IsNullOrWhiteSpace(request.Unit) || request.Unit.Trim().Length > 30)
+            return BadRequest(new { message = "Enter a meter unit of up to 30 characters." });
+        if (!Enum.IsDefined(request.Type) || request.Type == MeterType.FuelLevel || !Enum.IsDefined(request.Source))
+            return BadRequest(new { message = "Select a cumulative meter type; record fuel using Fuel percentage." });
+        if (asset.CurrentMeterReading.HasValue && request.Reading < asset.CurrentMeterReading)
+            return BadRequest(new { message = "A cumulative meter reading cannot decrease." });
+        if (!string.IsNullOrWhiteSpace(asset.MeterUnit) && !string.Equals(asset.MeterUnit.Trim(), request.Unit.Trim(), StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "Use the asset's configured meter unit." });
+        if (request.BookingId.HasValue && !await db.BookingItems.AnyAsync(x => x.BookingId == request.BookingId && x.AssetId == assetId, token))
+            return BadRequest(new { message = "The booking must include this asset." });
+        var scope = (await staffScope.GetAsync(User))!;
+        var reading = new AssetMeterReading { AssetId = assetId, BookingId = request.BookingId, Type = request.Type,
+            Unit = request.Unit.Trim(), Reading = request.Reading, FuelPercent = request.FuelPercent,
+            Source = request.Source, RecordedByUserId = scope.UserId };
+        asset.CurrentMeterReading = request.Reading;
+        asset.MeterUnit = request.Unit.Trim();
+        db.AssetMeterReadings.Add(reading);
+        await MaintenanceRules.GenerateMeterJobAsync(db, asset, token);
+        AuditWriter.Record(db, scope, "Asset meter recorded", nameof(Asset), asset.Id, $"{request.Reading} {request.Unit}", asset.BranchId);
+        await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return Ok(reading);
+    }
 
     [HttpPost("inspections"),Authorize(Policy=SystemPermissions.AssetsInspect)]
     public async Task<ActionResult> Inspect(Guid assetId,AssetInspectionInput request,CancellationToken token)

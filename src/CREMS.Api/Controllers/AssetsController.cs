@@ -166,6 +166,9 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         if (asset is null) return NotFound();
         if (!scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
 
+        if (request.CurrentMeterReading != asset.CurrentMeterReading)
+            return BadRequest(new { message = "Use Record meter in the asset profile to change the reading and preserve its history." });
+
         var assetNumber = request.AssetNumber.Trim().ToUpperInvariant();
         if (await db.Assets.AnyAsync(
             other => other.Id != id && other.AssetNumber == assetNumber, cancellationToken))
