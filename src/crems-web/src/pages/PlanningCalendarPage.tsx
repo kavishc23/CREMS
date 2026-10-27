@@ -43,7 +43,7 @@ const STATUS_PALETTE = {
   transfer: { label: 'Transfer', short: 'T', color: '#F3E8FF', textColor: '#5B21B6', busy: true },
   outOfService: { label: 'Out of service', short: 'O', color: '#FEE2E2', textColor: '#991B1B', busy: true },
   retired: { label: 'Retired', short: 'R', color: '#E5E7EB', textColor: '#374151', busy: true },
-  branchClosed: { label: 'Branch closed', short: 'BC', color: '#F3F4F6', textColor: '#374151', busy: true },
+  branchClosed: { label: 'Branch closed', short: 'B', color: '#F3F4F6', textColor: '#374151', busy: true },
 } as const
 
 function startOfDay(date: Date) {
@@ -259,9 +259,11 @@ export function PlanningCalendarPage() {
         </Stack>
       } />
 
-      <Card variant="outlined" sx={{ mb: 2.5, borderTop: '3px solid', borderTopColor: 'secondary.main' }}><CardContent sx={{ p: { xs: 2, md: 2.5 } }}><Box sx={{
+      <Card variant="outlined" sx={{ mb: 2.5, borderTop: '3px solid', borderTopColor: 'secondary.main' }}><CardContent sx={{ p: { xs: 2, md: 2.5 }, overflowX: 'auto' }}><Box sx={{
         display: 'grid', gap: 1.5, alignItems: 'center',
-        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))', xl: 'minmax(220px, 1.3fr) repeat(3, minmax(150px, 1fr)) minmax(110px, .7fr) repeat(2, minmax(145px, .85fr)) auto' },
+        minWidth: 1264,
+        gridTemplateColumns: 'minmax(190px, 1.5fr) repeat(3, minmax(125px, 1fr)) minmax(105px, .75fr) repeat(2, minmax(160px, 1.15fr)) minmax(190px, 1.4fr)',
+        '& > *': { minWidth: 0 },
       }}>
           <TextField
             label="Search vehicle or asset"
@@ -355,7 +357,7 @@ export function PlanningCalendarPage() {
           color="success"
           size="small"
           onClick={() => setAvailableOnly((current) => !current)}
-          sx={{ minHeight: 40, whiteSpace: 'nowrap', justifySelf: { xs: 'stretch', xl: 'end' } }}
+          sx={{ minHeight: 40, width: '100%', whiteSpace: 'nowrap' }}
         >
           {availableOnly ? 'Showing available only' : 'Show available only'}
         </Button>
