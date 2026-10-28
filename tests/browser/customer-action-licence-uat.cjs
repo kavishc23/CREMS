@@ -41,11 +41,11 @@ const assets = [
     assert.equal(await modal.getByText(/Version\s+1/i).count(),0);
     await modal.getByRole('button',{name:'Accept quote',exact:true}).evaluate(button=>{button.click();button.click()});
     await modal.waitFor({state:'hidden'});assert.equal(decisions,1,'Only one quote decision may be submitted');
-    await page.getByText('Quotation accepted. Awaiting branch review and confirmation.',{exact:true}).waitFor();
+    await page.getByText('Quotation accepted. Awaiting branch confirmation.',{exact:true}).waitFor();
     const snackbar=page.locator('.MuiSnackbar-root');
     await snackbar.hover();await snackbar.waitFor({state:'hidden',timeout:4400});
     assert.equal(await page.getByRole('button',{name:'Review quotation',exact:true}).count(),0);
-    assert((await page.getByText('Awaiting review',{exact:true}).count())>0);
+    assert((await page.getByText('Awaiting Confirmation',{exact:true}).count())>0);
     assert.equal(await page.getByText(/Version\s+1/i).count(),0);
     await page.screenshot({path:output+'/quote-accepted.png'});
     confirmed=true;await page.reload();await page.getByText('Confirmed',{exact:true}).first().waitFor();

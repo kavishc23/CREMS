@@ -324,6 +324,48 @@ public sealed class CustomerJourneyRegressionTests
     }
 
     [Fact]
+    public async Task Draft_quote_is_hidden_until_sent_and_cancellation_closes_the_linked_request()
+    {
+        await using var f = await Fixture.Create();
+        var token = TestContext.Current.CancellationToken;
+        var booking = f.Booking(f.Customer.Id);
+        var quote = new SalesQuote { QuoteNumber = "QUO-HIDDEN", CustomerId = f.Customer.Id, BranchId = f.Branch.Id,
+            ConvertedBookingId = booking.Id, Status = QuoteStatus.Draft, ValidUntil = DateTimeOffset.UtcNow.AddDays(10),
+            Total = 999, Subtotal = 999, LineItemsJson = "[{\"description\":\"Draft offer\",\"quantity\":1,\"rate\":999,\"unit\":\"Day\"}]" };
+        f.Db.AddRange(booking, quote); await f.Db.SaveChangesAsync(token);
+        var response = Assert.IsType<OkObjectResult>(await f.Account.Quotes(token));
+        var json = JsonSerializer.SerializeToElement(response.Value).EnumerateArray().Single();
+        Assert.False(json.GetProperty("HasOffer").GetBoolean());
+        Assert.Equal("AwaitingQuotation", json.GetProperty("CustomerStatus").GetString());
+        Assert.Equal(0, json.GetProperty("Total").GetDecimal());
+        Assert.Equal(JsonValueKind.Null, json.GetProperty("Lines").ValueKind);
+        Assert.IsType<OkObjectResult>(await f.Account.CancelQuoteRequest(quote.Id, token));
+        Assert.Equal(BookingStatus.Cancelled, booking.Status);
+        Assert.Equal(QuoteStatus.Rejected, quote.Status);
+        Assert.IsType<ConflictObjectResult>(await f.Account.DecideQuote(quote.Id, new(true, null, 1), token));
+        var other = Guid.NewGuid(); quote.CustomerId = other; await f.Db.SaveChangesAsync(token);
+        Assert.IsType<NotFoundResult>(await f.Account.CancelQuoteRequest(quote.Id, token));
+    }
+
+    [Fact]
+    public async Task Accepted_quote_can_be_cancelled_before_confirmation_and_confirmed_hire_requires_a_reason()
+    {
+        await using var f = await Fixture.Create();
+        var token = TestContext.Current.CancellationToken;
+        var booking = f.Booking(f.Customer.Id);
+        var quote = new SalesQuote { QuoteNumber = "QUO-CANCEL-ACCEPTED", CustomerId = f.Customer.Id, BranchId = f.Branch.Id,
+            ConvertedBookingId = booking.Id, Status = QuoteStatus.Accepted, ValidUntil = DateTimeOffset.UtcNow.AddDays(5) };
+        f.Db.AddRange(booking, quote); await f.Db.SaveChangesAsync(token);
+        Assert.IsType<OkObjectResult>(await f.Account.RequestCancellation(booking.Id, new(null), token));
+        Assert.Equal(BookingStatus.Cancelled, booking.Status);
+        var confirmed = f.Booking(f.Customer.Id); confirmed.Status = BookingStatus.Confirmed;
+        f.Db.Add(confirmed); await f.Db.SaveChangesAsync(token);
+        Assert.IsType<BadRequestObjectResult>(await f.Account.RequestCancellation(confirmed.Id, new(null), token));
+        Assert.IsType<AcceptedResult>(await f.Account.RequestCancellation(confirmed.Id, new("Plans changed"), token));
+        Assert.Equal(BookingStatus.Confirmed, confirmed.Status);
+    }
+
+    [Fact]
     public async Task Confirmed_booking_date_change_requires_branch_review_and_prevents_duplicate_requests()
     {
         await using var f = await Fixture.Create();
