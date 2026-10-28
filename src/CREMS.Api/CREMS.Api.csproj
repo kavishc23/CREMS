@@ -9,7 +9,6 @@
 
   <ItemGroup>
     <!-- Override vulnerable transitive versions from EF tooling and SqlClient. -->
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.21" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
       <PrivateAssets>all</PrivateAssets>
@@ -24,6 +23,8 @@
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
     <PackageReference Include="PDFtoImage" Version="5.4.0" />
     <PackageReference Include="TesseractOCR" Version="5.5.2" />
+    <!-- Override the vulnerable transitive 9.x dependency with the patched .NET 10 release. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
 
   <ItemGroup>

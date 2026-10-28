@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const apiTarget = process.env.CREMS_API_URL ?? 'http://localhost:5080'
+const frontendUrl = new URL(process.env.CREMS_FRONTEND_URL ?? 'http://localhost:5173')
+
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -9,14 +12,11 @@ export default defineConfig({
     chunkSizeWarningLimit: 600,
   },
   server: {
-    port: 5173,
+    host: frontendUrl.hostname,
+    port: Number(frontendUrl.port || 5173),
     strictPort: true,
-    // The temporary Cloudflare quick tunnel forwards its public Host header.
-    // This is only used by the local development server; production hosting
-    // should use an explicit hostname allow-list.
-    allowedHosts: true,
     proxy: {
-      '/api': 'http://localhost:5080',
+      '/api': apiTarget,
     },
   },
   preview: {
@@ -25,7 +25,7 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: true,
     proxy: {
-      '/api': 'http://localhost:5080',
+      '/api': apiTarget,
     },
   },
 })

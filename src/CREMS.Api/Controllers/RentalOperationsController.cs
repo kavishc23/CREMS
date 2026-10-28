@@ -63,9 +63,11 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
                 x.Items.Select(i => i.Asset!.Type == AssetType.PropertyUnit ? "PROPERTY_UNIT" : i.Asset.AssetCategory!.Code).FirstOrDefault(), x.Items.Select(i => i.Asset!.Category).FirstOrDefault(),
                 x.Charges.Any(c => c.Category == ChargeCategory.Driver || c.Category == ChargeCategory.Operator),
                 x.Items.Select(i => (DateTimeOffset?)i.StartAt).FirstOrDefault(), x.Items.Select(i => (DateTimeOffset?)i.EndAt).FirstOrDefault(),
-                x.RentalAgreement != null, x.RentalAgreement != null
-                    ? (x.Status == BookingStatus.ConvertedToRental || (x.Status == BookingStatus.Completed && !x.Inspections.Any(i => i.Type == InspectionType.Return)) ? "Active" : x.RentalAgreement.Status.ToString())
-                    : "Not prepared",
+                x.Status != BookingStatus.Confirmed && x.RentalAgreement != null,
+                x.Status == BookingStatus.Confirmed || x.RentalAgreement == null ? "Not signed"
+                    : x.Status == BookingStatus.Completed && x.Inspections.Any(i => i.Type == InspectionType.Return) ? "Completed"
+                    : x.Status == BookingStatus.ConvertedToRental || x.Status == BookingStatus.Completed ? "Active"
+                    : "Not signed",
                 x.Payments.Where(p => p.Status == PaymentStatus.Recorded && (p.Type == PaymentType.RentalCharge || p.Type == PaymentType.AdditionalCharge)).Sum(p => (decimal?)p.Amount) ?? 0, x.DepositRequired,
                 x.BondStatus.ToString(), x.BondAmountHeld, x.BondDeductionAmount, x.BondRefundAmount,
                 x.Inspections.Any(i => i.Type == InspectionType.Handover), x.Inspections.Any(i => i.Type == InspectionType.Return),
@@ -278,7 +280,10 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var hasDamage = !string.IsNullOrWhiteSpace(request.DamageNotes);
         foreach (var item in booking.Items.Where(item => item.Asset is not null))
         {
-            var asset=item.Asset!;if(request.MeterReading.HasValue)asset.MeterUnit=await ConfiguredHireRules.EffectiveMeterUnit(db,asset,cancellationToken);var from=asset.Status;asset.Status=hasDamage || await db.MaintenanceJobs.AnyAsync(x => x.AssetId == asset.Id && x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled, cancellationToken)?AssetStatus.Maintenance:AssetStatus.Available;
+            var asset=item.Asset!;if(request.MeterReading.HasValue)asset.MeterUnit=await ConfiguredHireRules.EffectiveMeterUnit(db,asset,cancellationToken);var from=asset.Status;
+            var hasUnreleasedMaintenance = await db.MaintenanceJobs.AnyAsync(x => x.AssetId == asset.Id &&
+                (x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled || x.ReleasedAt == null), cancellationToken);
+            asset.Status=hasDamage || hasUnreleasedMaintenance ? AssetStatus.Maintenance : AssetStatus.Available;
             db.AssetLifecycleEvents.Add(new AssetLifecycleEvent{AssetId=asset.Id,BookingId=booking.Id,Type=hasDamage?AssetLifecycleEventType.DamageReported:AssetLifecycleEventType.PostHireInspection,FromStatus=from,ToStatus=asset.Status,MeterReading=request.MeterReading,Notes=Normalize(request.DamageNotes)??$"Returned on {booking.BookingNumber}",RecordedByUserId=scope.UserId,RecordedByName=scope.UserName});
             if(request.MeterReading.HasValue){asset.CurrentMeterReading=request.MeterReading;db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=asset.MeterUnit?.Contains("hour",StringComparison.OrdinalIgnoreCase)==true?MeterType.EngineHours:MeterType.Odometer,Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PostHireInspection,RecordedByUserId=scope.UserId});}
             // Preserve a separate traceable job for each newly reported return fault.

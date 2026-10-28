@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid, List, ListItemButton, ListItemIcon, ListItemText, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material'
+import { Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Grid, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material'
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined'
 import AssignmentTurnedInOutlined from '@mui/icons-material/AssignmentTurnedInOutlined'
 import LocalShippingOutlined from '@mui/icons-material/LocalShippingOutlined'
@@ -115,24 +115,19 @@ export function CorporateOperationsPage({ embedded = false }: { embedded?: boole
   const canCreate=['personnel','parts','suppliers','deliveryZones','pricing','transfers'].includes(section.key)
   const selectSection=(key:string)=>{setSelected(key);setSearch('')}
   return <Box sx={{p:{xs:2,sm:3,lg:4},pt:embedded?3:undefined,maxWidth:1600,mx:'auto'}}>
-    {!embedded&&<PageHeader icon={<CorporateFareOutlined/>} title="Operations centre" subtitle="One place for daily work, decisions and supporting business records." actions={<Button startIcon={<RefreshOutlined/>} onClick={()=>void load()} disabled={loading}>Refresh</Button>}/>}
-    {embedded&&<Stack direction="row" justifyContent="flex-end" mb={2}><Button startIcon={<RefreshOutlined/>} onClick={()=>void load()} disabled={loading}>Refresh</Button></Stack>}
-    <Card variant="outlined" sx={{mb:2}}><Tabs value={mode} onChange={(_,next:'daily'|'tools')=>switchMode(next)} variant="fullWidth"><Tab value="daily" label="Today's work"/><Tab value="tools" label="Business tools"/></Tabs></Card>
-    <Alert severity="info" sx={{mb:2}}>{user?.divisionName??'Allocated divisions'} · {user?.branchName??'Allocated branches'}. Work and decisions follow your assigned access.</Alert>
+    {!embedded&&<PageHeader icon={<CorporateFareOutlined/>} title="Operations centre" subtitle="One place for daily work, decisions and supporting business records." actions={<Stack direction="row" gap={1} alignItems="center"><Button startIcon={<RefreshOutlined/>} onClick={()=>void load()} disabled={loading}>Refresh</Button>{workspace&&<ReportButton label="Operations reports" reports={operationsReports(workspace,overview)}/>}</Stack>}/>}
+    {embedded&&<Stack direction="row" justifyContent="flex-end" gap={1} mb={2}><Button startIcon={<RefreshOutlined/>} onClick={()=>void load()} disabled={loading}>Refresh</Button>{workspace&&<ReportButton label="Operations reports" reports={operationsReports(workspace,overview)}/>}</Stack>}
     {error&&<Alert severity="error" sx={{mb:2}} onClose={()=>setError('')}>{error}</Alert>}
     {loading?<Box sx={{minHeight:360,display:'grid',placeItems:'center'}}><CircularProgress/></Box>:<>
-      {workspace&&<Box sx={{display:"flex",justifyContent:"flex-end",mb:2}}><ReportButton label="Operations reports" reports={operationsReports(workspace,overview)} /></Box>}
       {mode==='daily'&&overview&&<Grid container spacing={1.5} mb={2}>{metricKeys.map(key=>{const number=overview[key]??0;const attention=(key==='overdueRentals'||key==='pendingApprovals')&&number>0;return <Grid key={key} size={{xs:6,sm:4,lg:2}}><Card variant="outlined" sx={{height:'100%',borderTop:3,borderTopColor:attention?'error.main':'secondary.main'}}><CardContent><Typography variant="caption" color="text.secondary">{heading(key)}</Typography><Typography variant="h5" fontWeight={800} mt={.5}>{key.includes('Receivables')?`FJD ${number.toLocaleString('en-FJ')}`:key.includes('Percent')?`${number}%`:number.toLocaleString('en-FJ')}</Typography></CardContent></Card></Grid>})}</Grid>}
-      <Grid container spacing={2} alignItems="flex-start">
-        <Grid size={{xs:12,md:3,lg:2.7}}>
-          <Card variant="outlined" sx={{position:{md:'sticky'},top:{md:80}}}>
-            <Box sx={{p:2,display:{xs:'none',md:'block'}}}><Typography fontWeight={800}>{mode==='daily'?'Work queues':'Business tools'}</Typography><Typography variant="body2" color="text.secondary">Choose a section</Typography></Box>
-            <Divider sx={{display:{xs:'none',md:'block'}}}/>
-            <Tabs value={sections.findIndex(x=>x.key===section.key)} onChange={(_,index)=>selectSection(sections[index].key)} variant="scrollable" scrollButtons="auto" sx={{display:{xs:'flex',md:'none'}}}>{sections.map(item=><Tab key={item.key} label={item.label}/>)}</Tabs>
-            <List disablePadding sx={{display:{xs:'none',md:'block'},maxHeight:'calc(100vh - 190px)',overflowY:'auto'}}>{sections.map(item=><ListItemButton key={item.key} selected={item.key===section.key} onClick={()=>selectSection(item.key)} sx={{py:1.2}}><ListItemIcon sx={{minWidth:38,color:item.key===section.key?'secondary.dark':'text.secondary'}}>{item.icon}</ListItemIcon><ListItemText primary={item.label} secondary={item.description} primaryTypographyProps={{fontWeight:item.key===section.key?800:600}}/><Chip size="small" label={sectionCount(item.key)}/></ListItemButton>)}</List>
-          </Card>
-        </Grid>
-        <Grid size={{xs:12,md:9,lg:9.3}}><Card variant="outlined" sx={{minHeight:420}}>
+      <Card variant="outlined" sx={{minHeight:420,overflow:'hidden'}}>
+          <Tabs value={mode} onChange={(_,next:'daily'|'tools')=>switchMode(next)} variant="fullWidth" sx={{borderBottom:1,borderColor:'divider'}}>
+            <Tab value="daily" label="Work queues" sx={{textTransform:'none',fontWeight:700}}/>
+            <Tab value="tools" label="Business tools" sx={{textTransform:'none',fontWeight:700}}/>
+          </Tabs>
+          <Tabs value={section.key} onChange={(_,key:string)=>selectSection(key)} variant="scrollable" scrollButtons="auto" sx={{px:1,borderBottom:1,borderColor:'divider',bgcolor:'grey.50'}}>
+            {sections.map(item=><Tab key={item.key} value={item.key} label={`${item.label} (${sectionCount(item.key)})`} sx={{minHeight:48,textTransform:'none'}}/>)}
+          </Tabs>
           <Box sx={{px:{xs:2,sm:3},pt:2,pb:isSpecial?1:2,borderBottom:1,borderColor:'divider'}}>
             <Stack direction={{xs:'column',sm:'row'}} alignItems={{sm:'center'}} justifyContent="space-between" gap={1}>
               {!isSpecial&&<Stack direction="row" alignItems="center" gap={1.5}><Avatar sx={{bgcolor:'secondary.main',color:'#111'}}>{section.icon}</Avatar><Box><Typography variant="h6" fontWeight={800}>{section.label}</Typography><Typography variant="body2" color="text.secondary">{section.description}</Typography></Box></Stack>}
@@ -141,8 +136,7 @@ export function CorporateOperationsPage({ embedded = false }: { embedded?: boole
             {!isSpecial&&<Stack direction={{xs:'column',sm:'row'}} alignItems={{sm:'center'}} justifyContent="space-between" gap={1} mt={2}><TextField size="small" label={`Search ${section.label.toLowerCase()}`} value={search} onChange={e=>setSearch(e.target.value)} sx={{minWidth:{sm:300}}}/><Typography variant="body2" color="text.secondary">Showing {visibleRows.length} of {rows.length}</Typography></Stack>}
           </Box>
           {section.key==='readiness'?<HireReadinessPanel rows={readiness}/>:section.key==='quotes'?<QuoteWorkspace quotes={rows as never[]} reload={load}/>:section.key==='approvals'?<ApprovalWorkspace approvals={rows as never[]} reload={load}/>:<Content section={section} rows={visibleRows} columns={columns} onAction={openAction} onInspect={setDetailRow} userId={user?.id} isAdmin={Boolean(user?.roles.some(role=>['SuperAdministrator','Administrator'].includes(role)))}/>}
-        </Card></Grid>
-      </Grid>
+      </Card>
     </>}
     <Dialog open={Boolean(actionRow)} onClose={()=>!savingAction&&setActionRow(null)} fullWidth maxWidth="sm">
       <DialogTitle>{section.key==='tasks'?'Complete task':section.key==='cases'?'Update customer case':'Update dispatch'}</DialogTitle>

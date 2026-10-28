@@ -21,7 +21,7 @@ import { AssetProfileDialog } from '../components/AssetProfileDialog'
 import { PageHeader } from '../components/PageHeader'
 import { api } from '../api/client'
 
-type Asset = { id: string; assetNumber: string; name: string; status: string; branchId: string; divisionId: string | null }
+type Asset = { id: string; assetNumber: string; name: string; status: string; branchId: string; divisionId: string | null; isUnreturned: boolean }
 type Event = { assetId: string; startAt: string; endAt: string; type: string; reference: string }
 type Calendar = {
   assets: Asset[]
@@ -43,7 +43,7 @@ const STATUS_PALETTE = {
   transfer: { label: 'Transfer', short: 'T', color: '#F3E8FF', textColor: '#5B21B6', busy: true },
   outOfService: { label: 'Out of service', short: 'O', color: '#FEE2E2', textColor: '#991B1B', busy: true },
   retired: { label: 'Retired', short: 'R', color: '#E5E7EB', textColor: '#374151', busy: true },
-  branchClosed: { label: 'Branch closed', short: 'BC', color: '#F3F4F6', textColor: '#374151', busy: true },
+  branchClosed: { label: 'Branch closed', short: 'B', color: '#F3F4F6', textColor: '#374151', busy: true },
 } as const
 
 function startOfDay(date: Date) {
@@ -82,6 +82,11 @@ function overlapsDate(date: Date, startAt: string, endAt: string) {
 }
 
 function getAssetStatusForDate(asset: Asset, date: Date, events: Event[]): DayStatus {
+  // Inspection is a current hold. Keep it visible on today and future dates even
+  // when an older, unreleased maintenance record also overlaps the period.
+  if (asset.status === 'Inspection' && toLocalDateKey(date) >= toLocalDateKey(new Date()))
+    return STATUS_PALETTE.inspection
+
   const matches = events.filter((event) => event.assetId === asset.id && overlapsDate(date, event.startAt, event.endAt))
 
   if (matches.some(event => event.type.toLowerCase() === 'maintenance')) return STATUS_PALETTE.maintenance
@@ -89,7 +94,8 @@ function getAssetStatusForDate(asset: Asset, date: Date, events: Event[]): DaySt
   if (matches.length) return STATUS_PALETTE.booked
   // Current asset status is a snapshot, not historical availability.
   if (toLocalDateKey(date) >= toLocalDateKey(new Date())) {
-    if (toLocalDateKey(date) === toLocalDateKey(new Date()) && ['Reserved', 'Rented'].includes(asset.status)) return STATUS_PALETTE.booked
+    if (asset.isUnreturned || asset.status === 'Rented') return STATUS_PALETTE.booked
+    if (toLocalDateKey(date) === toLocalDateKey(new Date()) && asset.status === 'Reserved') return STATUS_PALETTE.booked
     if (asset.status === 'Inspection') return STATUS_PALETTE.inspection
     if (asset.status === 'Maintenance') return STATUS_PALETTE.maintenance
     if (asset.status === 'OutOfService') return STATUS_PALETTE.outOfService
@@ -259,9 +265,11 @@ export function PlanningCalendarPage() {
         </Stack>
       } />
 
-      <Card variant="outlined" sx={{ mb: 2.5, borderTop: '3px solid', borderTopColor: 'secondary.main' }}><CardContent sx={{ p: { xs: 2, md: 2.5 } }}><Box sx={{
+      <Card variant="outlined" sx={{ mb: 2.5, borderTop: '3px solid', borderTopColor: 'secondary.main' }}><CardContent sx={{ p: { xs: 2, md: 2.5 }, overflowX: 'auto' }}><Box sx={{
         display: 'grid', gap: 1.5, alignItems: 'center',
-        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))', xl: 'minmax(220px, 1.3fr) repeat(3, minmax(150px, 1fr)) minmax(110px, .7fr) repeat(2, minmax(145px, .85fr)) auto' },
+        minWidth: 1264,
+        gridTemplateColumns: 'minmax(190px, 1.5fr) repeat(3, minmax(125px, 1fr)) minmax(105px, .75fr) repeat(2, minmax(160px, 1.15fr)) minmax(190px, 1.4fr)',
+        '& > *': { minWidth: 0 },
       }}>
           <TextField
             label="Search vehicle or asset"
@@ -355,7 +363,7 @@ export function PlanningCalendarPage() {
           color="success"
           size="small"
           onClick={() => setAvailableOnly((current) => !current)}
-          sx={{ minHeight: 40, whiteSpace: 'nowrap', justifySelf: { xs: 'stretch', xl: 'end' } }}
+          sx={{ minHeight: 40, width: '100%', whiteSpace: 'nowrap' }}
         >
           {availableOnly ? 'Showing available only' : 'Show available only'}
         </Button>
@@ -370,7 +378,7 @@ export function PlanningCalendarPage() {
         ))}
       </Stack>
 
-      <Alert severity="info" sx={{ mb: 2 }}>Bookings, maintenance and transfers come from CREMS records. Current inspection and out-of-service holds carry forward until their status changes; dates without an event are not a historical condition record. Branch closures are operating-calendar exceptions, not asset states.</Alert>
+      <Alert severity="info" sx={{ mb: 2 }}>Bookings, maintenance and transfers come from CREMS records. Assets still on hire, including overdue returns, remain booked until return is confirmed. Inspection and out-of-service holds carry forward until release. Branch closures are operating-calendar exceptions, not asset states.</Alert>
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2.5}>
         <Card variant="outlined" sx={{ flex: 1, bgcolor: '#15140f', color: 'white' }}>

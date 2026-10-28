@@ -45,6 +45,9 @@ public sealed class AssetQrController(ApplicationDbContext db, CurrentStaffScope
             (x.Status == MaintenanceStatus.Open || x.Status == MaintenanceStatus.InProgress || x.Status == MaintenanceStatus.WaitingForParts || x.Status == MaintenanceStatus.Completed && x.ReleasedAt == null))
             .Select(x => new { x.JobNumber, x.ServiceType, x.Status, x.ExpectedReleaseAt }).ToListAsync(token);
         var inTransit = await db.AssetTransfers.AsNoTracking().AnyAsync(x => x.AssetId == asset.Id && x.DepartedAt != null && x.ReceivedAt == null, token);
+        var unreturned = await db.BookingItems.AsNoTracking().AnyAsync(x => x.AssetId == asset.Id &&
+            (x.Booking!.Status == BookingStatus.ConvertedToRental ||
+             x.Booking.Status == BookingStatus.Completed && !x.Booking.Inspections.Any(i => i.Type == InspectionType.Return)), token);
         var booking = await db.Bookings.AsNoTracking()
             .Include(x => x.Customer).Include(x => x.Branch).Include(x => x.Items).Include(x => x.RentalAgreement)
             .Where(x => x.Items.Any(i => i.AssetId == asset.Id) &&
@@ -55,8 +58,8 @@ public sealed class AssetQrController(ApplicationDbContext db, CurrentStaffScope
         var fiji = TimeZoneInfo.FindSystemTimeZoneById("Pacific/Fiji");
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, fiji).DateTime);
         var pickupDue = booking?.Items.Any(x => x.AssetId == asset.Id && DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(x.StartAt, fiji).DateTime) <= today) == true;
-        var action = booking?.Status switch { BookingStatus.Confirmed when pickupDue && asset.IsActive && (asset.Status is AssetStatus.Available or AssetStatus.Reserved) && maintenance.Count == 0 && !inTransit => "CheckOut", BookingStatus.ConvertedToRental => "CheckIn", _ => "ViewOnly" };
-        var bookedNow = booking?.Status == BookingStatus.ConvertedToRental || upcoming.Any(x => x.StartAt <= now && x.EndAt > now);
+        var action = booking?.Status switch { BookingStatus.Confirmed when pickupDue && asset.IsActive && (asset.Status is AssetStatus.Available or AssetStatus.Reserved) && maintenance.Count == 0 && !inTransit && !unreturned => "CheckOut", BookingStatus.ConvertedToRental => "CheckIn", _ => "ViewOnly" };
+        var bookedNow = unreturned || upcoming.Any(x => x.StartAt <= now && x.EndAt > now);
         var availableNow = asset.IsActive && (asset.Status is AssetStatus.Available or AssetStatus.Reserved) && maintenance.Count == 0 && !inTransit && !bookedNow;
         var payments = booking is null ? 0 : await db.RentalPayments.Where(x => x.BookingId == booking.Id && x.Status == PaymentStatus.Recorded).SumAsync(x => (decimal?)x.Amount, token) ?? 0;
         var driverVerified = booking is not null && await db.AuthorizedDrivers.AnyAsync(x => x.BookingId == booking.Id && x.Verified && x.LicenceExpiry > DateOnly.FromDateTime(DateTime.UtcNow), token);

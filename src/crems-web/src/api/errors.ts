@@ -22,7 +22,9 @@ export function classifyApiFailure(error: unknown, fallback = 'The request could
   if (error.code === 'ECONNABORTED' || /timeout/i.test(error.message))
     return { kind: 'timeout', message: 'The request timed out. Please try again.' }
   if (!error.response)
-    return { kind: 'network', message: 'CREMS could not connect to the API. Start the backend on http://localhost:5080 and try again.' }
+    return { kind: 'network', message: import.meta.env.DEV
+      ? 'CREMS could not connect to the API. Start the backend on http://localhost:5080 and try again.'
+      : 'CREMS could not reach the service. Check your connection and try again.' }
   if (error.response.status === 401) {
     const event = sessionFailureEvent(error.config?.url ?? '', error.config?.method)
     if (!event) return { kind: 'unexpected', message: fallback }

@@ -201,6 +201,31 @@ public sealed class ReturnChargesAndBondTests
         Assert.Single(await db.RentalInvoices.ToListAsync(token));
     }
 
+    [Fact]
+    public async Task Return_completes_but_keeps_asset_in_maintenance_when_completed_job_is_not_released()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var db = CreateDb();
+        var (booking, context) = await Seed(db, BookingStatus.ConvertedToRental);
+        var asset = await db.Assets.SingleAsync(token);
+        asset.Status = AssetStatus.Rented;
+        db.MaintenanceJobs.Add(new MaintenanceJob { JobNumber = "HELD-REPAIR", AssetId = asset.Id,
+            BranchId = asset.BranchId, ServiceType = "Repair", FaultDescription = "Safety release pending",
+            Status = MaintenanceStatus.Completed, CompletedAt = DateTimeOffset.UtcNow.AddHours(-1) });
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
+
+        var controller = new RentalOperationsController(db, new CurrentStaffScope(db)) { ControllerContext = context };
+        var request = new ReturnInspectionRequest("A-1", true, true, null, null, "Inspected", null,
+            "Customer", 0, null, 0, 0, 0, 0, 0, 0, null, PaymentMethod.Cash) {
+            ReturnedAt = DateTimeOffset.UtcNow, SignatureDataUrl = "data:image/png;base64,AA==",
+            ChecklistItems = ["Checked"], EvidenceDataUrls = ["data:image/png;base64,AA=="] };
+
+        Assert.IsType<OkObjectResult>(await controller.Return(booking.Id, request, token));
+        Assert.Equal(BookingStatus.Completed, booking.Status);
+        Assert.Equal(AssetStatus.Maintenance, asset.Status);
+        Assert.Single(await db.RentalInvoices.ToListAsync(token));
+    }
+
     private static ApplicationDbContext CreateDb() => new(new DbContextOptionsBuilder<ApplicationDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 

@@ -105,6 +105,40 @@ public sealed class CustomerAccountController(
             DriverLicenceNumber = licence?.LicenceNumber, DriverLicenceClasses = (licence?.LicenceClasses ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray(), customer.Type, customer.HirePreferences, customer.PreferredServiceIds, customer.PreferredAssetCategoryIds, user.EmailConfirmed });
     }
 
+    [HttpPost("change-password")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> ChangePassword(ChangeCustomerPasswordRequest request)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user is null || !user.IsActive || !user.CustomerId.HasValue) return Unauthorized();
+        if (await userManager.CheckPasswordAsync(user, request.NewPassword))
+        {
+            ModelState.AddModelError(nameof(request.NewPassword), "Your new password must be different from your current password.");
+            return ValidationProblem(ModelState);
+        }
+
+        var result = await userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        if (!result.Succeeded)
+        {
+            foreach (var error in result.Errors) ModelState.AddModelError(string.Empty, error.Description);
+            return ValidationProblem(ModelState);
+        }
+
+        user.PasswordChangedAt = DateTimeOffset.UtcNow;
+        user.MustChangePassword = false;
+        await userManager.UpdateAsync(user);
+        await SignInCustomer(user);
+
+        if (!string.IsNullOrWhiteSpace(user.Email))
+        {
+            emailQueue.Queue(db, user.Email, "Your CREMS password was changed",
+                EmailTemplate.Branded("Your CREMS password was changed", "<p>Your account password was changed successfully.</p><p>If you did not make this change, contact Carpenters support immediately.</p>"),
+                "Your CREMS password was changed. Contact Carpenters support immediately if this was not you.", "Security");
+            await db.SaveChangesAsync();
+        }
+        return NoContent();
+    }
+
     [HttpGet("bookings")]
     [Authorize(Policy = SystemPolicies.CustomerPortal)]
     public async Task<ActionResult> Bookings(CancellationToken token)
@@ -180,7 +214,8 @@ public sealed class CustomerAccountController(
             await db.CustomerLicences.AsNoTracking().AnyAsync(x => x.CustomerId == user.CustomerId && x.Status == LicenceVerificationStatus.Verified, token) ||
             documents.Any(x => x.Type.Contains("licence", StringComparison.OrdinalIgnoreCase) || x.Type.Contains("license", StringComparison.OrdinalIgnoreCase));
         var bondPaid = booking.DepositRequired <= 0 || booking.BondAmountHeld >= booking.DepositRequired;
-        var agreementReady = booking.RentalAgreement is not null && booking.RentalAgreement.Status != AgreementStatus.Draft;
+        var agreementReady = booking.Status is (BookingStatus.ConvertedToRental or BookingStatus.Completed) &&
+            booking.RentalAgreement is not null && booking.RentalAgreement.Status is (AgreementStatus.Signed or AgreementStatus.Active or AgreementStatus.Completed);
         var preHireComplete = booking.Inspections.Any(x => x.Type == InspectionType.Handover);
         var personnelRequired = booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.RequiresPersonnel(x.Asset)) ||
             booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator);
@@ -221,7 +256,7 @@ public sealed class CustomerAccountController(
             Bond = new { Required = booking.DepositRequired, Held = booking.BondAmountHeld,
                 Deduction = booking.BondDeductionAmount, booking.BondDeductionReason,
                 Refund = booking.BondRefundAmount, Status = booking.BondStatus.ToString(), booking.BondSettledAt },
-            Agreement = booking.RentalAgreement is null ? null : new
+            Agreement = booking.RentalAgreement is null || !agreementReady ? null : new
             {
                 booking.RentalAgreement.AgreementNumber, booking.RentalAgreement.Status,
                 booking.RentalAgreement.TermsVersion, Terms = ParseJson(booking.RentalAgreement.TermsJson),
@@ -249,7 +284,7 @@ public sealed class CustomerAccountController(
                 Identification = new { Complete = identificationVerified, Label = "Identification verified" },
                 DriverLicence = new { Complete = licenceVerified, Required = licenceRequired, Label = "Driver licence verified" },
                 Bond = new { Complete = bondPaid, RequiredAmount = booking.DepositRequired, Label = "Refundable bond received" },
-                Agreement = new { Complete = agreementReady, Label = "Agreement ready for pickup" },
+                Agreement = new { Complete = agreementReady, Label = "Agreement signed at pickup" },
                 PreHireInspection = new { Complete = preHireComplete, Label = "Pre-hire inspection completed" },
                 Personnel = new { Complete = personnelReady, Required = personnelRequired, Label = "Operator or driver confirmed" },
                 Delivery = new { Complete = deliveryReady, Required = deliveryRequested, Label = "Delivery confirmed" },
@@ -271,7 +306,8 @@ public sealed class CustomerAccountController(
             .Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division)
             .Include(x => x.Charges).Include(x => x.Inspections).Include(x => x.RentalAgreement)
             .FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
-        if (booking?.RentalAgreement is null || booking.RentalAgreement.Status is AgreementStatus.Draft or AgreementStatus.ReadyForPickup)
+        if (booking?.Status is not (BookingStatus.ConvertedToRental or BookingStatus.Completed) ||
+            booking.RentalAgreement is null || booking.RentalAgreement.Status is AgreementStatus.Draft or AgreementStatus.ReadyForPickup)
             return NotFound();
 
         return Ok(RentalAgreementsController.BuildApproved(booking.RentalAgreement, booking));
@@ -395,7 +431,9 @@ public sealed class CustomerAccountController(
                 x.EntityType == nameof(Booking) && bookingIds.Contains(x.EntityId))
             .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.EntityType, x.EntityId,
                 x.DocumentNumber, x.Type, x.FileName, x.ExpiresOn, x.CreatedAt }).ToListAsync(token);
-        var agreements = await db.RentalAgreements.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId))
+        var agreements = await db.RentalAgreements.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId) &&
+                (x.Booking!.Status == BookingStatus.ConvertedToRental || x.Booking.Status == BookingStatus.Completed) &&
+                (x.Status == AgreementStatus.Signed || x.Status == AgreementStatus.Active || x.Status == AgreementStatus.Completed))
             .OrderByDescending(x => x.CustomerSignedAt).Select(x => new { x.Id, x.BookingId,
                 Number = x.AgreementNumber, x.Status, CreatedAt = x.CustomerSignedAt }).ToListAsync(token);
         var invoices = await db.RentalInvoices.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId))
@@ -795,6 +833,9 @@ public sealed class CustomerDocumentUploadRequest
 }
 
 public sealed record VerifyEmailRequest([Required, RegularExpression("^[0-9]{6}$")] string Code);
+public sealed record ChangeCustomerPasswordRequest(
+    [Required] string CurrentPassword,
+    [Required, MinLength(10)] string NewPassword);
 public sealed record CustomerBookingChangeRequest([MaxLength(1000)] string? Reason);
 public sealed record CustomerExtensionRequest(DateTimeOffset RequestedEndAt, [MaxLength(1000)] string? Reason);
 public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required, MaxLength(2000)] string Description, [MaxLength(500)] string? Location, [MaxLength(100)] string? PoliceReference);

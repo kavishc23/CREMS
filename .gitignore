@@ -1,4 +1,8 @@
 .DS_Store
+.test-output/
+.codex-doc-review/
+.codex-finalizer/
+.codex-ppt-build/
 .dotnet/
 .idea/
 .vscode/
@@ -8,6 +12,11 @@
 **/dist/
 **/*.tsbuildinfo
 tmp/
+artifacts/
+output/
+outputs/
+log*-work/
+/CS400-Log*.docx
 src/crems-web/output/
 output/**/wbs_qa/
 src/crems-web/vite.config.js
@@ -19,4 +28,5 @@ src/CREMS.Api/App_Data/customer-licences/
 .data-protection/
 *.suo
 src/CREMS.Api/App_Data/maintenance-documents/
+src/CREMS.Api/wwwroot/
 outputs/operational-label-backup-*.json

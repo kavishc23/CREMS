@@ -1,6 +1,6 @@
 # CREMS
 
-Car and Rental Equipment Management System for Carpenters Fiji. This repository contains the approved .NET-stack foundation for the CS400 Industry Experience Project.
+Car and Rental Equipment Management System for Carpenters Fiji. The application provides public rental discovery, customer booking workflows, staff operations, asset management, maintenance, reporting, and administration.
 
 ## Technology
 
@@ -14,7 +14,9 @@ Car and Rental Equipment Management System for Carpenters Fiji. This repository 
 ```text
 src/CREMS.Api/   ASP.NET Core API and domain model
 src/crems-web/   React frontend
-docs/            Project decisions and requirement records
+tests/           API, browser, and end-to-end tests
+ops/             Optional data-seeding and configuration utilities
+docs/            Maintained setup, configuration, and operations guides
 ```
 
 ## Prerequisites
@@ -25,37 +27,42 @@ docs/            Project decisions and requirement records
 
 ## Run locally
 
-1. Copy `.env.example` to `.env` and replace the example database password.
-2. Update the matching password in the API connection string using user secrets:
+### One-command startup
+
+Copy the environment template, fill in the required values, then start the complete local stack:
+
+```bash
+cp .env.example .env
+./scripts/start-local.sh
+```
+
+The script starts SQL Server, restores dependencies when needed, and runs the API and frontend. Press `Ctrl+C` to stop the local stack. See `docs/CLIENT_HANDOVER.md` for client installation, backup, email, and troubleshooting guidance.
+
+### Manual startup
+
+1. Start SQL Server with a password supplied through the environment:
 
    ```bash
-   dotnet user-secrets init --project src/CREMS.Api
-   dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=localhost,1433;Database=Crems;User Id=sa;Password=YOUR_PASSWORD;TrustServerCertificate=True" --project src/CREMS.Api
+   export CREMS_DB_PASSWORD='replace-with-a-strong-local-password'
+   docker compose up -d sqlserver
    ```
 
-3. Start SQL Server and create the first migration:
+2. Export the API connection and initial administrator settings. These values remain in the process environment and are not stored in tracked configuration:
 
    ```bash
-   docker compose up -d
-   dotnet tool restore
-   dotnet tool run dotnet-ef database update --project src/CREMS.Api
+   export ConnectionStrings__DefaultConnection="Server=localhost,1433;Database=Crems;User Id=sa;Password=${CREMS_DB_PASSWORD};TrustServerCertificate=True"
+   export BootstrapAdmin__Email='admin@example.com'
+   export BootstrapAdmin__Password='replace-with-a-strong-admin-password'
+   export BootstrapAdmin__FullName='System Administrator'
    ```
 
-4. Store the initial administrator securely outside source control:
-
-   ```bash
-   dotnet user-secrets set "BootstrapAdmin:Email" "admin@example.com" --project src/CREMS.Api
-   dotnet user-secrets set "BootstrapAdmin:Password" "REPLACE_WITH_A_STRONG_PASSWORD" --project src/CREMS.Api
-   dotnet user-secrets set "BootstrapAdmin:FullName" "System Administrator" --project src/CREMS.Api
-   ```
-
-5. Start the API. The migration, roles, and administrator are applied automatically:
+3. Start the API. Database migrations, roles, and the initial administrator are applied automatically:
 
    ```bash
    dotnet run --project src/CREMS.Api
    ```
 
-6. In another terminal, start the frontend:
+4. In another terminal, start the frontend:
 
    ```bash
    cd src/crems-web
@@ -85,15 +92,15 @@ and `POST /api/auth/logout` (staff) or `POST /api/customer-account/logout` (cust
 A 401 means you need a valid session in this browser window; a 403 means your account
 lacks the necessary role, permission, or resource access.
 
-## Current status
-
-### API session security
+## API session security
 
 Authenticated requests must include an `X-CREMS-Window-Id` header containing a UUID. The web application creates this value in `sessionStorage`. In Postman, add a collection variable such as `windowId` and send `X-CREMS-Window-Id: {{windowId}}` on every request after login.
 
-Security defaults are enforced server-side: a 20-minute idle authentication timeout, an eight-hour absolute window-session limit, one active browser window per user, a 30-second API execution timeout, and global request rate limiting. A new login in another browser window transfers the active session to that window.
+Security defaults are enforced server-side: a 15-minute authentication timeout, an eight-hour absolute window-session limit, one active browser window per user, a 30-second API execution timeout, and global request rate limiting. A new login in another browser window transfers the active session to that window.
 
-The repository contains the technical foundation, responsive application shell, identity configuration, core roles, initial domain entities, SQL Server configuration, and a protected asset endpoint. Feature workflows remain intentionally unimplemented until the client validates the business rules in `docs/requirements-register.md`.
+## Local architecture
+
+Local development uses two processes: the API runs on `http://localhost:5080` and Vite runs on `http://localhost:5173`. Vite proxies `/api` requests to the API. No cloud-hosting configuration or generated frontend bundle is required in the repository.
 
 ## Engineering rules
 

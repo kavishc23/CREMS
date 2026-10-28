@@ -63,6 +63,7 @@ public static class DatabaseInitializer
         }
         if (app.Environment.IsDevelopment())
         {
+            await RepairLegacyDevelopmentCatalogueAccessAsync(db, cancellationToken);
             var photoAssets = await db.Assets.AsNoTracking()
                 .Select(asset => new { asset.Id, asset.PhotoUrlsJson }).ToListAsync(cancellationToken);
             foreach (var asset in photoAssets)
@@ -115,6 +116,34 @@ public static class DatabaseInitializer
         }
     }
 
+    private static async Task RepairLegacyDevelopmentCatalogueAccessAsync(ApplicationDbContext db, CancellationToken token)
+    {
+        // Older development databases stored false for newly introduced public
+        // branch and booking flags. Repair the all-disabled seed state once,
+        // then preserve later per-branch changes made by staff.
+        const string repairKey = "DevelopmentCatalogueVisibilityRepair20261028";
+        if (await db.SystemSettings.AnyAsync(x => x.Key == repairKey, token)) return;
+        string[] branchCodes = ["SUV", "NAD", "LAU", "LAB"];
+        var branches = await db.Branches.Where(x => branchCodes.Contains(x.Code)).ToListAsync(token);
+        if (branches.Count == branchCodes.Length && branches.All(x => !x.IsPublic))
+        {
+            foreach (var branch in branches) branch.IsPublic = true;
+        }
+
+        var branchIds = branches.Select(x => x.Id).ToArray();
+        string[] rentalDivisionCodes = ["MOTORS", "CARPTRAC", "SHIPPING"];
+        var assignments = await db.BranchDivisions.Include(x => x.Division)
+            .Where(x => branchIds.Contains(x.BranchId) && x.IsActive && x.Division != null && rentalDivisionCodes.Contains(x.Division.Code))
+            .ToListAsync(token);
+        if (assignments.Count > 0 && assignments.All(x => !x.AcceptsBookings))
+        {
+            foreach (var assignment in assignments) assignment.AcceptsBookings = true;
+        }
+        db.SystemSettings.Add(new SystemSetting { Key = repairKey, Value = "applied", Category = "Development",
+            Description = "One-time repair of legacy seeded customer catalogue visibility." });
+        await db.SaveChangesAsync(token);
+    }
+
     private static async Task RefreshDevelopmentBookingTimelineAsync(ApplicationDbContext db, CancellationToken token)
     {
         // Keep the named demonstration records useful as the calendar moves forward,
@@ -131,11 +160,27 @@ public static class DatabaseInitializer
             ["REQ-2026-0008"] = (BookingStatus.Draft, 8, 11),
             ["REQ-2026-0009"] = (BookingStatus.Draft, 12, 16),
         };
-        var records = await db.Bookings.Include(x => x.Items)
+        var records = await db.Bookings.Include(x => x.Items).Include(x => x.Inspections).Include(x => x.RentalAgreement)
             .Where(x => timeline.Keys.Contains(x.BookingNumber)).ToListAsync(token);
+        var bookingIds = records.Select(booking => booking.Id).ToArray();
+        var checkedOutBookingIds = await db.AssetLifecycleEvents.AsNoTracking()
+            .Where(x => x.BookingId.HasValue && bookingIds.Contains(x.BookingId.Value) &&
+                x.Type == AssetLifecycleEventType.CheckedOut)
+            .Select(x => x.BookingId!.Value).ToHashSetAsync(token);
         var today = DateTimeOffset.UtcNow.Date;
         foreach (var booking in records)
         {
+            var checkedOut = checkedOutBookingIds.Contains(booking.Id);
+            if (booking.Status == BookingStatus.Confirmed && booking.RentalAgreement is not null && checkedOut)
+            {
+                var returned = booking.Inspections.Any(x => x.Type == InspectionType.Return) ||
+                    booking.RentalAgreement.Status == AgreementStatus.Completed;
+                booking.Status = returned ? BookingStatus.Completed : BookingStatus.ConvertedToRental;
+                booking.RentalAgreement.Status = returned ? AgreementStatus.Completed : AgreementStatus.Active;
+                booking.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+            // The moving demonstration dates must never rewind a real pickup or return.
+            if (booking.RentalAgreement is not null || checkedOut || booking.Inspections.Any()) continue;
             var desired = timeline[booking.BookingNumber];
             var item = booking.Items.FirstOrDefault();
             if (item is null || Math.Abs((item.StartAt - today.AddDays(desired.Start)).TotalDays) < 10) continue;
@@ -275,12 +320,11 @@ public static class DatabaseInitializer
                     RequiresQuote = service.RequiresQuote, DefaultHireUnit = service.DefaultHireUnit,
                     RequiresDelivery = service.RequiresDelivery, IsActive = true };
                 db.ServiceOfferings.Add(offering);
-                division.ServiceOfferings.Add(offering);
             }
         }
+        await db.SaveChangesAsync(cancellationToken);
         var shippingDivision = await db.Divisions.Include(x => x.ServiceOfferings)
             .SingleAsync(x => x.Code == "SHIPPING", cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
 
         var branchSeeds = new[]
         {
@@ -327,31 +371,37 @@ public static class DatabaseInitializer
                     var assignment = await db.BranchDivisions.SingleAsync(x => x.BranchId == branch.Id && x.DivisionId == division.Id, cancellationToken);
                     assignment.IsActive = true;
                 }
+
+                foreach (var service in services.Values.Where(x => x.DivisionId == division.Id && x.IsActive))
+                {
+                    var serviceAssignment = await db.BranchDivisionServices.FirstOrDefaultAsync(
+                        x => x.BranchId == branch.Id && x.DivisionId == division.Id &&
+                            x.ServiceOfferingId == service.Id,
+                        cancellationToken);
+                    if (serviceAssignment is null)
+                    {
+                        db.BranchDivisionServices.Add(new BranchDivisionService
+                        {
+                            BranchId = branch.Id,
+                            DivisionId = division.Id,
+                            ServiceOfferingId = service.Id,
+                            IsActive = true,
+                            IsBookable = true,
+                        });
+                    }
+                    else
+                    {
+                        serviceAssignment.IsActive = true;
+                        serviceAssignment.IsBookable = true;
+                    }
+                }
             }
         }
-        var shippingBranchIds = new[] { branches["SUV"].Id, branches["LAU"].Id };
         var obsoleteShippingServiceIds = shippingDivision.ServiceOfferings.Where(x => !x.IsActive).Select(x => x.Id).ToArray();
         var obsoleteShippingBranchServices = await db.BranchDivisionServices
             .Where(x => obsoleteShippingServiceIds.Contains(x.ServiceOfferingId))
             .ToListAsync(cancellationToken);
         foreach (var assignment in obsoleteShippingBranchServices) { assignment.IsActive = false; assignment.IsBookable = false; }
-        foreach (var branchId in shippingBranchIds)
-        {
-            foreach (var service in shippingDivision.ServiceOfferings.Where(x => x.IsActive))
-            {
-                var assignment = await db.BranchDivisionServices.FirstOrDefaultAsync(
-                    x => x.BranchId == branchId && x.DivisionId == shippingDivision.Id && x.ServiceOfferingId == service.Id,
-                    cancellationToken);
-                if (assignment is null)
-                    db.BranchDivisionServices.Add(new BranchDivisionService { BranchId = branchId,
-                        DivisionId = shippingDivision.Id, ServiceOfferingId = service.Id, IsActive = true, IsBookable = true });
-                else
-                {
-                    assignment.IsActive = true;
-                    assignment.IsBookable = true;
-                }
-            }
-        }
         await db.SaveChangesAsync(cancellationToken);
 
         var chargeSeeds = new[]
@@ -1041,10 +1091,22 @@ public static class DatabaseInitializer
                 MeterReading = asset.CurrentMeterReading, DowntimeHours = seed.Downtime,
                 ReportedAt = DateTimeOffset.UtcNow.AddDays(completed ? -24 : -3),
                 CompletedAt = completed ? DateTimeOffset.UtcNow.AddDays(-23) : null,
+                ReleasedAt = completed ? DateTimeOffset.UtcNow.AddDays(-23) : null,
+                ReleasedByName = completed ? "CREMS Finance Seed" : null,
                 NextServiceDate = DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(completed ? 6 : 1)),
                 NextServiceMeter = asset.CurrentMeterReading + (AssetCategoryPolicy.IsVehicle(asset.Type) ? 10_000 : 500)
             });
             if (!completed) asset.Status = AssetStatus.Maintenance;
+        }
+
+        // Earlier sample data marked workshop jobs complete without releasing the asset.
+        // Repair only these known historical seed records; real jobs still require a safety release.
+        foreach (var job in await db.MaintenanceJobs.Where(x =>
+            (x.JobNumber == "MNT-2026-0101" || x.JobNumber == "MNT-2026-0102" || x.JobNumber == "MNT-2026-0103") &&
+            x.Status == MaintenanceStatus.Completed && x.ReleasedAt == null && x.CompletedAt != null).ToListAsync(token))
+        {
+            job.ReleasedAt = job.CompletedAt;
+            job.ReleasedByName = "CREMS historical seed repair";
         }
 
         if (!await db.AssetCostEntries.AnyAsync(token))
@@ -1132,7 +1194,9 @@ public static class DatabaseInitializer
         string contentRootPath,
         CancellationToken token)
     {
-        var catalogueRoot = Path.GetFullPath(Path.Combine(contentRootPath, "..", "crems-web", "public", "catalog"));
+        var sourceCatalogueRoot = Path.GetFullPath(Path.Combine(contentRootPath, "..", "crems-web", "public", "catalog"));
+        var publishedCatalogueRoot = Path.GetFullPath(Path.Combine(contentRootPath, "wwwroot", "catalog"));
+        var catalogueRoot = Directory.Exists(sourceCatalogueRoot) ? sourceCatalogueRoot : publishedCatalogueRoot;
         if (!Directory.Exists(catalogueRoot)) return;
         foreach (var asset in assets.Values)
         {

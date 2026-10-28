@@ -31,6 +31,9 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
+        // A confirmed booking is still awaiting handover, even if legacy data has
+        // an agreement row attached. Never present it as signed before pickup.
+        if (booking.Status == BookingStatus.Confirmed) return Ok(BuildDraft(booking));
         var agreement = await db.RentalAgreements.AsNoTracking().FirstOrDefaultAsync(item => item.BookingId == bookingId, cancellationToken);
         return Ok(agreement is null ? BuildDraft(booking) : BuildApproved(agreement, booking));
     }
@@ -48,6 +51,14 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         if (string.IsNullOrWhiteSpace(request.ScannedAssetNumber) ||
             !string.Equals(request.ScannedAssetNumber.Trim(), allocatedAssetNumber, StringComparison.OrdinalIgnoreCase))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["asset"] = ["Scan or enter the allocated asset QR number before handover."] }));
+        var allocatedAsset = booking.Items.FirstOrDefault()?.Asset;
+        if (allocatedAsset is null || allocatedAsset.Status is not (AssetStatus.Available or AssetStatus.Reserved) ||
+            await db.BookingItems.AnyAsync(item => item.AssetId == allocatedAsset.Id && item.BookingId != bookingId &&
+                (item.Booking!.Status == BookingStatus.ConvertedToRental ||
+                 item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)), cancellationToken) ||
+            await db.MaintenanceJobs.AnyAsync(job => job.AssetId == allocatedAsset.Id &&
+                (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null), cancellationToken))
+            return Conflict(new { message = "The asset is not at the branch and released for pickup. Complete any return and safety checks first." });
         var customerWillDrive = booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.IsVehicle(x.Asset.Type)) &&
             !booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator);
         if (!request.IdentificationVerified || customerWillDrive && !request.DriverLicenceVerified || !request.PaymentVerified)
@@ -65,8 +76,12 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         await ConfiguredHireRules.CaptureIfMissing(db, booking, cancellationToken);
         if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || !request.LicenceExpiry.HasValue || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["licence"] = ["A valid, unexpired driver licence is required."] }));
-        if (await db.RentalAgreements.AnyAsync(item => item.BookingId == bookingId, cancellationToken))
-            return Conflict(new { message = "This booking already has an approved rental agreement." });
+        // Older confirmed bookings may already contain an agreement from the
+        // previous flow. Reuse that record at checkout with the fresh signature
+        // instead of blocking handover or creating a duplicate agreement.
+        var existingAgreement = await db.RentalAgreements.FirstOrDefaultAsync(item => item.BookingId == bookingId, cancellationToken);
+        if (await db.AssetLifecycleEvents.AnyAsync(item => item.BookingId == bookingId && item.Type == AssetLifecycleEventType.CheckedOut, cancellationToken))
+            return Conflict(new { message = "This asset has already been checked out. Refresh the rental queue before trying again." });
 
         if (request.MeterReading.HasValue && booking.Items.Any(x => x.Asset != null && x.Asset.CurrentMeterReading.HasValue && request.MeterReading < x.Asset.CurrentMeterReading))
             return BadRequest(new { message = "The pickup meter reading cannot be lower than the asset's recorded reading." });
@@ -76,17 +91,32 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         if (booking.BondAmountHeld + request.AmountCollected < booking.DepositRequired)
             return BadRequest(new { message = "Receive the full refundable bond before releasing the asset." });
         var now = DateTimeOffset.UtcNow;
-        var agreement = new RentalAgreement
+        var agreement = existingAgreement ?? new RentalAgreement
         {
             AgreementNumber = await RentalSettings.Reference(db, true, cancellationToken),
-            BookingId = booking.Id, BranchId = booking.BranchId, TermsVersion = TermsVersion,
-            TermsJson = JsonSerializer.Serialize(draft.Terms, SnapshotJson), CustomerSnapshotJson = JsonSerializer.Serialize(draft.Customer, SnapshotJson),
-            AssetSnapshotJson = JsonSerializer.Serialize(draft.Asset, SnapshotJson), PricingSnapshotJson = JsonSerializer.Serialize(draft.Pricing, SnapshotJson),
-            CustomerSignatureName = request.CustomerSignatureName.Trim(), CustomerSignatureDataUrl = request.CustomerSignatureDataUrl,
-            CustomerSignedAt = now, Status = AgreementStatus.Active,
-            ApprovedByUserId = scope.UserId, ApprovedByName = scope.UserName, ApprovedAt = now,
+            BookingId = booking.Id,
+            TermsVersion = TermsVersion,
+            TermsJson = JsonSerializer.Serialize(draft.Terms, SnapshotJson),
+            CustomerSnapshotJson = JsonSerializer.Serialize(draft.Customer, SnapshotJson),
+            AssetSnapshotJson = JsonSerializer.Serialize(draft.Asset, SnapshotJson),
+            PricingSnapshotJson = JsonSerializer.Serialize(draft.Pricing, SnapshotJson),
+            CustomerSignatureName = request.CustomerSignatureName.Trim(),
+            ApprovedByName = scope.UserName,
         };
-        db.RentalAgreements.Add(agreement);
+        agreement.BranchId = booking.BranchId;
+        agreement.TermsVersion = TermsVersion;
+        agreement.TermsJson = JsonSerializer.Serialize(draft.Terms, SnapshotJson);
+        agreement.CustomerSnapshotJson = JsonSerializer.Serialize(draft.Customer, SnapshotJson);
+        agreement.AssetSnapshotJson = JsonSerializer.Serialize(draft.Asset, SnapshotJson);
+        agreement.PricingSnapshotJson = JsonSerializer.Serialize(draft.Pricing, SnapshotJson);
+        agreement.CustomerSignatureName = request.CustomerSignatureName.Trim();
+        agreement.CustomerSignatureDataUrl = request.CustomerSignatureDataUrl;
+        agreement.CustomerSignedAt = now;
+        agreement.Status = AgreementStatus.Active;
+        agreement.ApprovedByUserId = scope.UserId;
+        agreement.ApprovedByName = scope.UserName;
+        agreement.ApprovedAt = now;
+        if (existingAgreement is null) db.RentalAgreements.Add(agreement);
         booking.RentalAgreement = agreement;
         // A saved pre-hire inspection occupies the unique handover slot. Finalize
         // it in place rather than creating a second record.
@@ -147,6 +177,8 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         var booking = await LoadBooking(bookingId, cancellationToken); if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
+        if (booking.Status is not (BookingStatus.ConvertedToRental or BookingStatus.Completed))
+            return BadRequest(new { message = "Complete pickup before sending a signed rental agreement." });
         var agreement = await db.RentalAgreements.FirstOrDefaultAsync(x => x.BookingId == bookingId, cancellationToken);
         if (agreement is null || agreement.Status is AgreementStatus.Draft or AgreementStatus.ReadyForPickup) return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["agreement"] = ["Only a signed and agent-approved agreement can be emailed."] }));
         if (string.IsNullOrWhiteSpace(booking.Customer?.Email)) return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["email"] = ["The customer must have an email address before the agreement can be sent."] }));
