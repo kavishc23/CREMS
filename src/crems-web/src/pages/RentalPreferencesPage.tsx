@@ -1,3 +1,4 @@
+import { useActionNotice } from '../components/useActionNotice'
 import { useEffect, useState } from 'react'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import AddOutlined from '@mui/icons-material/AddOutlined'
@@ -16,7 +17,7 @@ export function RentalPreferencesPage({ onBrowse }: { onBrowse: () => void }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const setNotice = useActionNotice()
   const [query, setQuery] = useState('')
   useEffect(() => {
     let active = true
@@ -58,7 +59,7 @@ export function RentalPreferencesPage({ onBrowse }: { onBrowse: () => void }) {
   if (loading) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress aria-label="Loading rental preferences" /></Box>
   return <Box>
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-    {notice && <Alert severity="success" sx={{ mb: 2 }}>{notice}</Alert>}
+
     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={2} mb={3}>
       <TextField size="small" placeholder="Explore divisions and categories" value={query} onChange={event => setQuery(event.target.value)} inputProps={{ 'aria-label': 'Search divisions or asset categories' }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} sx={{ width: { xs: '100%', sm: 420 }, '& .MuiOutlinedInput-root': { bgcolor: 'white' } }} />
       <FormControlLabel sx={{ m: 0 }} disabled={saving} control={<Checkbox checked={!values.length} onChange={() => { setValues([]); setNotice('') }} />} label={<Typography variant="body2" fontWeight={650}>Show all rentals</Typography>} />

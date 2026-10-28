@@ -1,3 +1,4 @@
+import { useActionNotice } from '../components/useActionNotice'
 import { useCallback, useDeferredValue, useEffect, useMemo, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import AddOutlined from '@mui/icons-material/AddOutlined'
@@ -91,7 +92,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   const [totalCount, setTotalCount] = useState(0)
   const [summary, setSummary] = useState({ total: 0, verified: 0, licenceVerified: 0, pending: 0, blocked: 0 })
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const setNotice = useActionNotice()
   const [activity, setActivity] = useState<CustomerActivity | null>(null)
   const [activityLoading, setActivityLoading] = useState(false)
   const [activityError, setActivityError] = useState('')
@@ -233,7 +234,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}>
     <PageHeader icon={<PeopleAltOutlined />} title={administrationView ? 'Customer accounts' : 'Customers'} subtitle={administrationView ? 'Manage customer identities, portal access and account activity separately from staff.' : 'Maintain customer details and rental eligibility.'} actions={<Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add customer</Button>} />
     {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-    {notice && <Alert severity="success" sx={{ mb: 2 }}>{notice}</Alert>}
+
     <Grid container spacing={2} mb={2.5}>
       {customerSummary.map((item) => <Grid key={item.label} size={{ xs: 6, md: 4, lg: 2.4 }}><Card variant="outlined" sx={{ height: '100%' }}><CardContent sx={{ py: 2 }}><Typography variant="h4" fontWeight={800} color={item.color}>{item.value}</Typography><Typography variant="caption" color="text.secondary" fontWeight={700} textTransform="uppercase" letterSpacing={.6}>{item.label}</Typography></CardContent></Card></Grid>)}
     </Grid>

@@ -50,7 +50,10 @@ public static class NotificationEvents
                     else if (entry.State != EntityState.Added && booking.Status == BookingStatus.ConvertedToRental)
                         Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Rental started", $"{booking.BookingNumber} is now on hire.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
                     else if (entry.State != EntityState.Added && booking.Status == BookingStatus.Completed)
-                        Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Rental completed", $"{booking.BookingNumber} has been completed.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
+                        Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Rental completed", $"Thank you for choosing us. {booking.BookingNumber} has been returned and completed. Your agreement, invoice and final charges are available in your rental summary.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
+                    else if (entry.State != EntityState.Added && booking.Status is BookingStatus.Cancelled or BookingStatus.Expired)
+                        Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", booking.Status == BookingStatus.Expired ? "Request expired" : CustomerRentalJourney.CustomerCancelled(booking) ? "Request cancelled" : "Request declined",
+                            $"{booking.BookingNumber}: open your rental summary for the latest status.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
                     Add(booking, "Staff", null, booking.BranchId, division, "Booking", title, message, NotificationAccess.BookingUrl(booking.Id));
                     break;
                 case SalesQuote quote when Changed(nameof(SalesQuote.Status)) || Changed(nameof(SalesQuote.Version)):
@@ -59,7 +62,7 @@ public static class NotificationEvents
                     // A requested quote is an internal task; notify the customer
                     // only once a staff member has sent a quote for review.
                     if (quote.Status == QuoteStatus.Sent)
-                        Add(quote, "Customer", quote.CustomerId, quote.BranchId, quote.DivisionId, "Booking", quote.Status == QuoteStatus.Sent ? "Quotation ready for your review" : quote.Status == QuoteStatus.Accepted ? "Customer accepted quotation" : $"Quotation: {quote.Status}", qMessage, "/account?reference=" + Uri.EscapeDataString(quote.QuoteNumber));
+                        Add(quote, "Customer", quote.CustomerId, quote.BranchId, quote.DivisionId, "Booking", "Quotation ready for your review", $"{quote.QuoteNumber} is ready. Review the price and accept or decline it in Manage bookings.", "/account?reference=" + Uri.EscapeDataString(quote.QuoteNumber));
                     break;
                 case ApprovalRequest approval when Changed(nameof(ApprovalRequest.Status)) || Changed(nameof(ApprovalRequest.CurrentStage)):
                     Guid? bookingId = approval.EntityType == nameof(Booking) ? approval.EntityId : approval.EntityType == nameof(SalesQuote) ? await db.SalesQuotes.Where(x => x.Id == approval.EntityId).Select(x => x.ConvertedBookingId).FirstOrDefaultAsync(token) : null;

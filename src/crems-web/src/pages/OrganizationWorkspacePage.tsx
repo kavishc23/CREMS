@@ -1,3 +1,4 @@
+import { useActionNotice } from '../components/useActionNotice'
 import { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import AddOutlined from '@mui/icons-material/AddOutlined'
@@ -38,7 +39,7 @@ const workspaceSections: Record<string,{tab:number;label:string}[]> = {
 
 export function OrganizationWorkspacePage({userRoles}:{userRoles:string[]}){
  const canConfigure = userRoles.includes('SuperAdministrator')
- const [tab,setTab]=useState(0),[showBranchOperations,setShowBranchOperations]=useState(false),[divisions,setDivisions]=useState<Division[]>([]),[branches,setBranches]=useState<Branch[]>([]),[branchId,setBranchId]=useState(''),[periods,setPeriods]=useState<Period[]>(standardPeriods),[exceptions,setExceptions]=useState<Exception[]>([]),[branchServices,setBranchServices]=useState<BranchService[]>([]),[categories,setCategories]=useState<Category[]>([]),[categoryOpen,setCategoryOpen]=useState(false),[attributeCategory,setAttributeCategory]=useState<Category|null>(null),[error,setError]=useState(''),[saved,setSaved]=useState('')
+ const [tab,setTab]=useState(0),[showBranchOperations,setShowBranchOperations]=useState(false),[divisions,setDivisions]=useState<Division[]>([]),[branches,setBranches]=useState<Branch[]>([]),[branchId,setBranchId]=useState(''),[periods,setPeriods]=useState<Period[]>(standardPeriods),[exceptions,setExceptions]=useState<Exception[]>([]),[branchServices,setBranchServices]=useState<BranchService[]>([]),[categories,setCategories]=useState<Category[]>([]),[categoryOpen,setCategoryOpen]=useState(false),[attributeCategory,setAttributeCategory]=useState<Category|null>(null),[error,setError]=useState(''),setSaved = useActionNotice()
  const [editingCategory,setEditingCategory]=useState<string|null>(null)
  const [category,setCategory]=useState({divisionId:'',serviceOfferingId:'',code:'',name:'',description:'',defaultMeterType:'',defaultAssetType:'',personnelRequirement:'None'})
  const [attributes,setAttributes]=useState<Attribute[]>([])
@@ -63,7 +64,7 @@ export function OrganizationWorkspacePage({userRoles}:{userRoles:string[]}){
   <Box sx={{px:{xs:2,sm:3,lg:4},pt:3}}>
    <PageHeader icon={<AccountTreeOutlined/>} title="Organization & settings" subtitle="Manage divisions, branch operations, booking requirements and shared business settings." dense />
    {error&&<Alert severity="error" sx={{mt:2}} onClose={()=>setError('')}>{error}</Alert>}
-   {saved&&<Alert severity="success" sx={{mt:2}} onClose={()=>setSaved('')}>{saved}</Alert>}
+
   </Box>
   <Box sx={{px:{xs:2,sm:3,lg:4},pb:4}}>
    <Box component="nav" aria-label="Organization settings" sx={{bgcolor:'background.paper',border:1,borderColor:'divider',borderRadius:1,mb:2}}>

@@ -1,3 +1,4 @@
+import { useActionNotice } from '../components/useActionNotice'
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Grid, MenuItem, Stack, TextField, Typography } from '@mui/material'
@@ -16,7 +17,7 @@ type DivisionOption = {id:string;name:string;isActive:boolean;services:{isActive
 export function DivisionBookingFlowPage(){
   const [divisions,setDivisions]=useState<DivisionOption[]>([]),[divisionId,setDivisionId]=useState('')
   const [policy,setPolicy]=useState<Policy|null>(null),[loading,setLoading]=useState(false),[saving,setSaving]=useState(false)
-  const [error,setError]=useState(''),[saved,setSaved]=useState('')
+  const [error,setError]=useState(''),setSaved = useActionNotice()
   useEffect(()=>{void api.get<DivisionOption[]>('/divisions').then(response=>{
     setDivisions(response.data);setDivisionId(current=>current||response.data.find(x=>x.isActive)?.id||response.data[0]?.id||'')
   }).catch(()=>setError('Divisions could not be loaded.'))},[])
@@ -40,7 +41,7 @@ export function DivisionBookingFlowPage(){
     <Typography variant="h5" fontWeight={800}>Booking & quotation flow</Typography>
     <Typography color="text.secondary" mt={.5} mb={2}>One policy per division. Every asset inherits its division’s bond and driver/operator rule unless it has an explicit asset override. Existing bookings keep their agreed amounts.</Typography>
     <TextField select fullWidth disabled={saving} label="Division" value={divisionId} onChange={event=>setDivisionId(event.target.value)} sx={{maxWidth:500,mb:2}}>{divisions.map(item=><MenuItem key={item.id} value={item.id}>{item.name}{item.isActive?'':' (inactive)'}</MenuItem>)}</TextField>
-    {error&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}{saved&&<Alert severity="success" sx={{mb:2}}>{saved}</Alert>}
+    {error&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
     {policy?.flow.onlineRequestsEnabled&&onlineServices===0&&<Alert severity="warning" sx={{mb:2}}>This division has no active online services. Enable a service in Divisions &amp; services, then enable it at a branch before customers can request its assets.</Alert>}
     {loading&&<Typography>Loading division settings…</Typography>}
     {!loading&&policy&&<Stack gap={2}>

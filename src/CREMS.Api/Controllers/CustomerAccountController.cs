@@ -97,12 +97,12 @@ public sealed class CustomerAccountController(
         if (user is null || !user.IsActive || !user.CustomerId.HasValue) return Unauthorized();
         var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == user.CustomerId);
         if (customer is null || !customer.IsActive || customer.IsBlocked) return Forbid();
-        var licenceNumber = await db.CustomerLicences.AsNoTracking()
+        var licence = await db.CustomerLicences.AsNoTracking()
             .Where(x => x.CustomerId == customer.Id && x.Status == LicenceVerificationStatus.Verified)
-            .OrderByDescending(x => x.ConfirmedAt).Select(x => x.LicenceNumber).FirstOrDefaultAsync();
+            .OrderByDescending(x => x.ConfirmedAt).Select(x => new { x.LicenceNumber, x.LicenceClasses }).FirstOrDefaultAsync();
         return Ok(new { user.Id, user.Email, user.FullName, user.CustomerId, customer.CustomerNumber,
             CustomerName = customer.Name, customer.Phone, customer.Address, customer.IdentificationNumber,
-            DriverLicenceNumber = licenceNumber, customer.Type, customer.HirePreferences, customer.PreferredServiceIds, customer.PreferredAssetCategoryIds, user.EmailConfirmed });
+            DriverLicenceNumber = licence?.LicenceNumber, DriverLicenceClasses = (licence?.LicenceClasses ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray(), customer.Type, customer.HirePreferences, customer.PreferredServiceIds, customer.PreferredAssetCategoryIds, user.EmailConfirmed });
     }
 
     [HttpPost("change-password")]
@@ -145,13 +145,24 @@ public sealed class CustomerAccountController(
     {
         var user = await userManager.GetUserAsync(User);
         if (user?.CustomerId is null) return Unauthorized();
-        return Ok(await db.Bookings.AsNoTracking().Where(x => x.CustomerId == user.CustomerId)
-            .OrderByDescending(x => x.CreatedAt).Select(x => new
+        var bookings = await db.Bookings.AsNoTracking().Where(x => x.CustomerId == user.CustomerId)
+            .Include(x => x.Charges).Include(x => x.Invoice)
+            .Include(x => x.Branch).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division)
+            .OrderByDescending(x => x.CreatedAt).ToListAsync(token);
+        var quotes = await db.SalesQuotes.AsNoTracking().Where(x => x.CustomerId == user.CustomerId).ToListAsync(token);
+        var ids = bookings.Select(x => x.Id).ToList();
+        var approvals = await db.ApprovalRequests.AsNoTracking().Where(x => x.EntityType == nameof(Booking) && ids.Contains(x.EntityId))
+            .OrderByDescending(x => x.CreatedAt).ToListAsync(token);
+        return Ok(bookings.Select(x => new
             {
                 x.Id, Reference = x.BookingNumber, x.Status, x.CreatedAt, BranchName = x.Branch!.Name,
+                Total = x.Invoice?.Total ?? Math.Max(0, x.Items.Sum(HirePricing.Amount) - x.DiscountAmount + x.Charges.Sum(c => c.Quantity * c.UnitRate)) +
+                    decimal.Round(Math.Max(0, x.Items.Where(i => i.HireIsTaxable).Sum(HirePricing.Amount) - x.DiscountAmount + x.Charges.Where(c => c.IsTaxable).Sum(c => c.Quantity * c.UnitRate)) * x.TaxRate / 100m, 2),
+                CustomerStatus = CustomerRentalJourney.Stage(x, quotes.OrderByDescending(q => q.CreatedAt).FirstOrDefault(q => q.ConvertedBookingId == x.Id), DateTimeOffset.UtcNow,
+                    approvals.FirstOrDefault(a => a.EntityId == x.Id)?.Status == ApprovalStatus.Rejected),
                 Items = x.Items.OrderBy(i => i.StartAt).Select(i => new { i.Asset!.Name, i.StartAt, i.EndAt, i.DailyRate,
                     DivisionName = i.Asset.Division != null ? i.Asset.Division.Name : null }).ToList()
-            }).ToListAsync(token));
+            }).ToList());
     }
 
     [HttpGet("bookings/{bookingId:guid}")]
@@ -181,16 +192,26 @@ public sealed class CustomerAccountController(
         var cases = await db.CustomerCases.AsNoTracking().Where(x => x.CustomerId == user.CustomerId &&
                 x.Subject.Contains(booking.BookingNumber))
             .OrderByDescending(x => x.CreatedAt).Select(x => new { x.CaseNumber, x.Type, x.Status,
-                x.Subject, x.CreatedAt }).ToListAsync(token);
+                x.Subject, x.Description, x.Resolution, x.CreatedAt, x.UpdatedAt }).ToListAsync(token);
+        var quote = await db.SalesQuotes.AsNoTracking().Where(x => x.CustomerId == user.CustomerId && x.ConvertedBookingId == booking.Id)
+            .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
+        var latestApproval = await db.ApprovalRequests.AsNoTracking().Where(x => x.EntityType == nameof(Booking) && x.EntityId == booking.Id)
+            .OrderByDescending(x => x.CreatedAt).Select(x => (ApprovalStatus?)x.Status).FirstOrDefaultAsync(token);
+        var history = await db.InAppNotifications.AsNoTracking().Where(x => x.Audience == "Customer" && x.CustomerId == user.CustomerId &&
+            (x.RelatedEntityType == nameof(Booking) && x.RelatedEntityId == booking.Id || quote != null && x.RelatedEntityType == nameof(SalesQuote) && x.RelatedEntityId == quote.Id))
+            .OrderBy(x => x.CreatedAt).Select(x => new { x.Title, x.Message, x.CreatedAt }).ToListAsync(token);
         var operatingHours = await db.BranchOperatingPeriods.AsNoTracking().Where(x => x.BranchId == booking.BranchId)
             .OrderBy(x => x.DayOfWeek).Select(x => new { x.DayOfWeek, x.OpensAt, x.ClosesAt, x.IsClosed,
                 x.PickupCutoff, x.ReturnCutoff }).ToListAsync(token);
 
         var identificationVerified = booking.Inspections.Any(x => x.IdentificationVerified) ||
             documents.Any(x => x.Type.Contains("ident", StringComparison.OrdinalIgnoreCase));
-        var professionalDriverProvided = booking.Charges.Any(x => x.Category == ChargeCategory.Driver);
-        var licenceRequired = booking.Items.Any(x => AssetCategoryPolicy.IsVehicle(x.Asset!.Type)) && !professionalDriverProvided;
+        var professionalDriverProvided = booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator) ||
+            booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.RequiresPersonnel(x.Asset)) || booking.Notes?.Contains("Driver/operator included.", StringComparison.OrdinalIgnoreCase) == true;
+        var licenceRequired = booking.Items.Any(x => x.Asset is not null && DivisionBookingFlow.For(x.Asset.Division).RequireVerifiedLicenceForVehicles &&
+            AssetCategoryPolicy.RequiresDrivingLicence(x.Asset, professionalDriverProvided));
         var licenceVerified = !licenceRequired || booking.Inspections.Any(x => x.DriverLicenceVerified) ||
+            await db.CustomerLicences.AsNoTracking().AnyAsync(x => x.CustomerId == user.CustomerId && x.Status == LicenceVerificationStatus.Verified, token) ||
             documents.Any(x => x.Type.Contains("licence", StringComparison.OrdinalIgnoreCase) || x.Type.Contains("license", StringComparison.OrdinalIgnoreCase));
         var bondPaid = booking.DepositRequired <= 0 || booking.BondAmountHeld >= booking.DepositRequired;
         var agreementReady = booking.Status is (BookingStatus.ConvertedToRental or BookingStatus.Completed) &&
@@ -220,6 +241,7 @@ public sealed class CustomerAccountController(
         return Ok(new
         {
             booking.Id, Reference = booking.BookingNumber, booking.Status, booking.CreatedAt, booking.UpdatedAt,
+            CustomerStatus = CustomerRentalJourney.Stage(booking, quote, DateTimeOffset.UtcNow, latestApproval == ApprovalStatus.Rejected),
             Branch = new { booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone,
                 booking.Branch.Email, booking.Branch.PickupInstructions, booking.Branch.ReturnInstructions, OperatingHours = operatingHours },
             Items = booking.Items.OrderBy(x => x.StartAt).Select(x => new
@@ -230,7 +252,7 @@ public sealed class CustomerAccountController(
             }),
             Pricing = new { BaseSubtotal = baseSubtotal, booking.DiscountAmount, Charges = visibleCharges,
                 ChargeTotal = chargeTotal, booking.TaxRate, TaxAmount = tax, Total = subtotal + tax,
-                booking.DepositRequired },
+                booking.DepositRequired, booking.AdditionalCharges, booking.AdditionalChargesDescription },
             Bond = new { Required = booking.DepositRequired, Held = booking.BondAmountHeld,
                 Deduction = booking.BondDeductionAmount, booking.BondDeductionReason,
                 Refund = booking.BondRefundAmount, Status = booking.BondStatus.ToString(), booking.BondSettledAt },
@@ -269,7 +291,7 @@ public sealed class CustomerAccountController(
                 RequiredDocuments = new { Complete = requiredDocumentsReady, Required = requiredDocuments.Count > 0,
                     Label = requiredDocuments.Count > 0 ? $"Required documents: {string.Join(", ", requiredDocuments)}" : "No additional safety documents required" },
             },
-            dispatches, documents, cases,
+            dispatches, documents, cases, history,
         });
     }
 
@@ -304,15 +326,18 @@ public sealed class CustomerAccountController(
         var bookingIds = quotes.Where(x => x.ConvertedBookingId.HasValue).Select(x => x.ConvertedBookingId!.Value).Distinct().ToList();
         var branches = await db.Branches.AsNoTracking().Where(x => branchIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, token);
         var divisions = await db.Divisions.AsNoTracking().Where(x => divisionIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, token);
-        var deposits = await db.Bookings.AsNoTracking().Where(x => bookingIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.DepositRequired, token);
+        var bookings = await db.Bookings.AsNoTracking().Include(x => x.Items).Where(x => bookingIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, token);
         return Ok(quotes.Select(x => new
         {
             x.Id, x.QuoteNumber, x.Status, x.ValidUntil, x.JobSite, x.PurchaseOrderNumber,
-            x.Subtotal, x.Discount, x.Tax, x.Total, x.Version, x.CreatedAt, x.UpdatedAt,
+            Subtotal = CustomerRentalJourney.HasOffer(x) ? x.Subtotal : 0, Discount = CustomerRentalJourney.HasOffer(x) ? x.Discount : 0,
+            Tax = CustomerRentalJourney.HasOffer(x) ? x.Tax : 0, Total = CustomerRentalJourney.HasOffer(x) ? x.Total : 0, x.Version, x.CreatedAt, x.UpdatedAt,
+            HasOffer = CustomerRentalJourney.HasOffer(x),
+            CustomerStatus = CustomerRentalJourney.Stage(x.ConvertedBookingId.HasValue ? bookings.GetValueOrDefault(x.ConvertedBookingId.Value) : null, x, DateTimeOffset.UtcNow),
             BranchName = branches.GetValueOrDefault(x.BranchId),
             DivisionName = x.DivisionId.HasValue ? divisions.GetValueOrDefault(x.DivisionId.Value) : null,
-            Lines = ParseQuoteLines(x.LineItemsJson), x.ConvertedBookingId,
-            DepositRequired = x.ConvertedBookingId.HasValue ? deposits.GetValueOrDefault(x.ConvertedBookingId.Value) : 0,
+            Lines = CustomerRentalJourney.HasOffer(x) ? ParseQuoteLines(x.LineItemsJson) : null, x.ConvertedBookingId,
+            DepositRequired = x.ConvertedBookingId.HasValue ? bookings.GetValueOrDefault(x.ConvertedBookingId.Value)?.DepositRequired ?? 0 : 0,
         }));
     }
 
@@ -324,6 +349,12 @@ public sealed class CustomerAccountController(
         if (user?.CustomerId is null) return Unauthorized();
         var quote = await db.SalesQuotes.FirstOrDefaultAsync(x => x.Id == quoteId && x.CustomerId == user.CustomerId, token);
         if (quote is null) return NotFound();
+        var linkedBooking = quote.ConvertedBookingId.HasValue ? await db.Bookings.Include(x => x.Items)
+            .FirstOrDefaultAsync(x => x.Id == quote.ConvertedBookingId && x.CustomerId == user.CustomerId, token) : null;
+        if (quote.ConvertedBookingId.HasValue && (linkedBooking is null || linkedBooking.Status != BookingStatus.Draft))
+            return Conflict(new { message = "This rental request is no longer awaiting a quotation decision. Refresh your bookings." });
+        if (CustomerRentalJourney.Stage(linkedBooking, quote, DateTimeOffset.UtcNow) != "ReviewQuotation")
+            return Conflict(new { message = "This quotation is no longer available for a decision. Refresh your bookings." });
         if (request.ExpectedVersion != quote.Version) return Conflict(new { message = "This quotation has changed. Refresh and review the latest prices before deciding." });
         if (quote.Status is not (QuoteStatus.Sent or QuoteStatus.Negotiating)) return Conflict(new { message = "Only a quotation sent by the branch can be accepted or declined." });
         if (request.Accepted && await db.ApprovalRequests.AnyAsync(x => (x.EntityType == nameof(SalesQuote) && x.EntityId == quote.Id || x.EntityType == nameof(Booking) && x.EntityId == quote.ConvertedBookingId) && (x.Status == ApprovalStatus.Pending || x.Status == ApprovalStatus.Rejected), token))
@@ -555,6 +586,10 @@ public sealed class CustomerAccountController(
         if (booking is null) return NotFound();
         if (booking.Status is not (BookingStatus.Draft or BookingStatus.Confirmed))
             return Conflict(new { message = "Dates can only be changed for awaiting-review or confirmed bookings." });
+        var relatedQuote = await db.SalesQuotes.AsNoTracking().FirstOrDefaultAsync(x => x.CustomerId == user.CustomerId && x.ConvertedBookingId == booking.Id, token);
+        if (relatedQuote is not null) return Conflict(new { message = "Contact the branch for a revised quotation if you need different hire dates." });
+        if (CustomerRentalJourney.Stage(booking, null, DateTimeOffset.UtcNow) == "Expired")
+            return Conflict(new { message = "This request has expired. Submit a new request for your dates." });
         if (request.EndAt <= request.StartAt || request.StartAt < DateTimeOffset.UtcNow.Date)
             return BadRequest(new { message = "Choose a valid future pickup and return date." });
         var assetIds = booking.Items.Select(x => x.AssetId).ToList();
@@ -601,15 +636,39 @@ public sealed class CustomerAccountController(
     public async Task<ActionResult> RequestCancellation(Guid bookingId, CustomerBookingChangeRequest request, CancellationToken token)
     {
         var user = await userManager.GetUserAsync(User); if (user?.CustomerId is null) return Unauthorized();
-        var booking = await db.Bookings.FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
+        var booking = await db.Bookings.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
         if (booking is null) return NotFound();
+        var quote = await db.SalesQuotes.Where(x => x.CustomerId == user.CustomerId && x.ConvertedBookingId == booking.Id).OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
+        var stage = CustomerRentalJourney.Stage(booking, quote, DateTimeOffset.UtcNow);
         if (booking.Status == BookingStatus.Draft)
-        { booking.Status = BookingStatus.Cancelled; booking.Notes = Append(booking.Notes, $"Customer cancelled online: {Clean(request.Reason) ?? "No reason supplied"}"); await db.SaveChangesAsync(token); return Ok(new { status = "Cancelled" }); }
+        {
+            if (stage is not ("AwaitingConfirmation" or "AwaitingQuotation")) return Conflict(new { message = "This request can no longer be cancelled directly. Refresh your bookings." });
+            booking.Status = BookingStatus.Cancelled; booking.UpdatedAt = DateTimeOffset.UtcNow;
+            booking.Notes = Append(booking.Notes, $"Customer cancelled online: {Clean(request.Reason) ?? "No reason supplied"}");
+            if (quote is not null) { quote.Status = QuoteStatus.Rejected; quote.LostReason = "Customer cancelled request."; quote.UpdatedAt = DateTimeOffset.UtcNow; }
+            await db.SaveChangesAsync(token); return Ok(new { status = "Cancelled" });
+        }
         if (booking.Status != BookingStatus.Confirmed) return BadRequest(new { message = "Only pending or confirmed future bookings can be cancelled online." });
+        if (string.IsNullOrWhiteSpace(request.Reason)) return BadRequest(new { message = "Tell the branch why you are requesting cancellation." });
         var subject = $"Cancellation request — {booking.BookingNumber}";
         if (!await db.CustomerCases.AnyAsync(x => x.CustomerId == user.CustomerId && x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed && x.Subject == subject, token))
             db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.General, Priority = CasePriority.Normal, Subject = $"Cancellation request — {booking.BookingNumber}", Description = Clean(request.Reason) ?? "Customer requested cancellation through the portal.", DueAt = DateTimeOffset.UtcNow.AddHours(4) });
         await db.SaveChangesAsync(token); return Accepted(new { status = "Cancellation requested" });
+    }
+
+    [HttpPost("quotes/{quoteId:guid}/cancel")]
+    [Authorize(Policy = SystemPolicies.CustomerPortal)]
+    public async Task<ActionResult> CancelQuoteRequest(Guid quoteId, CancellationToken token)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user?.CustomerId is null) return Unauthorized();
+        var quote = await db.SalesQuotes.FirstOrDefaultAsync(x => x.Id == quoteId && x.CustomerId == user.CustomerId, token);
+        if (quote is null) return NotFound();
+        if (quote.ConvertedBookingId is Guid bookingId) return await RequestCancellation(bookingId, new CustomerBookingChangeRequest(null), token);
+        if (CustomerRentalJourney.Stage(null, quote, DateTimeOffset.UtcNow) != "AwaitingQuotation")
+            return Conflict(new { message = "This quotation request can no longer be cancelled directly." });
+        quote.Status = QuoteStatus.Rejected; quote.LostReason = "Customer cancelled quotation request."; quote.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(token); return Ok(new { status = "Cancelled" });
     }
 
     [HttpPost("bookings/{bookingId:guid}/extension-request")]
@@ -620,6 +679,7 @@ public sealed class CustomerAccountController(
         var booking = await db.Bookings.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
         if (booking is null) return NotFound();
         if (booking.Status is not (BookingStatus.Confirmed or BookingStatus.ConvertedToRental)) return BadRequest(new { message = "Only confirmed or active rentals can be extended." });
+        if (string.IsNullOrWhiteSpace(request.Reason)) return BadRequest(new { message = "Tell the branch why you need an extension." });
         var currentEnd = booking.Items.Max(x => x.EndAt);
         if (request.RequestedEndAt <= currentEnd || request.RequestedEndAt > currentEnd.AddMonths(6)) return BadRequest(new { message = "Choose a later return date within six months of the current return date." });
         var assetIds = booking.Items.Select(x => x.AssetId).ToList();

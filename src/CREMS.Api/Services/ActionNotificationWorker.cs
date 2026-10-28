@@ -103,6 +103,7 @@ public sealed class ActionNotificationWorker(IServiceScopeFactory scopes, ILogge
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var now = DateTimeOffset.UtcNow;
+        await CustomerRentalReminders.QueueAsync(db, now, token);
         var keys = (await db.InAppNotifications.Where(x => x.CreatedAt >= now.AddDays(-2)).Select(x => x.EventKey).ToListAsync(token)).ToHashSet();
         void Add(string key, Guid branch, Guid? division, string category, string title, string message, string url,
             string action, string entity, Guid id, DateTimeOffset expires, string severity = "Warning", string? role = null, Guid? recipient = null)

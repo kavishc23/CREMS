@@ -1,3 +1,4 @@
+import { useActionNotice } from '../components/useActionNotice'
 import { useCallback, useEffect, useState } from 'react'
 import axios from 'axios'
 import AddOutlined from '@mui/icons-material/AddOutlined'
@@ -28,7 +29,7 @@ export function MaintenancePage() {
   const [options, setOptions] = useState<Options>(emptyOptions)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const setNotice = useActionNotice()
   const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null)
   const [revision, setRevision] = useState(0)
   const [ruleAsset, setRuleAsset] = useState<ScheduledAsset | null>(null)
@@ -64,7 +65,7 @@ export function MaintenancePage() {
   const openCreate = (asset: Asset | null = null) => { setInitialAsset(asset); setCreating(true) }
   return <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 1680, mx: 'auto', minWidth: 0 }}>
     <PageHeader icon={<BuildOutlined />} title="Maintenance" subtitle="Plan service, record repairs and verify each asset is safe to hire." actions={<Stack direction="row" gap={1}><Button startIcon={<RefreshOutlined />} onClick={refresh}>Refresh</Button><Button startIcon={<AddOutlined />} variant="contained" onClick={() => openCreate()} disabled={!register}>Log maintenance job</Button></Stack>} />
-    {notice && <Alert severity="success" onClose={() => setNotice('')} sx={{ mb: 2 }}>{notice}</Alert>}
+
     {error && <Alert severity="error" action={<Button color="inherit" onClick={refresh}>Retry</Button>} sx={{ mb: 2 }}>{error}</Alert>}
     <Grid container spacing={1.5} mb={2.5}>{[
       { name: 'Overdue service', value: schedule?.overdueCount ?? 0, action: () => summaryFilter({ queue: 'Schedule', overdueOnly: true, dueOnly: false, overdueRepairs: false, status: '', unassigned: false }) },

@@ -123,3 +123,20 @@ Scope is limited to local OCR implementation and backend tests. No frontend/UI, 
 - Moved the active step heading above both columns to align selected asset and estimate cards.
 - Reduced vertical spacing at laptop heights; corrected profile minimum-height assumptions without clipping content or disabling necessary scrolling.
 - Frontend production build passed. Customer browser regression suite passed against existing frontend with fictional mocked APIs; delivery plus required driver/operator card alignment and no-scroll layout, and profile no-scroll layout checked at 1280x720, 1366x768 and 1536x864. Screenshots visually reviewed. No servers started or restarted.
+
+## Action feedback, quote acceptance and conditional licence details — 29 October 2026
+
+- Replaced transient completed-action banners across customer and administrator pages with a shared action notice hook. CREMS toasts use compact white/yellow styling and expire after three seconds even while hovered. Required validation guidance and stored record status remain available.
+- Customer quote acceptance now blocks duplicate submissions, closes the quotation dialog on success, refreshes the journey, and displays Awaiting review until the linked booking is confirmed by staff. A failed list refresh cannot leave the old acceptance action available.
+- Removed internal quotation version labels from customer journey cards, quote dialogs and customer quote PDF details. Version checks remain in decision requests to protect against accepting a stale price.
+- Checkout shows the verified, read-only licence number and classes only when the configured division rule requires a licence for a customer-driven vehicle. Requests for equipment, included driver/operator service, or disabled licence policies omit driver details; the API independently enforces this. Applicable booking notes and quotation enquiries include the authoritative saved licence classes for staff review.
+- Verification: production frontend build and 46 frontend tests passed; 53 focused backend tests passed, including quote acceptance remaining Draft for staff confirmation and licence omission rules. Existing broad customer browser suite and new customer/admin action-and-licence browser checks passed using fictional mocked API data against the existing frontend. Visually reviewed profile toast, licence form and admin toast screenshots. No application servers started or restarted.
+
+## Customer rental stages and summary — 29 October 2026
+
+- Unified each linked quotation and booking into one customer journey. Draft and revised unsent offers remain hidden until sent by staff. Quote acceptance remains subject to staff confirmation.
+- Booking stages: Awaiting Confirmation (grey), Confirmed (green), On Hire (orange), Completed (blue). Quotation requests begin with Awaiting Quotation and Review Quotation (grey), then follow the same booking stages. Expired, Declined and Cancelled use red.
+- Actions follow each stage: direct cancellation with confirmation before approval; reasoned cancellation and extension requests after confirmation; incident reporting during hire. Reviewing a sent offer provides download, acceptance and reasoned decline. Customer decisions and cancellations enforce ownership, current stage and version on the API.
+- View summary includes available quotation, signed agreement and invoice, charges/payments, incidents, inspection damage, request outcomes and customer notification history. Existing customer and division licence rules are respected.
+- Added deduplicated customer pickup-day and return-day notifications using Fiji calendar dates, plus a thank-you message when staff complete the return. The worker must be running; no schema migration is required.
+- Verification: 59 frontend tests, 59 focused backend tests, TypeScript and production frontend build passed. Dedicated browser checks cover the complete stage/action matrix, cancellation, acceptance, documents, activity and mobile width. Existing customer forms/notifications and action/licence regressions also checked with fictional intercepted API data. No application servers started or restarted.
