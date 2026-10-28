@@ -112,6 +112,7 @@ public sealed class CustomerAccountController(
         var user = await userManager.GetUserAsync(User);
         if (user?.CustomerId is null) return Unauthorized();
         var bookings = await db.Bookings.AsNoTracking().Where(x => x.CustomerId == user.CustomerId)
+            .Include(x => x.Charges).Include(x => x.Invoice)
             .Include(x => x.Branch).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division)
             .OrderByDescending(x => x.CreatedAt).ToListAsync(token);
         var quotes = await db.SalesQuotes.AsNoTracking().Where(x => x.CustomerId == user.CustomerId).ToListAsync(token);
@@ -121,6 +122,8 @@ public sealed class CustomerAccountController(
         return Ok(bookings.Select(x => new
             {
                 x.Id, Reference = x.BookingNumber, x.Status, x.CreatedAt, BranchName = x.Branch!.Name,
+                Total = x.Invoice?.Total ?? Math.Max(0, x.Items.Sum(HirePricing.Amount) - x.DiscountAmount + x.Charges.Sum(c => c.Quantity * c.UnitRate)) +
+                    decimal.Round(Math.Max(0, x.Items.Where(i => i.HireIsTaxable).Sum(HirePricing.Amount) - x.DiscountAmount + x.Charges.Where(c => c.IsTaxable).Sum(c => c.Quantity * c.UnitRate)) * x.TaxRate / 100m, 2),
                 CustomerStatus = CustomerRentalJourney.Stage(x, quotes.OrderByDescending(q => q.CreatedAt).FirstOrDefault(q => q.ConvertedBookingId == x.Id), DateTimeOffset.UtcNow,
                     approvals.FirstOrDefault(a => a.EntityId == x.Id)?.Status == ApprovalStatus.Rejected),
                 Items = x.Items.OrderBy(i => i.StartAt).Select(i => new { i.Asset!.Name, i.StartAt, i.EndAt, i.DailyRate,

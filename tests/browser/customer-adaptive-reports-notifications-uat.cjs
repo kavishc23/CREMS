@@ -14,7 +14,7 @@ const rental={id:'booking-uat',reference:'BK-UAT-001',status:'Completed',created
 (async()=>{
  fs.mkdirSync(output,{recursive:true});const browser=await chromium.launch({channel:'chrome',headless:true});
  try{
-  const page=await browser.newPage({viewport:{width:1680,height:1000}});const errors=[],detailsQueries=[];let noticesRead=false;let acceptLeave=true;const nativeDialogs=[];let selected=[],searchCount=0,licence={status:'Required',licenceNumber:null,classes:[],hasImage:false};
+  const page=await browser.newPage({viewport:{width:1680,height:1000}});const errors=[],detailsQueries=[];const readNoticeIds=new Set();let noticesRead=false;let acceptLeave=true;const nativeDialogs=[];let selected=[],searchCount=0,licence={status:'Required',licenceNumber:null,classes:[],hasImage:false};
   page.on('dialog',dialog=>{nativeDialogs.push(dialog.message());return acceptLeave?dialog.accept():dialog.dismiss()});
   page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>{window.uatToasts=[];window.addEventListener('crems:toast',event=>window.uatToasts.push(event.detail))});
@@ -33,15 +33,22 @@ const rental={id:'booking-uat',reference:'BK-UAT-001',status:'Completed',created
    if(p==='/api/customer-account/bookings/booking-uat')return route.fulfill({json:rental});
    if(p==='/api/customer-account/documents/supporting/download')return route.fulfill({contentType:'application/pdf',body:'%PDF-1.4 test attachment'});
    if(p==='/api/customer-account/documents')return route.fulfill({json:{registered:[],agreements:[],invoices:[]}});
-   if(p==='/api/customer-account/notifications/read'){noticesRead=true;return route.fulfill({status:204})}
-   if(p.includes('notifications'))return route.fulfill({json:{items:Array.from({length:8},(_,i)=>({id:'notice-'+i,title:'Rental update '+i,message:'Your rental request has an update.',createdAt:new Date().toISOString(),isRead:noticesRead,url:null})),unreadCount:noticesRead?0:8}});
+   if(p==='/api/customer-account/notifications/read'){const body=route.request().postDataJSON();if(body.all)noticesRead=true;else for(const id of body.ids)readNoticeIds.add(id);return route.fulfill({status:204})}
+   if(p.includes('notifications'))return route.fulfill({json:{items:Array.from({length:12},(_,i)=>({id:'notice-'+i,title:'Rental update '+i,message:'Your rental request has an update.',createdAt:new Date().toISOString(),isRead:noticesRead||readNoticeIds.has('notice-'+i),url:null})),unreadCount:noticesRead?0:12-readNoticeIds.size}});
    if(route.request().method()!=='GET')throw Error('Unexpected write '+p);
    return route.fulfill({json:[]});
   });
   const screenshot=async name=>{await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:path.join(output,name+'.png'),fullPage:true})};
   await page.goto(base);await page.getByText(names[0],{exact:true}).waitFor();
-  await page.getByRole('button',{name:'Notifications, 8 unread',exact:true}).click();const notices=page.getByRole('dialog',{name:'Your notifications',exact:true});await notices.getByText('Rental update 0',{exact:true}).waitFor();
-  assert.equal(await notices.getByText(/Rental update \d/).count(),5);assert.equal(await notices.getByRole('button',{name:'Filters',exact:true}).count(),0);assert.equal(await notices.getByText(/permitted scope|90-day history|System/).count(),0);
+  await page.getByRole('button',{name:'Notifications, 12 unread',exact:true}).click();const notices=page.getByRole('dialog',{name:'Your notifications',exact:true});await notices.getByText('Rental update 0',{exact:true}).waitFor();
+  assert.equal(await notices.getByText(/Rental update \d/).count(),10);assert.equal(await notices.getByRole('button',{name:'Filters',exact:true}).count(),0);assert.equal(await notices.getByText(/permitted scope|90-day history|System/).count(),0);
+  assert.equal(await notices.getByRole('button',{name:'My bookings',exact:true}).count(),0);
+  assert.equal(await notices.getByRole('button',{name:'Mark as read',exact:true}).count(),10);
+  await notices.getByRole('button',{name:'Mark as read',exact:true}).first().click();
+  await page.locator('button[aria-label="Notifications, 11 unread"]').waitFor({state:'attached'});
+  assert.equal(await notices.getByRole('button',{name:'Mark as read',exact:true}).count(),9);
+  assert(await notices.isVisible());
+  assert(await notices.getByRole('button',{name:'Mark all read',exact:true}).evaluate(e=>Boolean(e.compareDocumentPosition(e.closest('[role=dialog]').querySelector('li')) & Node.DOCUMENT_POSITION_FOLLOWING)));
   await page.waitForTimeout(250);await page.screenshot({path:path.join(output,'customer-notifications-desktop.png')});await notices.getByRole('button',{name:'Mark all read',exact:true}).click();await notices.getByRole('button',{name:'Mark all read',exact:true}).evaluate(async e=>{for(let i=0;i<40&&!e.disabled;i++)await new Promise(r=>setTimeout(r,25));if(!e.disabled)throw Error('Read state did not update')});
   await page.setViewportSize({width:390,height:844});assert(await notices.evaluate(e=>e.getBoundingClientRect().width<=window.innerWidth-20));await page.screenshot({path:path.join(output,'customer-notifications-mobile.png')});await notices.getByRole('button',{name:'Close notifications',exact:true}).click();await page.setViewportSize({width:1680,height:1000});
   const quotationPdf=await page.evaluate(async()=>{const {buildRentalFinancialPdf}=await import('/src/utils/rentalFinancialPdf.ts');const doc=await buildRentalFinancialPdf({kind:'Quotation',reference:'QUO-UAT-2026',details:[['Division','Carptrac CAT'],['Branch','Labasa'],['Valid until','30 Nov 2026'],['Version','1']],lines:[{description:'Concrete mixer hire',quantity:4,rate:120}],totals:[{label:'Subtotal',amount:480},{label:'VAT',amount:72},{label:'Quotation total',amount:552,emphasis:true}],note:'Subject to branch confirmation and the agreed hire terms.'});return Array.from(new Uint8Array(doc.output('arraybuffer')))});fs.writeFileSync(path.join(output,'branded-quotation.pdf'),Buffer.from(quotationPdf));
@@ -98,13 +105,21 @@ const rental={id:'booking-uat',reference:'BK-UAT-001',status:'Completed',created
   await page.getByRole('button',{name:'Verify driver licence',exact:true}).click();await page.getByRole('dialog').locator('input[type=file]').setInputFiles({name:'test-licence.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aM0sAAAAASUVORK5CYII=','base64')});await page.locator('.MuiSnackbar-root').getByText('Licence scanned. Check the details before confirming.',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.uatToasts.at(-1).message),'Licence scanned. Check the details before confirming.');assert.equal(await page.getByText('Changes saved.',{exact:true}).count(),0);await page.getByRole('button',{name:'Confirm and save licence',exact:true}).click();await page.locator('.MuiSnackbar-root').getByText('Your driver licence has been verified and saved.',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.uatToasts.at(-1).message),'Your driver licence has been verified and saved.');
   await page.getByRole('button',{name:'UAT Customer',exact:true}).click();await page.getByRole('menuitem',{name:'Rental Preferences',exact:false}).click();await page.getByRole('checkbox',{name:'Select all categories in Carpenters Shipping',exact:true}).check();await page.getByRole('button',{name:'Save preferences',exact:true}).click();await page.getByText('Your rental preferences have been saved.',{exact:true}).waitFor();assert.deepEqual(selected,['bin','toilet']);assert.equal(await page.evaluate(()=>window.uatToasts.at(-1).message),'Your rental preferences have been saved.');await screenshot('preferences-simple');
 
-  await page.getByRole('button',{name:'Manage bookings',exact:true}).click();await page.getByRole('button',{name:'View summary',exact:true}).click();await modal.getByText('Documents',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Manage bookings',exact:true}).click();
+  await page.getByRole('button',{name:'Refresh',exact:true}).click();await page.getByRole('button',{name:'Refresh',exact:true}).waitFor();
+  for(const label of ['All','Bookings','Quotations','Confirmed','On Hire','Completed','Cancelled']) assert(await page.getByRole('button',{name:label,exact:true}).isVisible());
+  assert.equal(await page.getByText('Needs your attention',{exact:true}).count(),0);
+  assert.equal(await page.getByText(/Related requests, quotations and bookings/).count(),0);
+  await page.getByRole('button',{name:'Confirmed',exact:true}).click();assert.equal(await page.getByTestId('customer-rental-journey').count(),0);
+  await page.getByRole('button',{name:'Completed',exact:true}).click();assert.equal(await page.getByTestId('customer-rental-journey').count(),1);
+  await page.getByRole('button',{name:'All',exact:true}).click();
+  await page.getByRole('button',{name:'View summary',exact:true}).click();await modal.getByText('Documents',{exact:true}).waitFor();
   assert.equal(await modal.getByText('Activity timeline',{exact:true}).count(),0);assert(await modal.getByRole('heading',{name:'FJD 1,134.85',exact:true}).isVisible());
   let download=page.waitForEvent('download');await modal.getByRole('button',{name:'Download PDF',exact:true}).click();let saved=await download;assert.equal(saved.suggestedFilename(),'INV-UAT-001.pdf');await saved.saveAs(path.join(output,'branded-invoice.pdf'));
   download=page.waitForEvent('download');await modal.getByRole('button',{name:'Download',exact:true}).click();assert.equal((await download).suggestedFilename(),'Hire-details.pdf');await screenshot('compact-rental-summary');await modal.getByRole('button',{name:'Close',exact:true}).click();
   await page.getByRole('button',{name:'UAT Customer',exact:true}).click();await page.getByRole('menuitem',{name:'Rental Preferences',exact:true}).click();
 
   for(const width of [1024,390]){await page.setViewportSize({width,height:900});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));await screenshot('preferences-'+width)}
-  assert.deepEqual(errors,[]);console.log('PASS: Customer-only five-item notifications and read state, branded PDF downloads with multipage support; three-step checkout, profile readonly fields, live hourly pricing, delivery quotation confirmation (both choices), laptop forms without scrolling, repeated form opening without exit prompts, pending charges, back cancel/accept and no stale result restoration;  today/empty return defaults; preview-only details; searched availability/continue; readable return-location layout; results division filtering; uniform card sizes and untruncated content; reference profile layout; simplified functional preferences; completed-action toasts after scan/confirmation/preferences and no premature verification toast; desktop/tablet/mobile widths. Existing servers only; APIs intercepted with fictional data.');
+  assert.deepEqual(errors,[]);console.log('PASS: Customer-only ten-item notifications with individual and bulk read controls and read state, branded PDF downloads with multipage support; three-step checkout, profile readonly fields, live hourly pricing, delivery quotation confirmation (both choices), laptop forms without scrolling, repeated form opening without exit prompts, pending charges, back cancel/accept and no stale result restoration;  today/empty return defaults; preview-only details; searched availability/continue; readable return-location layout; results division filtering; uniform card sizes and untruncated content; reference profile layout; simplified functional preferences; completed-action toasts after scan/confirmation/preferences and no premature verification toast; desktop/tablet/mobile widths. Existing servers only; APIs intercepted with fictional data.');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});

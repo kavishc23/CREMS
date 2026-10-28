@@ -1,3 +1,4 @@
+import RefreshOutlined from '@mui/icons-material/RefreshOutlined'
 import { useActionNotice } from '../components/useActionNotice'
 import { downloadRentalFinancialPdf } from '../utils/rentalFinancialPdf'
 import { rentalReference } from '../utils/rentalReference'
@@ -32,7 +33,7 @@ type HirePreference = 'Vehicles' | 'Equipment' | 'WasteAndSiteHire'
 type LegacyHirePreference = HirePreference | 'NoPreference'
 type CustomerSession = { preferredServiceIds?: string[]; email: string; fullName: string; customerNumber: string; customerName: string; phone: string | null; address: string | null; identificationNumber: string | null; hirePreferences?: HirePreference[]; hirePreference?: LegacyHirePreference; emailConfirmed: boolean }
 type BookingItem = { name: string; startAt: string; endAt: string; dailyRate: number; divisionName: string | null }
-type Booking = { id: string; reference: string; status: string; customerStatus?: string; createdAt: string; branchName: string; items: BookingItem[] }
+type Booking = { id: string; reference: string; status: string; customerStatus?: string; total?: number; createdAt: string; branchName: string; items: BookingItem[] }
 type QuoteLine = { description: string; quantity: number; rate: number; unit: string }
 type Quote = { id: string; quoteNumber: string; status: string; customerStatus?: string; hasOffer?: boolean; createdAt?: string; validUntil: string; jobSite: string | null; purchaseOrderNumber: string | null; subtotal: number; discount: number; tax: number; total: number; depositRequired: number; version: number; branchName: string; divisionName: string | null; lines: QuoteLine[] | null; convertedBookingId: string | null }
 type PortalDocuments = {
@@ -121,7 +122,8 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
   const [declineReason, setDeclineReason] = useState('')
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null)
   const [referenceSearch, setReferenceSearch] = useState(() => new URLSearchParams(window.location.search).get('reference') ?? sessionStorage.getItem('crems.customerReferenceSearch') ?? '')
-  const [activityFilter, setActivityFilter] = useState<'all' | 'bookings' | 'quotations' | 'active' | 'needs-action'>('all')
+  const [refreshingBookings, setRefreshingBookings] = useState(false)
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all')
   const [journeySort, setJourneySort] = useState<JourneySort>('recent')
   const [journeyPage, setJourneyPage] = useState(0)
   const [expandedJourney, setExpandedJourney] = useState<string | null>(null)
@@ -131,6 +133,11 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
       api.get<Booking[]>('/customer-account/bookings'), api.get<Quote[]>('/customer-account/quotes'), api.get<PortalDocuments>('/customer-account/documents'),
     ])
     setBookings(bookingResponse.data); setQuotes(quoteResponse.data); setDocuments(documentResponse.data)
+  }
+  async function refreshBookings() {
+    setRefreshingBookings(true)
+    try { await loadPortalData() } catch (reason) { toast(apiMessage(reason, 'Could not refresh your bookings.'), 'error') }
+    finally { setRefreshingBookings(false) }
   }
   async function loadSession() {
     try {
@@ -300,7 +307,7 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
     </CardContent></Card></Container> : <Box sx={{ width: '100%', minHeight: section === 'overview' ? undefined : 'calc(100dvh - 76px)' }}>
       <Paper square elevation={0} sx={{ minHeight: section === 'overview' ? undefined : 'calc(100dvh - 76px)', border: 0, bgcolor: 'background.default' }}>
         <Box sx={{ py: { xs: 2.5, md: 2.75 }, px: { xs: 2, md: 4, lg: 5 }, minWidth: 0, maxWidth: 1660, mx: 'auto', ...(section === 'overview' ? { '@media (min-width: 1200px) and (max-height: 900px)': { py: 2, '& [data-page-header]': { py: 2, mb: 2 }, '& .MuiCardContent-root': { p: 2.5, '&:last-child': { pb: 2.5 } }, '& form': { mt: 2 }, '& form > .MuiGrid-container': { rowGap: 1.5 }, '& form > .MuiButton-root': { mt: 2 } } } : {}) }}>
-      <PageHeader icon={section === 'preferences' ? <TuneOutlined /> : section === 'bookings' ? <EventAvailableOutlined /> : <AccountCircleOutlined />} title={section === 'overview' ? 'Customer profile' : accountSections.find(item => item.value === section)?.label ?? 'My account'} subtitle={section === 'preferences' ? 'Make your homepage reflect the rentals you use.' : section === 'bookings' ? 'Track your requests, quotations and active rentals.' : 'Manage your contact details, security and driver licence.'} dense />
+      <PageHeader icon={section === 'preferences' ? <TuneOutlined /> : section === 'bookings' ? <EventAvailableOutlined /> : <AccountCircleOutlined />} title={section === 'overview' ? 'Customer profile' : accountSections.find(item => item.value === section)?.label ?? 'My account'} subtitle={section === 'preferences' ? 'Make your homepage reflect the rentals you use.' : section === 'bookings' ? 'Track your requests, quotations and active rentals.' : 'Manage your contact details, security and driver licence.'} dense actions={section === 'bookings' ? <Button size="small" variant="outlined" startIcon={<RefreshOutlined />} disabled={refreshingBookings} onClick={() => void refreshBookings()}>{refreshingBookings ? 'Refreshing…' : 'Refresh'}</Button> : undefined} />
       {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
 
 
@@ -379,7 +386,7 @@ async function downloadQuotePdf(quote: Quote) {
 
 function QuotePrintButton({quote}:{quote:Quote}){return <Button size="small" variant="outlined" startIcon={<DescriptionOutlined/>} onClick={()=>void downloadQuotePdf(quote)}>Download quotation</Button>}
 
-type ActivityFilter = 'all' | 'bookings' | 'quotations' | 'active' | 'needs-action'
+type ActivityFilter = 'all' | 'bookings' | 'quotations' | 'confirmed' | 'on-hire' | 'completed' | 'cancelled'
 type JourneySort = 'recent' | 'oldest' | 'needs-action'
 type Journey = { id: string; kind: 'booking' | 'quote'; createdAt: string; attention: boolean; active: boolean; title: string; meta: string; reference: string; status: string; dateText: string; total?: number; booking?: Booking; quote?: Quote }
 const needsBookingAction = (booking: Booking) => booking.status === 'Draft'
@@ -403,24 +410,21 @@ function RentalJourneys({ bookings, quotes, search, filter, sort, page, expanded
       meta: `${item?.divisionName ?? quote?.divisionName ?? 'Carpenters Fiji'} · ${booking?.branchName ?? quote?.branchName ?? ''}`,
       reference: quote && ['AwaitingQuotation', 'ReviewQuotation'].includes(stage) ? quote.quoteNumber : booking?.reference ?? quote!.quoteNumber,
       status: stage, dateText: item ? `${date(item.startAt)} – ${date(item.endAt)}` : quote && hasQuotationOffer(quote) ? `Valid until ${date(quote.validUntil)}` : 'The branch is preparing your quotation.',
-      total: quote && hasQuotationOffer(quote) ? quote.total : undefined, booking, quote,
+      total: quote ? hasQuotationOffer(quote) ? quote.total : undefined : booking?.total, booking, quote,
     }
   }
   const journeys: Journey[] = [
     ...quotes.map(quote => journeyFor(bookings.find(booking => booking.id === quote.convertedBookingId), quote)),
     ...bookings.filter(booking => !linkedIds.has(booking.id)).map(booking => journeyFor(booking)),
   ]
-  const filtered = journeys.filter(journey => `${journey.title} ${journey.meta} ${journey.reference} ${journey.quote?.quoteNumber ?? ""} ${journey.booking?.reference ?? ""}`.toLowerCase().includes(search.trim().toLowerCase())).filter(journey => filter === 'all' ? true : filter === 'bookings' ? journey.kind === 'booking' : filter === 'quotations' ? journey.kind === 'quote' : filter === 'active' ? journey.active : journey.attention).sort((a, b) => sort === 'needs-action' ? Number(b.attention) - Number(a.attention) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() : (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) * (sort === 'recent' ? 1 : -1))
+  const filtered = journeys.filter(journey => `${journey.title} ${journey.meta} ${journey.reference} ${journey.quote?.quoteNumber ?? ""} ${journey.booking?.reference ?? ""}`.toLowerCase().includes(search.trim().toLowerCase())).filter(journey => filter === 'all' ? true : filter === 'bookings' ? journey.kind === 'booking' : filter === 'quotations' ? journey.kind === 'quote' : journey.status === ({ confirmed: 'Confirmed', 'on-hire': 'OnHire', completed: 'Completed', cancelled: 'Cancelled' } as Record<string, string>)[filter]).sort((a, b) => sort === 'needs-action' ? Number(b.attention) - Number(a.attention) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() : (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) * (sort === 'recent' ? 1 : -1))
   const attention = journeys.filter(journey => journey.attention).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   const pageSize = 10; const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize)); const currentPage = Math.min(page, totalPages - 1); const pageJourneys = filtered.slice(currentPage * pageSize, currentPage * pageSize + pageSize)
-  const filters: { value: ActivityFilter; label: string }[] = [{ value: 'all', label: 'All' }, { value: 'bookings', label: 'Bookings' }, { value: 'quotations', label: 'Quotations' }, { value: 'active', label: 'Active' }, { value: 'needs-action', label: 'Needs action' }]
-  const stats = [{ label: 'Needs your attention', value: attention.length, filter: 'needs-action' as const }, { label: 'Upcoming', value: journeys.filter(journey => journey.status === 'Confirmed').length, filter: 'active' as const }, { label: 'On Hire', value: journeys.filter(journey => journey.status === 'OnHire').length, filter: 'active' as const }, { label: 'All rental journeys', value: journeys.length, filter: 'all' as const }]
+  const filters: { value: ActivityFilter; label: string }[] = [{ value: 'all', label: 'All' }, { value: 'bookings', label: 'Bookings' }, { value: 'quotations', label: 'Quotations' }, { value: 'confirmed', label: 'Confirmed' }, { value: 'on-hire', label: 'On Hire' }, { value: 'completed', label: 'Completed' }, { value: 'cancelled', label: 'Cancelled' }]
   return <Stack spacing={2.5}>
-    <Grid container spacing={1.25}>{stats.map((stat, index) => <Grid key={stat.label} size={{ xs: 6, md: 3 }}><Card component="button" variant="outlined" onClick={() => onFilter(stat.filter)} sx={{ width: '100%', textAlign: 'left', cursor: 'pointer', bgcolor: index === 0 ? 'rgba(255, 193, 7, .12)' : 'background.paper', borderTop: 3, borderTopColor: index === 0 ? 'warning.main' : index === 1 ? 'info.main' : index === 2 ? 'warning.main' : 'secondary.main', borderColor: filter === stat.filter ? 'secondary.main' : 'divider', '&:hover': { borderColor: 'secondary.main', bgcolor: 'action.hover' } }}><CardContent sx={{ p: 2 }}><Typography variant="h5" fontWeight={850}>{stat.value}</Typography><Typography variant="body2" color="text.secondary">{stat.label}</Typography></CardContent></Card></Grid>)}</Grid>
-    <Card variant="outlined"><CardContent sx={{ p: 1.5 }}><TextField fullWidth size="small" placeholder="Search reference, rental or supplier" value={search} onChange={event => onSearch(event.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} /><Stack direction="row" gap={.75} flexWrap="wrap" mt={1.25}>{filters.map(item => <Button key={item.value} size="small" variant={filter === item.value ? 'contained' : 'outlined'} color={filter === item.value ? 'primary' : 'inherit'} onClick={() => onFilter(item.value)} sx={{ borderRadius: 2 }}>{item.label}{item.value === 'needs-action' && attention.length > 0 ? ` · ${attention.length}` : ''}</Button>)}<Button size="small" color="inherit" onClick={() => { onSearch(''); onFilter('all') }}>Clear filters</Button></Stack></CardContent></Card>
+    <Card variant="outlined"><CardContent sx={{ p: 1.5 }}><TextField fullWidth size="small" placeholder="Search reference, rental or supplier" value={search} onChange={event => onSearch(event.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} /><Stack direction="row" gap={.75} flexWrap="wrap" mt={1.25}>{filters.map(item => <Button key={item.value} size="small" variant={filter === item.value ? 'contained' : 'outlined'} color={filter === item.value ? 'primary' : 'inherit'} onClick={() => onFilter(item.value)} sx={{ borderRadius: 2 }}>{item.label}</Button>)}<Button size="small" color="inherit" onClick={() => { onSearch(''); onFilter('all') }}>Clear filters</Button></Stack></CardContent></Card>
     <Box><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1} mb={1.25}><Typography variant="h6" fontWeight={800}>{filter === 'quotations' ? 'Quotations' : filter === 'bookings' ? 'Bookings' : 'All rental journeys'}</Typography><Stack direction="row" alignItems="center" gap={1}><Typography variant="caption" color="text.secondary">{filtered.length} result{filtered.length === 1 ? '' : 's'} · showing {filtered.length ? currentPage * pageSize + 1 : 0}–{Math.min((currentPage + 1) * pageSize, filtered.length)}</Typography><TextField select size="small" value={sort} onChange={event => onSort(event.target.value as JourneySort)} sx={{ minWidth: 130 }}><MenuItem value="recent">Recent</MenuItem><MenuItem value="oldest">Oldest</MenuItem><MenuItem value="needs-action">Needs action</MenuItem></TextField></Stack></Stack>{pageJourneys.length ? <Stack spacing={1.25}>{pageJourneys.map(journey => <Card key={journey.id} variant="outlined"><JourneyCard journey={journey} loading={loading} onExpand={onExpand} expanded={expanded === journey.id} onOpenBooking={onOpenBooking} onChangeBooking={onChangeBooking} onViewQuote={onViewQuote} onCancelQuote={onCancelQuote} /></Card>)}</Stack> : <EmptyState title="No matching rental journeys" text="Try another filter or browse rentals to start a new request." action="Browse rentals" onAction={onBrowse} />}</Box>
     {filtered.length > pageSize && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1}><Typography variant="caption" color="text.secondary">Showing {currentPage * pageSize + 1}–{Math.min((currentPage + 1) * pageSize, filtered.length)} of {filtered.length}</Typography><Stack direction="row" gap={.5}><Button size="small" disabled={currentPage === 0} onClick={() => onPage(currentPage - 1)}>Previous</Button>{Array.from({ length: totalPages }, (_, index) => <Button key={index} size="small" variant={currentPage === index ? 'contained' : 'outlined'} onClick={() => onPage(index)}>{index + 1}</Button>)}<Button size="small" disabled={currentPage === totalPages - 1} onClick={() => onPage(currentPage + 1)}>Next</Button></Stack></Stack>}
-    <Typography variant="caption" color="text.secondary" textAlign="center">Related requests, quotations and bookings are shown as one journey whenever CREMS can link them.</Typography>
   </Stack>
 }
 
@@ -439,7 +443,7 @@ function JourneyCard({ journey, compact = false, loading, onOpenBooking, onChang
           <Typography variant="body2" color="text.secondary">{journey.meta}</Typography><Typography variant="caption" color="text.secondary" display="block" mt={.5}>Reference: {quote?.quoteNumber ?? journey.reference}</Typography>
         </Box>
         <Stack alignItems={{ md: 'flex-end' }} gap={.75}><Chip size="small" label={statusLabel(journey.status)} color={statusColor(journey.status)} />
-          {journey.total != null && <Typography fontWeight={800}>{money(journey.total)} incl. VAT</Typography>}
+          {journey.total != null && <Box sx={{ bgcolor: '#15140f', color: '#fff', borderRadius: 1.5, px: 1.75, py: 1, borderLeft: '4px solid #ffed00' }}><Typography variant="h6" fontWeight={850} sx={{lineHeight:1.2,fontVariantNumeric:'tabular-nums'}}>{money(journey.total)}</Typography><Typography variant="caption" sx={{color:'#ffed00'}}>Including VAT</Typography></Box>}
         </Stack>
       </Stack>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1.5}>
