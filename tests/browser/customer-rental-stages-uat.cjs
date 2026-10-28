@@ -61,7 +61,14 @@ const day=n=>{const d=new Date();d.setDate(d.getDate()+n);return d.toISOString()
    bookStatus='ConvertedToRental';await assertStage('OnHire','On Hire','Warning',['View summary','Request extension','Emergency / incident']);
    await card().getByRole('button',{name:'View summary',exact:true}).click();await page.getByRole('dialog').getByText('Rental agreement',{exact:true}).waitFor();if(quoted)assert(await page.getByRole('dialog').getByText('Quotation',{exact:true}).isVisible());await page.getByRole('dialog').getByRole('button',{name:'Close',exact:true}).click();
    bookStatus='Completed';await assertStage('Completed','Completed','Info',['View summary']);await card().getByRole('button',{name:'View summary',exact:true}).click();
-   for(const text of ['Rental agreement','Invoice and receipt','Requests and extensions','Extension approved by branch','Reported scratch','Rear panel scratch','Charges and payments','Rental history'])assert(await page.getByRole('dialog').getByText(text,{exact:!['Rear panel scratch','Extension approved by branch'].includes(text)}).isVisible(),text);
+   for(const text of ['Rental agreement','Invoice and receipt','Requests and incidents','Extension approved by branch','Reported scratch','Rear panel scratch','Charges and payments','Rental history'])assert(await page.getByRole('dialog').getByText(text,{exact:!['Rear panel scratch','Extension approved by branch'].includes(text)}).isVisible(),text);
+   const summaryDialog=page.getByRole('dialog');
+   await summaryDialog.locator('summary').filter({hasText:'Request details'}).first().click();
+   assert(await summaryDialog.getByText('Customer needs an extra day',{exact:true}).isVisible());
+   await summaryDialog.locator('summary').filter({hasText:'Request details'}).first().click();
+   await summaryDialog.locator('summary').filter({hasText:'View payment breakdown'}).click();
+   assert(await summaryDialog.getByText('Hire',{exact:true}).isVisible());
+   await summaryDialog.locator('summary').filter({hasText:'View payment breakdown'}).click();
    if(quoted)assert(await page.getByRole('dialog').getByText('Quotation',{exact:true}).isVisible());await page.waitForTimeout(400);await page.screenshot({path:output+'/completed-'+(quoted?'quoted':'direct')+'.png'});await page.getByRole('dialog').getByRole('button',{name:'Close',exact:true}).click();
   }
   quoted=true;bookStatus='Draft';quoteStatus='Sent';stale=true;await assertStage('Expired','Expired','Error',['View summary']);stale=false;quoteStatus='Rejected';await assertStage('Declined','Declined','Error',['View summary']);
