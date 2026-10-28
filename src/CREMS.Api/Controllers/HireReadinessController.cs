@@ -60,7 +60,7 @@ public sealed class HireReadinessController(ApplicationDbContext db, CurrentStaf
                 new("Documents", missingDocuments.Count == 0, missingDocuments.Count == 0 ? "Complete" : "Missing: " + string.Join(", ", missingDocuments)),
                 new("Bond", booking.DepositRequired <= 0 || booking.BondAmountHeld >= booking.DepositRequired, $"Held {booking.BondAmountHeld:0.00} / required {booking.DepositRequired:0.00}"),
                 new("Pre-hire inspection", handover, handover ? "Complete" : "Not complete"),
-                new("Agreement", booking.RentalAgreement is { Status: not AgreementStatus.Draft }, booking.RentalAgreement?.Status.ToString() ?? "Not signed"),
+                new("Agreement", true, "To be signed during pickup"),
                 new("Delivery", delivery.Count == 0 || delivery.Any(x => x.Status is DispatchStatus.Assigned or DispatchStatus.EnRoute or DispatchStatus.Arrived or DispatchStatus.Completed), delivery.Count == 0 ? "Not required" : string.Join(", ", delivery.Select(x => x.Status.ToString())))
             } : new List<ReadinessCheck>
             {

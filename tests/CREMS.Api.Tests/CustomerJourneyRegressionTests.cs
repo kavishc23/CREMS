@@ -198,6 +198,51 @@ public sealed class CustomerJourneyRegressionTests
     }
 
     [Fact]
+    public async Task Reserved_asset_is_available_only_when_selected_dates_do_not_overlap_its_booking()
+    {
+        await using var f = await Fixture.Create();
+        f.Asset.Status = AssetStatus.Reserved;
+        var booking = f.Booking(f.Customer.Id);
+        booking.Status = BookingStatus.Confirmed;
+        f.Db.Add(booking);
+        await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var afterReservation = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(40));
+        var openResult = await f.Public.GetAssets(null, null, null, afterReservation, afterReservation.AddDays(1), TestContext.Current.CancellationToken);
+        var openAssets = Assert.IsAssignableFrom<IReadOnlyList<PublicAssetResponse>>(Assert.IsType<OkObjectResult>(openResult.Result).Value);
+        Assert.True(Assert.Single(openAssets).IsAvailable);
+
+        var reservedDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30));
+        var reservedResult = await f.Public.GetAssets(null, null, null, reservedDate, reservedDate.AddDays(1), TestContext.Current.CancellationToken);
+        var reservedAssets = Assert.IsAssignableFrom<IReadOnlyList<PublicAssetResponse>>(Assert.IsType<OkObjectResult>(reservedResult.Result).Value);
+        Assert.False(Assert.Single(reservedAssets).IsAvailable);
+    }
+
+    [Fact]
+    public async Task Overdue_asset_is_hidden_until_return_inspection_is_completed()
+    {
+        await using var f = await Fixture.Create();
+        var booking = f.Booking(f.Customer.Id);
+        booking.Status = BookingStatus.ConvertedToRental;
+        booking.Items.Single().StartAt = DateTimeOffset.UtcNow.AddDays(-4);
+        booking.Items.Single().EndAt = DateTimeOffset.UtcNow.AddDays(-1);
+        f.Db.Add(booking);
+        await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var start = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
+        var heldResult = await f.Public.GetAssets(null, null, null, start, start.AddDays(1), TestContext.Current.CancellationToken);
+        var heldAssets = Assert.IsAssignableFrom<IReadOnlyList<PublicAssetResponse>>(Assert.IsType<OkObjectResult>(heldResult.Result).Value);
+        Assert.Empty(heldAssets);
+
+        booking.Status = BookingStatus.Completed;
+        f.Db.RentalInspections.Add(new RentalInspection { BookingId = booking.Id, Type = InspectionType.Return });
+        await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var returnedResult = await f.Public.GetAssets(null, null, null, start, start.AddDays(1), TestContext.Current.CancellationToken);
+        var returnedAssets = Assert.IsAssignableFrom<IReadOnlyList<PublicAssetResponse>>(Assert.IsType<OkObjectResult>(returnedResult.Result).Value);
+        Assert.True(Assert.Single(returnedAssets).IsAvailable);
+    }
+
+    [Fact]
     public async Task Customer_can_save_a_preferred_service_from_a_new_division()
     {
         await using var f = await Fixture.Create();

@@ -4,6 +4,7 @@ using CREMS.Api.Data;
 using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Identity;
+using CREMS.Api.Domain.Rentals;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -73,11 +74,21 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         var query = db.Assets.AsNoTracking().Where(asset => asset.IsActive);
         if (!scope.IsAdministrator) query = query.Where(asset => scope.BranchIds.Contains(asset.BranchId) && asset.DivisionId.HasValue && scope.DivisionIds.Contains(asset.DivisionId.Value));
         var counts = await query.GroupBy(asset => asset.Status).Select(group => new { Status = group.Key, Count = group.Count() }).ToDictionaryAsync(item => item.Status, item => item.Count, cancellationToken);
+        var physicallyAvailable = await query.CountAsync(asset => asset.Status == AssetStatus.Available &&
+            !db.BookingItems.Any(item => item.AssetId == asset.Id &&
+                (item.Booking!.Status == BookingStatus.ConvertedToRental ||
+                 item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
+            !db.MaintenanceJobs.Any(job => job.AssetId == asset.Id &&
+                (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)), cancellationToken);
+        var physicallyOnHire = await query.CountAsync(asset => asset.Status == AssetStatus.Rented ||
+            db.BookingItems.Any(item => item.AssetId == asset.Id &&
+                (item.Booking!.Status == BookingStatus.ConvertedToRental ||
+                 item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))), cancellationToken);
         var categories = await query.Where(asset => asset.Category != null).Select(asset => asset.Category!).Distinct().OrderBy(value => value).ToListAsync(cancellationToken);
         return Ok(new {
             total = await query.CountAsync(cancellationToken),
-            available = counts.GetValueOrDefault(AssetStatus.Available),
-            onHire = counts.GetValueOrDefault(AssetStatus.Rented),
+            available = physicallyAvailable,
+            onHire = physicallyOnHire,
             reserved = counts.GetValueOrDefault(AssetStatus.Reserved),
             maintenance = counts.GetValueOrDefault(AssetStatus.Maintenance),
             inspection = counts.GetValueOrDefault(AssetStatus.Inspection),

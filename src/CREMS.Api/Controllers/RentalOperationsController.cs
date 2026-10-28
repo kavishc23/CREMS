@@ -63,9 +63,11 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
                 x.Items.Select(i => i.Asset!.Type == AssetType.PropertyUnit ? "PROPERTY_UNIT" : i.Asset.AssetCategory!.Code).FirstOrDefault(), x.Items.Select(i => i.Asset!.Category).FirstOrDefault(),
                 x.Charges.Any(c => c.Category == ChargeCategory.Driver || c.Category == ChargeCategory.Operator),
                 x.Items.Select(i => (DateTimeOffset?)i.StartAt).FirstOrDefault(), x.Items.Select(i => (DateTimeOffset?)i.EndAt).FirstOrDefault(),
-                x.RentalAgreement != null, x.RentalAgreement != null
-                    ? (x.Status == BookingStatus.ConvertedToRental || (x.Status == BookingStatus.Completed && !x.Inspections.Any(i => i.Type == InspectionType.Return)) ? "Active" : x.RentalAgreement.Status.ToString())
-                    : "Not prepared",
+                x.Status != BookingStatus.Confirmed && x.RentalAgreement != null,
+                x.Status == BookingStatus.Confirmed || x.RentalAgreement == null ? "Not signed"
+                    : x.Status == BookingStatus.Completed && x.Inspections.Any(i => i.Type == InspectionType.Return) ? "Completed"
+                    : x.Status == BookingStatus.ConvertedToRental || x.Status == BookingStatus.Completed ? "Active"
+                    : "Not signed",
                 x.Payments.Where(p => p.Status == PaymentStatus.Recorded && (p.Type == PaymentType.RentalCharge || p.Type == PaymentType.AdditionalCharge)).Sum(p => (decimal?)p.Amount) ?? 0, x.DepositRequired,
                 x.BondStatus.ToString(), x.BondAmountHeld, x.BondDeductionAmount, x.BondRefundAmount,
                 x.Inspections.Any(i => i.Type == InspectionType.Handover), x.Inspections.Any(i => i.Type == InspectionType.Return),

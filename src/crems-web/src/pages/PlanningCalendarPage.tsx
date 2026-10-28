@@ -21,7 +21,7 @@ import { AssetProfileDialog } from '../components/AssetProfileDialog'
 import { PageHeader } from '../components/PageHeader'
 import { api } from '../api/client'
 
-type Asset = { id: string; assetNumber: string; name: string; status: string; branchId: string; divisionId: string | null }
+type Asset = { id: string; assetNumber: string; name: string; status: string; branchId: string; divisionId: string | null; isUnreturned: boolean }
 type Event = { assetId: string; startAt: string; endAt: string; type: string; reference: string }
 type Calendar = {
   assets: Asset[]
@@ -82,6 +82,11 @@ function overlapsDate(date: Date, startAt: string, endAt: string) {
 }
 
 function getAssetStatusForDate(asset: Asset, date: Date, events: Event[]): DayStatus {
+  // Inspection is a current hold. Keep it visible on today and future dates even
+  // when an older, unreleased maintenance record also overlaps the period.
+  if (asset.status === 'Inspection' && toLocalDateKey(date) >= toLocalDateKey(new Date()))
+    return STATUS_PALETTE.inspection
+
   const matches = events.filter((event) => event.assetId === asset.id && overlapsDate(date, event.startAt, event.endAt))
 
   if (matches.some(event => event.type.toLowerCase() === 'maintenance')) return STATUS_PALETTE.maintenance
@@ -89,7 +94,8 @@ function getAssetStatusForDate(asset: Asset, date: Date, events: Event[]): DaySt
   if (matches.length) return STATUS_PALETTE.booked
   // Current asset status is a snapshot, not historical availability.
   if (toLocalDateKey(date) >= toLocalDateKey(new Date())) {
-    if (toLocalDateKey(date) === toLocalDateKey(new Date()) && ['Reserved', 'Rented'].includes(asset.status)) return STATUS_PALETTE.booked
+    if (asset.isUnreturned || asset.status === 'Rented') return STATUS_PALETTE.booked
+    if (toLocalDateKey(date) === toLocalDateKey(new Date()) && asset.status === 'Reserved') return STATUS_PALETTE.booked
     if (asset.status === 'Inspection') return STATUS_PALETTE.inspection
     if (asset.status === 'Maintenance') return STATUS_PALETTE.maintenance
     if (asset.status === 'OutOfService') return STATUS_PALETTE.outOfService
@@ -372,7 +378,7 @@ export function PlanningCalendarPage() {
         ))}
       </Stack>
 
-      <Alert severity="info" sx={{ mb: 2 }}>Bookings, maintenance and transfers come from CREMS records. Current inspection and out-of-service holds carry forward until their status changes; dates without an event are not a historical condition record. Branch closures are operating-calendar exceptions, not asset states.</Alert>
+      <Alert severity="info" sx={{ mb: 2 }}>Bookings, maintenance and transfers come from CREMS records. Assets still on hire, including overdue returns, remain booked until return is confirmed. Inspection and out-of-service holds carry forward until release. Branch closures are operating-calendar exceptions, not asset states.</Alert>
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2.5}>
         <Card variant="outlined" sx={{ flex: 1, bgcolor: '#15140f', color: 'white' }}>

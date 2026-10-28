@@ -132,7 +132,9 @@ public sealed class DashboardController(ApplicationDbContext db, CurrentStaffSco
             .OrderByDescending(item => item.CompletedAt).Take(5)
             .Select(item => new { Type = "Safety release pending", Detail = item.JobNumber + " repair is complete", Priority = "High", Page = "maintenance" }).ToListAsync(cancellationToken));
         alerts.AddRange(await assets.Where(item => item.Status == AssetStatus.Available &&
-            db.BookingItems.Any(line => line.AssetId == item.Id && line.Booking!.Status == BookingStatus.ConvertedToRental && line.StartAt <= now && line.EndAt >= now))
+            db.BookingItems.Any(line => line.AssetId == item.Id &&
+                (line.Booking!.Status == BookingStatus.ConvertedToRental ||
+                 line.Booking.Status == BookingStatus.Completed && !line.Booking.Inspections.Any(i => i.Type == InspectionType.Return))))
             .OrderBy(item => item.AssetNumber).Take(5)
             .Select(item => new { Type = "Asset status conflict", Detail = item.AssetNumber + " is available while on hire", Priority = "High", Page = "assets" }).ToListAsync(cancellationToken));
         alerts.AddRange(await MaintenanceRules.DueAssets(db, assets, MaintenanceRules.LocalDate(now).AddDays(14)).OrderBy(item => item.NextServiceDate).Take(5).Select(item => new { Type = "Maintenance due", Detail = item.AssetNumber + " · " + item.Name, Priority = "Medium", Page = "maintenance" }).ToListAsync(cancellationToken));
