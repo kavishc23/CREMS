@@ -6,6 +6,7 @@ using CREMS.Api.Data;
 using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Customers;
+using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
 using CREMS.Api.Services;
@@ -267,7 +268,7 @@ public sealed class CustomerJourneyRegressionTests
     public async Task Public_booking_uses_registered_identity_and_verified_licence_instead_of_submitted_identity()
     {
         await using var f = await Fixture.Create();
-        f.Db.CustomerLicences.Add(new() { CustomerId = f.Customer.Id, StorageKey = "test-only.png", ContentType = "image/png", ContentHash = "test-only", LicenceNumber = "TEST-LICENCE", Status = LicenceVerificationStatus.Verified });
+        f.Db.CustomerLicences.Add(new() { CustomerId = f.Customer.Id, StorageKey = "test-only.png", ContentType = "image/png", ContentHash = "test-only", LicenceNumber = "TEST-LICENCE", LicenceClasses = "2,3", Status = LicenceVerificationStatus.Verified });
         f.Db.SystemSettings.Add(new() { Key="rentals.bookingPrefix", Value="HIRE", Category="Numbering" });
         await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var response = await f.Public.RequestBooking(f.PublicRequest(), TestContext.Current.CancellationToken);
@@ -277,9 +278,49 @@ public sealed class CustomerJourneyRegressionTests
         Assert.Equal(f.Customer.Id, booking.CustomerId);
         Assert.Single(booking.Items); Assert.Equal(100m, booking.Items.Single().DailyRate);
         Assert.Contains("TEST-LICENCE", booking.Notes);
+        Assert.Contains("Driver licence classes: 2,3", booking.Notes);
         Assert.DoesNotContain("Spoofed", booking.Notes);
         Assert.Equal("customer@example.test", f.Customer.Email);
         Assert.Single(await f.Db.OutboundEmails.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Quote_acceptance_keeps_the_booking_awaiting_staff_confirmation()
+    {
+        await using var f = await Fixture.Create();
+        var token = TestContext.Current.CancellationToken;
+        var booking = f.Booking(f.Customer.Id);
+        var quote = new SalesQuote { QuoteNumber = "QUO-TEST-ACCEPT", CustomerId = f.Customer.Id,
+            BranchId = f.Branch.Id, DivisionId = f.Division.Id, ConvertedBookingId = booking.Id,
+            Status = QuoteStatus.Sent, ValidUntil = DateTimeOffset.UtcNow.AddDays(5), Version = 1 };
+        f.Db.AddRange(booking, quote); await f.Db.SaveChangesAsync(token);
+        Assert.IsType<OkObjectResult>(await f.Account.DecideQuote(quote.Id, new(true, null, 1), token));
+        Assert.Equal(QuoteStatus.Accepted, quote.Status);
+        Assert.Equal(BookingStatus.Draft, booking.Status);
+        Assert.IsType<ConflictObjectResult>(await f.Account.DecideQuote(quote.Id, new(true, null, 1), token));
+        Assert.Single(await f.Db.Bookings.ToListAsync(token));
+    }
+
+    [Theory]
+    [InlineData(AssetType.LightEquipment, false, true)]
+    [InlineData(AssetType.Vehicle, true, true)]
+    [InlineData(AssetType.Vehicle, false, false)]
+    public async Task Non_applicable_licence_details_are_excluded_from_booking_and_quote_notes(AssetType type, bool personnel, bool licencePolicy)
+    {
+        await using var f = await Fixture.Create();
+        var token = TestContext.Current.CancellationToken;
+        f.Asset.Type = type;
+        f.Division.CustomerBookingConfigurationJson = new DivisionBookingFlow(PersonnelRequirement.Optional,
+            RequireVerifiedLicenceForVehicles: licencePolicy).ToJson();
+        f.Db.CustomerLicences.Add(new() { CustomerId = f.Customer.Id, StorageKey = "test.png", ContentType = "image/png",
+            ContentHash = "test", LicenceNumber = "PROFILE-LICENCE", LicenceClasses = "2,3", Status = LicenceVerificationStatus.Verified });
+        await f.Db.SaveChangesAsync(token);
+        Assert.IsType<OkObjectResult>((await f.Public.RequestBooking(f.PublicRequest() with { PersonnelRequested = personnel, RequestQuotation = true }, token)).Result);
+        var notes = (await f.Db.Bookings.SingleAsync(token)).Notes!;
+        var enquiry = (await f.Db.CustomerCases.SingleAsync(token)).Description;
+        Assert.DoesNotContain("LICENCE", notes);
+        Assert.DoesNotContain("Driver licence", notes);
+        Assert.DoesNotContain("Driver licence", enquiry);
     }
 
     [Fact]

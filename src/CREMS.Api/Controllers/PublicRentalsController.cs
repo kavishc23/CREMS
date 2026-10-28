@@ -354,13 +354,13 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (customer is not { } activeCustomer) return Unauthorized();
         if (activeCustomer.IsBlocked)
             return ValidationProblem("We cannot accept this request online. Please contact the rental team.");
-        var licenceNumber = await db.CustomerLicences.AsNoTracking()
+        var licence = await db.CustomerLicences.AsNoTracking()
             .Where(x => x.CustomerId == activeCustomer.Id && x.Status == LicenceVerificationStatus.Verified)
-            .OrderByDescending(x => x.ConfirmedAt).Select(x => x.LicenceNumber).FirstOrDefaultAsync(cancellationToken);
+            .OrderByDescending(x => x.ConfirmedAt).Select(x => new { x.LicenceNumber, x.LicenceClasses }).FirstOrDefaultAsync(cancellationToken);
         var professionalPersonnelProvided = AssetCategoryPolicy.RequiresPersonnel(asset) || request.PersonnelRequested;
         var licenceRequired = flow.RequireVerifiedLicenceForVehicles &&
             AssetCategoryPolicy.RequiresDrivingLicence(asset, professionalPersonnelProvided);
-        if (licenceRequired && string.IsNullOrWhiteSpace(licenceNumber))
+        if (licenceRequired && string.IsNullOrWhiteSpace(licence?.LicenceNumber))
         {
             ModelState.AddModelError(nameof(request.DriverLicence), "Verify your driver licence in My account before requesting this rental.");
             return ValidationProblem(ModelState);
@@ -373,8 +373,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 ? signedInUser.FullName : activeCustomer.Name,
             Email = activeCustomer.Email ?? request.Email,
             Phone = activeCustomer.Phone ?? request.Phone,
-            DriverName = licenceRequired ? activeCustomer.Name : request.DriverName,
-            DriverLicence = licenceRequired ? licenceNumber : request.DriverLicence,
+            DriverName = licenceRequired ? activeCustomer.Name : null,
+            DriverLicence = licenceRequired ? licence?.LicenceNumber : null,
         };
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Keep the registered identity authoritative while allowing current contact details.
@@ -429,6 +429,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var taxRate = asset.Division?.DefaultTaxRate ?? FijiRentalDefaults.VatRate;
         var tax = decimal.Round(((hireRate.IsTaxable ? baseSubtotal : 0) + charges.Where(x => x.Definition.IsTaxable).Sum(x => x.Quantity * x.Definition.DefaultSellingRate)) * taxRate / 100m, 2);
         var total = baseSubtotal + chargeSubtotal + tax;
+        var requestNotes = BuildRequestNotes(request, personnelRequested) +
+            (licenceRequired && !string.IsNullOrWhiteSpace(licence?.LicenceClasses) ? $"\nDriver licence classes: {licence.LicenceClasses}." : "");
         var booking = new Booking
         {
             BookingNumber = requiresQuote
@@ -436,7 +438,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 : await RentalSettings.Reference(db, false, cancellationToken),
             CustomerId = activeCustomer.Id, BranchId = asset.BranchId, Status = BookingStatus.Draft,
             ConfigurationSnapshotJson = JsonSerializer.Serialize(await ConfiguredHireRules.Capture(db, asset, request.ConfigurationAnswers, cancellationToken), OrganizationConfiguration.Json),
-            Notes = BuildRequestNotes(request, personnelRequested) + (requiresQuote ? "\nRequest type: Quotation." : "\nRequest type: Booking."),
+            Notes = requestNotes + (requiresQuote ? "\nRequest type: Quotation." : "\nRequest type: Booking."),
             TaxRate = taxRate, DepositRequired = AssetCategoryPolicy.Bond(asset),
             BondStatus = AssetCategoryPolicy.Bond(asset) > 0 ? BondStatus.AwaitingPayment : BondStatus.NotRequired,
             AdditionalCharges = chargeSubtotal,
@@ -470,7 +472,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             db.CustomerCases.Add(new CustomerCase { CaseNumber = $"CASE-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
                 CustomerId = activeCustomer.Id, BranchId = asset.BranchId, Type = CaseType.Enquiry,
                 Priority = CasePriority.Normal, Subject = $"Online quotation request — {quote.QuoteNumber}",
-                Description = BuildRequestNotes(request, personnelRequested), DueAt = DateTimeOffset.UtcNow.AddHours(8) });
+                Description = requestNotes, DueAt = DateTimeOffset.UtcNow.AddHours(8) });
             QueueCustomerConfirmation(signedInUser, quote.QuoteNumber, asset.Name, request.StartDate, request.EndDate,
                 "Quotation request received", "Our team will review availability, transport, personnel and final charges. You can follow the quotation in your customer account.");
             await db.SaveChangesAsync(cancellationToken);

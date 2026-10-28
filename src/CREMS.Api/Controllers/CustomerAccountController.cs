@@ -97,12 +97,12 @@ public sealed class CustomerAccountController(
         if (user is null || !user.IsActive || !user.CustomerId.HasValue) return Unauthorized();
         var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == user.CustomerId);
         if (customer is null || !customer.IsActive || customer.IsBlocked) return Forbid();
-        var licenceNumber = await db.CustomerLicences.AsNoTracking()
+        var licence = await db.CustomerLicences.AsNoTracking()
             .Where(x => x.CustomerId == customer.Id && x.Status == LicenceVerificationStatus.Verified)
-            .OrderByDescending(x => x.ConfirmedAt).Select(x => x.LicenceNumber).FirstOrDefaultAsync();
+            .OrderByDescending(x => x.ConfirmedAt).Select(x => new { x.LicenceNumber, x.LicenceClasses }).FirstOrDefaultAsync();
         return Ok(new { user.Id, user.Email, user.FullName, user.CustomerId, customer.CustomerNumber,
             CustomerName = customer.Name, customer.Phone, customer.Address, customer.IdentificationNumber,
-            DriverLicenceNumber = licenceNumber, customer.Type, customer.HirePreferences, customer.PreferredServiceIds, customer.PreferredAssetCategoryIds, user.EmailConfirmed });
+            DriverLicenceNumber = licence?.LicenceNumber, DriverLicenceClasses = (licence?.LicenceClasses ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray(), customer.Type, customer.HirePreferences, customer.PreferredServiceIds, customer.PreferredAssetCategoryIds, user.EmailConfirmed });
     }
 
     [HttpGet("bookings")]

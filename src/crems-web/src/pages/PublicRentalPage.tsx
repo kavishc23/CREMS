@@ -60,13 +60,13 @@ type BookingForm = {
   email: string; phone: string; address: string; identificationNumber: string
   purpose: string; message: string; fulfilment: 'Pickup' | 'Delivery'; deliveryAddress: string
   siteContact: string; purchaseOrderNumber: string; personnelRequested: boolean
-  hireQuantity:number; personnelHours: number | null; driverName: string; driverLicence: string
+  hireQuantity:number; personnelHours: number | null; driverName: string; driverLicence: string; driverLicenceClasses: number[]
 }
 const emptyBooking: BookingForm = {
   secondaryContact: '', fullName: '', customerType: 'Individual', companyName: '', email: '', phone: '',
   address: '', identificationNumber: '', purpose: '', message: '', fulfilment: 'Pickup',
   deliveryAddress: '', siteContact: '', purchaseOrderNumber: '', personnelRequested: false,
-  hireQuantity:1, personnelHours: null, driverName: '', driverLicence: '',
+  hireQuantity:1, personnelHours: null, driverName: '', driverLicence: '', driverLicenceClasses: [],
 }
 
 function dateInputValue(offsetDays: number) {
@@ -279,6 +279,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const estimatedTax = Math.round(((checkoutDetail?.hireRate?.isTaxable===false?0:baseHire) + checkoutCharges.filter(x => x.isTaxable).reduce((sum,x) => sum + x.defaultSellingRate*x.quantity,0)) * taxRate) / 100
   const estimatedTotal = baseHire + extrasTotal + estimatedTax
   const flow=checkoutDetail?.bookingFlow
+  const licenceRequired = Boolean(flow?.requireVerifiedLicenceForVehicles && isVehicleAsset(selected) && !booking.personnelRequested)
   const pendingServiceCharges = booking.fulfilment === 'Delivery' || booking.personnelRequested
   const quotationFlow = Boolean(selected && (pendingServiceCharges || selected.requiresQuote || requestQuotation || baseRate <= 0 || selected.allowsQuoteRequests !== false && (flow?.quoteMode === 'Always' || flow?.businessCustomersRequireQuote && booking.customerType === 'Business')))
   async function advanceBooking(event: FormEvent) {
@@ -315,7 +316,8 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     setSubmitting(true); setError('')
     try {
       const response = await submitPublicBookingRequest({
-        assetId: selected.id, startDate, endDate, ...booking,
+        assetId: selected.id, startDate, endDate, ...booking, driverLicenceClasses: undefined,
+        driverName: licenceRequired ? booking.driverName : '', driverLicence: licenceRequired ? booking.driverLicence : '',
         personnelHours: null, requestQuotation: quotationFlow, configurationAnswers, extras: checkoutCharges.map(charge => ({ chargeDefinitionId: charge.id, quantity: charge.quantity })),
       })
       setReference(response.reference); setResponseKind(response.requestType)
@@ -334,7 +336,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       return
     }
     try {
-      const account = (await api.get<{ fullName: string; customerName: string; email: string; phone: string | null; address: string | null; driverLicenceNumber: string | null; type: 'Individual' | 'Business' }>('/customer-account/session')).data
+      const account = (await api.get<{ fullName: string; customerName: string; email: string; phone: string | null; address: string | null; driverLicenceNumber: string | null; driverLicenceClasses?: number[]; type: 'Individual' | 'Business' }>('/customer-account/session')).data
       const details = (await api.get<CheckoutDetail>(`/public/assets/${asset.id}`, { params: dates })).data
       if (!details.isAvailable) {
         setError('This rental is no longer available for the selected dates. Please choose another option.')
@@ -344,7 +346,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       openRequest(asset, details, { ...emptyBooking, fullName: account.fullName || account.customerName, customerType: account.type,
         companyName: account.type === 'Business' ? account.customerName : '', email: account.email,
         phone: account.phone ?? '', address: account.address ?? '', driverName: account.customerName,
-        driverLicence: account.driverLicenceNumber ?? '' }, quote, dates)
+        driverLicence: account.driverLicenceNumber ?? '', driverLicenceClasses: account.driverLicenceClasses ?? [] }, quote, dates)
     } catch { setError('We could not prepare this checkout. Please refresh availability and try again.') }
   }
 
@@ -521,7 +523,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
               <TextField fullWidth multiline minRows={2} maxRows={4} label="Purpose (optional)" value={booking.purpose} inputProps={{ maxLength: 250 }} onChange={event => setBooking({ ...booking, purpose: event.target.value })} />
               <TextField fullWidth multiline minRows={2} maxRows={4} label="Additional message (optional)" value={booking.message} inputProps={{ maxLength: 1000 }} onChange={event => setBooking({ ...booking, message: event.target.value })} />
             </Box>
-            {flow?.requireVerifiedLicenceForVehicles && isVehicleAsset(selected) && !booking.personnelRequested && !booking.driverLicence && <Alert severity="warning">Verify your driver licence in your customer profile before submitting this booking.</Alert>}
+            {licenceRequired && <TextField fullWidth label="Driver licence number" value={booking.driverLicence} InputProps={{ readOnly: true }} error={!booking.driverLicence} helperText={booking.driverLicence ? `Verified from your profile${booking.driverLicenceClasses.length ? ' · Classes: ' + booking.driverLicenceClasses.join(', ') : ''}. Bring your licence for the handover check.` : 'Verify your driver licence in your customer profile before submitting this request.'} />}
             {(baseUnit === 'Hour' || measuredUnit(baseUnit) || !!checkoutDetail?.customerQuestions?.length || !!checkoutDetail?.charges.some(charge => !charge.isRequired && !['Operator', 'Driver', 'Transport'].includes(charge.category))) && <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 2 }}>
               <Typography fontWeight={800} mb={1}>Service requirements</Typography>
               <Stack spacing={2}>
@@ -534,7 +536,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
           </>}
           {bookingStep === 2 && <>
             <Alert severity={quotationFlow ? 'info' : 'success'}><Typography fontWeight={750}>{quotationFlow ? 'Quotation request' : 'Booking request'}</Typography>{quotationFlow ? 'The rental team will confirm the complete price before you accept the quotation.' : 'The branch will confirm availability, eligibility and collection requirements.'}</Alert>
-            <Card variant="outlined"><CardContent><Typography fontWeight={750}>{booking.fullName}</Typography><Typography variant="body2" color="text.secondary">{booking.email} · {booking.phone}</Typography><Divider sx={{ my: 1.5 }} /><Typography variant="body2">{startDate} to {endDate}</Typography><Typography variant="body2" mt={.5}>{booking.fulfilment === 'Delivery' ? 'Delivery to ' + booking.deliveryAddress : 'Pickup from ' + selected?.branchName}</Typography>{booking.personnelRequested && <Typography variant="body2" mt={.5}>Driver/operator included · price to be confirmed</Typography>}{booking.secondaryContact && <Typography variant="body2" mt={.5}>Secondary contact: {booking.secondaryContact}</Typography>}</CardContent></Card>
+            <Card variant="outlined"><CardContent><Typography fontWeight={750}>{booking.fullName}</Typography><Typography variant="body2" color="text.secondary">{booking.email} · {booking.phone}</Typography><Divider sx={{ my: 1.5 }} /><Typography variant="body2">{startDate} to {endDate}</Typography><Typography variant="body2" mt={.5}>{booking.fulfilment === 'Delivery' ? 'Delivery to ' + booking.deliveryAddress : 'Pickup from ' + selected?.branchName}</Typography>{booking.personnelRequested && <Typography variant="body2" mt={.5}>Driver/operator included · price to be confirmed</Typography>}{licenceRequired && booking.driverLicence && <Typography variant="body2" mt={.5}>Driver licence: {booking.driverLicence}{booking.driverLicenceClasses.length ? ` · Classes: ${booking.driverLicenceClasses.join(", ")}` : ""}</Typography>}{booking.secondaryContact && <Typography variant="body2" mt={.5}>Secondary contact: {booking.secondaryContact}</Typography>}</CardContent></Card>
             <FormControlLabel control={<Checkbox checked={termsAccepted} onChange={event => setTermsAccepted(event.target.checked)} />} label={quotationFlow ? 'I understand that the complete price will be confirmed in a quotation for me to review and accept.' : 'I understand this request is subject to branch confirmation and any required refundable bond.'} />
           </>}
         </Stack></Grid><Grid size={{ xs: 12, md: 4 }}><Card variant="outlined" sx={{ position: { md: 'sticky' }, top: 16 }}><CardContent><Typography variant="overline" color="text.secondary">{quotationFlow ? 'Quotation estimate' : 'Booking summary'}</Typography><Typography variant="h6" fontWeight={800}>{selected?.name}</Typography><Typography variant="body2" color="text.secondary">{baseQuantity} × {baseUnit.toLowerCase()} · {selected?.branchName}</Typography><Divider sx={{ my: 2 }} /><Stack spacing={1}><Stack direction="row" justifyContent="space-between"><Typography>Base hire</Typography><Typography>{baseHire.toFixed(2)}</Typography></Stack>{checkoutCharges.map(charge => <Stack key={charge.id} direction="row" justifyContent="space-between" gap={1}><Typography variant="body2">{charge.name} × {charge.quantity}</Typography><Typography variant="body2">{(charge.defaultSellingRate * charge.quantity).toFixed(2)}</Typography></Stack>)}<Stack direction="row" justifyContent="space-between"><Typography>VAT ({taxRate}%)</Typography><Typography>{estimatedTax.toFixed(2)}</Typography></Stack><Divider />{booking.fulfilment === 'Delivery' && <Stack direction="row" justifyContent="space-between" gap={1}><Typography variant="body2">Delivery</Typography><Typography variant="body2">To be confirmed</Typography></Stack>}{booking.personnelRequested && <Stack direction="row" justifyContent="space-between" gap={1}><Typography variant="body2">Driver/operator included</Typography><Typography variant="body2">To be confirmed</Typography></Stack>}<Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>{pendingServiceCharges ? 'Hire estimate incl. VAT' : 'Estimated total incl. VAT'}</Typography><Typography fontWeight={800}>FJD {estimatedTotal.toFixed(2)}</Typography></Stack>{bondAmount > 0 && <Stack direction="row" justifyContent="space-between"><Typography>Refundable bond</Typography><Typography>FJD {bondAmount.toFixed(2)}</Typography></Stack>}<Divider />{!pendingServiceCharges && bondAmount > 0 && <Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>Total including bond</Typography><Typography fontWeight={800}>FJD {(estimatedTotal + bondAmount).toFixed(2)}</Typography></Stack>}{bondAmount > 0 && <Typography variant="caption" color="text.secondary">Refundable bond is held separately, subject to return inspection.</Typography>}</Stack>{pendingServiceCharges && <Alert severity="info" sx={{ mt: 2 }}>Our team will confirm the complete quotation, including {[booking.fulfilment === 'Delivery' ? 'delivery' : '', booking.personnelRequested ? 'driver/operator' : ''].filter(Boolean).join(' and ')}.</Alert>}</CardContent></Card></Grid></Grid>

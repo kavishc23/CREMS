@@ -1,3 +1,4 @@
+import { useActionNotice } from '../components/useActionNotice'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import { Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Tab, Tabs, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material'
@@ -22,7 +23,7 @@ export function MaintenanceDirectoryPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [editError, setEditError] = useState('')
-  const [notice, setNotice] = useState('')
+  const setNotice = useActionNotice()
   const load = useCallback(async () => {
     try { setData((await api.get<Directory>('/administration/maintenance-directory')).data) }
     catch (error) { setError(failure(error)) } finally { setLoading(false) }
@@ -60,7 +61,7 @@ export function MaintenanceDirectoryPage() {
       <Stack direction="row" gap={1}><Button disabled={loading} onClick={() => { setLoading(true); setError(''); void load() }}>Refresh directory</Button><Button variant="contained" disabled={loading} onClick={() => open(fresh(tab))}>{tab === 'technicians' ? 'Add technician' : 'Add supplier'}</Button></Stack>
     </Stack>
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-    {notice && <Alert severity="success" onClose={() => setNotice('')} sx={{ mb: 2 }}>{notice}</Alert>}
+
     <Tabs value={tab} onChange={(_, value: Editor['kind']) => setTab(value)} aria-label="Maintenance directory"><Tab value="technicians" label="Technicians" /><Tab value="suppliers" label="Suppliers" /></Tabs>
     <Typography variant="body2" color="text.secondary" my={2}>Deactivate entries to hide them from new assignments while keeping past records.</Typography>
     {loading ? <CircularProgress aria-label="Loading directory" /> : <TableContainer><Table size="small" aria-label={tab === 'technicians' ? 'Technician directory' : 'Supplier directory'}><TableHead><TableRow><TableCell>Name / reference</TableCell><TableCell>{tab === 'technicians' ? 'Branch / division' : 'Contact'}</TableCell>{tab === 'technicians' && <TableCell>Labour rate (FJD/hour)</TableCell>}<TableCell>Status</TableCell><TableCell>Action</TableCell></TableRow></TableHead><TableBody>

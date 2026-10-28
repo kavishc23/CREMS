@@ -1,3 +1,4 @@
+import { useActionNotice } from '../components/useActionNotice'
 import { useEffect, useState } from "react";
 import AddOutlined from "@mui/icons-material/AddOutlined";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
@@ -182,7 +183,7 @@ export function BookingApprovalRulesPage() {
     [form, setForm] = useState<Form>(blank()),
     [conditionKinds, setConditionKinds] = useState<ConditionKind[]>([]),
     [error, setError] = useState(""),
-    [notice, setNotice] = useState(""),
+    setNotice = useActionNotice(),
     [saving, setSaving] = useState(false),
     [ruleSearch, setRuleSearch] = useState(""),
     [ruleStatus, setRuleStatus] = useState<"all" | "active" | "inactive">(
@@ -476,11 +477,7 @@ export function BookingApprovalRulesPage() {
           {error}
         </Alert>
       )}
-      {notice && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          {notice}
-        </Alert>
-      )}
+
       <Alert severity="info" sx={{ mb: 3 }}>
         <Typography fontWeight={750}>Approval path</Typography>
         <strong>Normal rental:</strong> Rental officer approval only.{" "}
