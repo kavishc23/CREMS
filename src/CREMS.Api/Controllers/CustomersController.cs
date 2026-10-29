@@ -55,6 +55,9 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
             "verified" => query.Where(customer => db.Users.Any(user => user.CustomerId == customer.Id && user.EmailConfirmed)),
             "pending" => query.Where(customer => db.Users.Any(user => user.CustomerId == customer.Id && !user.EmailConfirmed)),
             "blocked" => query.Where(customer => customer.IsBlocked),
+            "active" => query.Where(customer => customer.IsActive && !customer.IsBlocked && !db.Users.Any(user => user.CustomerId == customer.Id && (!user.IsActive || user.LockoutEnd > DateTimeOffset.UtcNow))),
+            "locked" => query.Where(customer => db.Users.Any(user => user.CustomerId == customer.Id && user.LockoutEnd > DateTimeOffset.UtcNow)),
+            "disabled" => query.Where(customer => db.Users.Any(user => user.CustomerId == customer.Id && !user.IsActive)),
             _ => query,
         };
         var filteredCount = await query.CountAsync(cancellationToken);
@@ -63,7 +66,7 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         {
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 100);
-            query = query.Skip((page - 1) * pageSize).Take(pageSize);
+            query = query.OrderBy(customer => customer.Name).ThenBy(customer => customer.Id).Skip((page - 1) * pageSize).Take(pageSize);
         }
 
         var customers = await query
@@ -74,6 +77,8 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
                 customer.IsBlocked, customer.IsActive,
                 db.Users.Any(user => user.CustomerId == customer.Id),
                 db.Users.Where(user => user.CustomerId == customer.Id).Select(user => user.EmailConfirmed).FirstOrDefault(),
+                db.Users.Where(user => user.CustomerId == customer.Id).Select(user => (bool?)user.IsActive).FirstOrDefault(),
+                db.Users.Where(user => user.CustomerId == customer.Id).Select(user => user.LockoutEnd).FirstOrDefault(),
                 db.DocumentRecords.Where(document => document.EntityType == nameof(Customer) &&
                     document.EntityId == customer.Id && document.Type == "DriverLicence")
                     .OrderByDescending(document => document.CreatedAt).Select(document => (Guid?)document.Id).FirstOrDefault(),
@@ -94,12 +99,8 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
     {
         var scope = await staffScope.GetAsync(User);
         if (scope is null || (!scope.IsAdministrator && !scope.BranchId.HasValue)) return Forbid();
-        var customerNumber = request.CustomerNumber.Trim().ToUpperInvariant();
-        if (await db.Customers.AnyAsync(customer => customer.CustomerNumber == customerNumber, cancellationToken))
-        {
-            ModelState.AddModelError(nameof(request.CustomerNumber), "A customer with this number already exists.");
-            return ValidationProblem(ModelState);
-        }
+        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var customerNumber = await RecordNumbers.NextAsync(db, "Customer", cancellationToken);
 
         var customer = new Customer
         {
@@ -117,6 +118,7 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         AuditWriter.Record(db, scope, "Customer created", "Customer", customer.Id,
             $"{customer.CustomerNumber} — {customer.Name} was created.", scope.BranchId);
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return CreatedAtAction(nameof(GetAll), ToResponse(customer));
     }
 
@@ -133,15 +135,6 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
             !await db.Bookings.AnyAsync(booking => booking.CustomerId == id &&
                 booking.BranchId == scope.BranchId, cancellationToken))) return Forbid();
 
-        var customerNumber = request.CustomerNumber.Trim().ToUpperInvariant();
-        if (await db.Customers.AnyAsync(
-            other => other.Id != id && other.CustomerNumber == customerNumber, cancellationToken))
-        {
-            ModelState.AddModelError(nameof(request.CustomerNumber), "A customer with this number already exists.");
-            return ValidationProblem(ModelState);
-        }
-
-        customer.CustomerNumber = customerNumber;
         customer.Type = CustomerType.Individual;
         customer.Name = request.Name.Trim();
         customer.Email = Normalize(request.Email)?.ToLowerInvariant();
@@ -269,21 +262,22 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
     public async Task<ActionResult> RevokeCustomerSessions(Guid id, CancellationToken token)
     { var user = await userManager.Users.FirstOrDefaultAsync(x => x.CustomerId == id, token); if (user is null) return NotFound(); await userManager.UpdateSecurityStampAsync(user); var active = await db.UserSessions.Where(x => x.UserId == user.Id && x.EndedAt == null).ToListAsync(token); foreach (var session in active) { session.EndedAt = DateTimeOffset.UtcNow; session.EndReason = "Revoked by administrator"; } db.SecurityEvents.Add(Security(user, SecurityEventType.SessionRevoked, "Customer sessions revoked")); await db.SaveChangesAsync(token); return NoContent(); }
 
-    [HttpPost("{id:guid}/security/{action}")]
+    [HttpPost("{id:guid}/security/{operation}")]
     [Authorize(Policy = SystemPermissions.CustomersManageAccess)]
-    public async Task<ActionResult> CustomerSecurityAction(Guid id, string action, CancellationToken token)
+    public async Task<ActionResult> CustomerSecurityAction(Guid id, string operation, CancellationToken token)
     {
         var user = await userManager.Users.FirstOrDefaultAsync(x => x.CustomerId == id, token); if (user is null) return NotFound();
-        switch (action.ToLowerInvariant())
+        switch (operation.ToLowerInvariant())
         {
-            case "lock": await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue); user.AccountStatus = AccountLifecycleStatus.Locked; break;
-            case "unlock": await userManager.SetLockoutEndDateAsync(user, null); await userManager.ResetAccessFailedCountAsync(user); user.AccountStatus = AccountLifecycleStatus.Active; break;
+            case "lock": user.LockoutEnabled = true; user.LockoutEnd = DateTimeOffset.UtcNow.AddYears(100); user.AccountStatus = AccountLifecycleStatus.Locked; await userManager.UpdateSecurityStampAsync(user); break;
+            case "unlock": user.LockoutEnd = null; user.AccessFailedCount = 0; user.AccountStatus = !user.IsActive ? AccountLifecycleStatus.Deactivated : user.EmailConfirmed ? AccountLifecycleStatus.Active : AccountLifecycleStatus.ActivationPending; break;
             case "verify-email": user.EmailConfirmed = true; break;
             case "disable": user.IsActive = false; user.AccountStatus = AccountLifecycleStatus.Deactivated; user.DeactivatedAt = DateTimeOffset.UtcNow; await userManager.UpdateSecurityStampAsync(user); break;
-            case "enable": user.IsActive = true; user.AccountStatus = user.EmailConfirmed ? AccountLifecycleStatus.Active : AccountLifecycleStatus.ActivationPending; user.DeactivatedAt = null; break;
+            case "enable": user.IsActive = true; user.AccountStatus = user.LockoutEnd > DateTimeOffset.UtcNow ? AccountLifecycleStatus.Locked : user.EmailConfirmed ? AccountLifecycleStatus.Active : AccountLifecycleStatus.ActivationPending; user.DeactivatedAt = null; break;
             default: return BadRequest(new { message = "Unsupported customer security action." });
         }
-        await userManager.UpdateAsync(user); db.SecurityEvents.Add(Security(user, SecurityEventType.AccessChanged, $"Customer portal action: {action}")); await db.SaveChangesAsync(token); return NoContent();
+        var result = await userManager.UpdateAsync(user); if (!result.Succeeded) return BadRequest(new { message = string.Join(" ", result.Errors.Select(error => error.Description)) });
+        db.SecurityEvents.Add(Security(user, SecurityEventType.AccessChanged, $"Customer portal action: {operation}")); await db.SaveChangesAsync(token); return NoContent();
     }
 
     private SecurityEvent Security(ApplicationUser user, SecurityEventType type, string detail) => new() { UserId = user.Id, Email = user.Email, Type = type, Succeeded = true, Detail = detail, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(), UserAgent = Request.Headers.UserAgent.ToString() };
@@ -366,12 +360,12 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
     private static CustomerResponse ToResponse(Customer customer) => new(
         customer.Id, customer.CustomerNumber, customer.Name,
         customer.Email, customer.Phone, customer.Address, customer.IdentificationNumber, customer.HirePreferences,
-        customer.IsBlocked, customer.IsActive, false, false, null, null, null, null, "Required");
+        customer.IsBlocked, customer.IsActive, false, false, null, null, null, null, null, null, "Required");
     private static string Hash(string code, byte[] salt) => Convert.ToHexString(Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(code), salt, 100_000, HashAlgorithmName.SHA256, 32));
 }
 
 public sealed record SaveCustomerRequest(
-    [Required, RegularExpression("^CUS-[0-9]{6}$", ErrorMessage = "Use the customer number format CUS-000001."), MaxLength(50)] string CustomerNumber,
+    string? CustomerNumber,
     [Required, MaxLength(150)] string Name,
     [EmailAddress, MaxLength(254)] string? Email,
     [MaxLength(50)] string? Phone,
@@ -382,6 +376,6 @@ public sealed record SetCustomerStatusRequest(bool IsActive, bool IsBlocked);
 public sealed record CustomerResponse(
     Guid Id, string CustomerNumber, string Name,
     string? Email, string? Phone, string? Address, string? IdentificationNumber, IReadOnlyList<CustomerHirePreference> HirePreferences,
-    bool IsBlocked, bool IsActive, bool HasOnlineAccount, bool EmailConfirmed,
+    bool IsBlocked, bool IsActive, bool HasOnlineAccount, bool EmailConfirmed, bool? PortalActive, DateTimeOffset? PortalLockoutEnd,
     Guid? DriverLicenceDocumentId, string? DriverLicenceFileName,
     string? LicenceNumber, string? LicenceClasses, string LicenceStatus);

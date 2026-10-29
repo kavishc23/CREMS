@@ -38,9 +38,10 @@ public sealed class CustomerAccountController(
         if (await db.Customers.AnyAsync(x => x.Email == email, token))
             return Conflict(new { message = "A customer record already uses this email. Contact Carpenters to verify and activate online access." });
 
+        await using var transaction = await db.Database.BeginTransactionAsync(token);
         var customer = new Customer
         {
-            CustomerNumber = await NextCustomerNumber(token),
+            CustomerNumber = await RecordNumbers.NextAsync(db, "Customer", token),
             Type = CustomerType.Individual,
             Name = request.FullName.Trim(),
             Email = email,
@@ -55,7 +56,6 @@ public sealed class CustomerAccountController(
             UserName = email, Email = email, FullName = request.FullName.Trim(), Customer = customer,
             IsActive = true, EmailConfirmed = false,
         };
-        await using var transaction = await db.Database.BeginTransactionAsync(token);
         var result = await userManager.CreateAsync(user, request.Password);
         if (!result.Succeeded)
         {
@@ -805,16 +805,6 @@ public sealed class CustomerAccountController(
     }
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    private async Task<string> NextCustomerNumber(CancellationToken token)
-    {
-        var numbers = await db.Customers.AsNoTracking().Select(customer => customer.CustomerNumber).ToListAsync(token);
-        var next = numbers.Select(number => number.StartsWith("CUS-", StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(number[4..], out var value) ? value : 0).DefaultIfEmpty().Max() + 1;
-        string candidate;
-        do candidate = $"CUS-{next++:D6}";
-        while (numbers.Contains(candidate, StringComparer.OrdinalIgnoreCase));
-        return candidate;
-    }
     private static bool HasValidSignature(string extension, byte[] bytes) => extension switch
     {
         ".pdf" => bytes.Length >= 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46,

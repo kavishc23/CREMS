@@ -98,7 +98,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
     }
 
     [HttpPost]
-    [Authorize(Policy = SystemPolicies.ManageBranch)]
+    [Authorize(Policy = SystemPermissions.AssetsCreate)]
     public async Task<ActionResult<AssetResponse>> Create(
         SaveAssetRequest request,
         CancellationToken cancellationToken)
@@ -165,7 +165,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Policy = SystemPolicies.ManageBranch)]
+    [Authorize(Policy = SystemPermissions.AssetsEdit)]
     public async Task<ActionResult<AssetResponse>> Update(
         Guid id,
         SaveAssetRequest request,
@@ -238,7 +238,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
     }
 
     [HttpPatch("{id:guid}/status")]
-    [Authorize(Policy = SystemPolicies.ManageBranch)]
+    [Authorize(Policy = SystemPermissions.AssetsEdit)]
     public async Task<ActionResult> SetStatus(
         Guid id,
         SetAssetStatusRequest request,
@@ -258,7 +258,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
     }
 
     [HttpPost("{id:guid}/photos")]
-    [Authorize(Roles = "SuperAdministrator,Administrator,BranchManager,RentalOfficer")]
+    [Authorize(Policy = "ManageAssetPhotos")]
     [RequestSizeLimit(5_500_000)]
     public async Task<ActionResult> UploadPhoto(Guid id, [FromForm] IFormFile file, CancellationToken token)
     {
@@ -320,7 +320,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
     }
 
     [HttpDelete("{id:guid}/photos/{fileName}")]
-    [Authorize(Roles = "SuperAdministrator,Administrator,BranchManager,RentalOfficer")]
+    [Authorize(Policy = "ManageAssetPhotos")]
     public async Task<ActionResult> DeletePhoto(Guid id, string fileName, CancellationToken token)
     {
         var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == id, token);
@@ -344,7 +344,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
     }
 
     [HttpGet("{id:guid}/performance")]
-    [Authorize(Policy = SystemPolicies.ViewReports)]
+    [Authorize(Policy = SystemPermissions.AssetsViewFinancials)]
     public async Task<ActionResult> Performance(Guid id, CancellationToken cancellationToken)
     {
         var asset = await db.Assets.AsNoTracking().Include(x => x.Branch).Include(x => x.Division).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);

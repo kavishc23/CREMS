@@ -97,6 +97,11 @@ public sealed class SessionController(
             user.LastLoginIp = HttpContext.Connection.RemoteIpAddress?.ToString();
             await userManager.UpdateAsync(user);
         }
+        var roleNames = roles.ToArray();
+        var grantedPermissions = await db.RolePermissions.AsNoTracking().Where(grant => roleNames.Contains(grant.RoleName)).Select(grant => grant.Permission).ToListAsync();
+        var overrides = await db.UserPermissionOverrides.AsNoTracking().Where(grant => grant.UserId == user.Id && (grant.ExpiresAt == null || grant.ExpiresAt > now)).ToListAsync();
+        var effectivePermissions = grantedPermissions.Where(permission => !overrides.Any(item => item.Permission == permission && !item.IsGranted))
+            .Concat(overrides.Where(item => item.IsGranted).Select(item => item.Permission)).Distinct().ToArray();
         return Ok(new SessionResponse(
             user.Id,
             user.Email ?? string.Empty,
@@ -106,7 +111,8 @@ public sealed class SessionController(
             branchName,
             divisionName,
             roles.ToArray(),
-            user.MustChangePassword));
+            user.MustChangePassword,
+            new[] { "dashboard" }.Concat(StaffRoleAccess.Modules.Where(module => grantedPermissions.Contains(StaffRoleAccess.Grant(module.Key))).SelectMany(module => module.Pages)).Distinct().ToArray(), effectivePermissions));
     }
 
     [HttpPost("change-password/request")]
@@ -252,7 +258,9 @@ public sealed record SessionResponse(
     string? BranchName,
     string? DivisionName,
     IReadOnlyCollection<string> Roles,
-    bool MustChangePassword);
+    bool MustChangePassword,
+    IReadOnlyCollection<string>? Pages = null,
+    IReadOnlyCollection<string>? Permissions = null);
 public sealed record ChangeOwnPasswordRequest(
     [Required] string CurrentPassword,
     [Required, MinLength(10)] string NewPassword);

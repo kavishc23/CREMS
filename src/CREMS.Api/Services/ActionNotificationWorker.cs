@@ -178,7 +178,8 @@ public sealed class ActionNotificationWorker(IServiceScopeFactory scopes, ILogge
             var user = await users.FindByIdAsync(userId.ToString());
             if (user is not { IsActive: true, EmailConfirmed: true } || string.IsNullOrWhiteSpace(user.Email)) continue;
             var roles = await users.GetRolesAsync(user);
-            if (!roles.Any(SystemRoles.Staff.Contains)) continue;
+            if (roles.Contains(SystemRoles.Customer) || !roles.Any(SystemRoles.Staff.Contains) &&
+                !await db.RolePermissions.AnyAsync(grant => roles.Contains(grant.RoleName) && grant.Permission.StartsWith("staff.module."), token)) continue;
             var principal = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()) }
                 .Concat(roles.Select(r => new Claim(ClaimTypes.Role, r))), "NotificationWorker"));
             var visible = await NotificationAccess.StaffAsync(db, user, principal, scope.ServiceProvider.GetRequiredService<IAuthorizationService>());

@@ -146,7 +146,14 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     [HttpPost("suppliers")]
     [Authorize(Policy = SystemPolicies.ManageBranch)]
     public async Task<ActionResult> AddSupplier(SupplierRequest request, CancellationToken token)
-    { var scope = await Scope(); if (scope is null) return Forbid(); var item = new Supplier { SupplierNumber = request.SupplierNumber.Trim().ToUpperInvariant(), Name = request.Name.Trim(), Email = Clean(request.Email), Phone = Clean(request.Phone), Address = Clean(request.Address), TaxNumber = Clean(request.TaxNumber), PaymentTermsDays = request.PaymentTermsDays }; db.Suppliers.Add(item); await db.SaveChangesAsync(token); return Ok(item); }
+    {
+        var scope = await Scope(); if (scope is null) return Forbid();
+        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(token) : null;
+        var item = new Supplier { SupplierNumber = await RecordNumbers.NextAsync(db, "Supplier", token), Name = request.Name.Trim(), Email = Clean(request.Email), Phone = Clean(request.Phone), Address = Clean(request.Address), PaymentTermsDays = request.PaymentTermsDays };
+        db.Suppliers.Add(item); await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return Ok(item);
+    }
 
     [HttpPost("maintenance/{jobId:guid}/parts")]
     [Authorize(Policy = SystemPolicies.ManageBranch)]
@@ -281,7 +288,7 @@ public sealed record PersonnelRequest([Required] string EmployeeNumber, [Require
 public sealed record QualificationRequest([Required] string Name, [Required] string CertificateNumber, DateOnly IssuedOn, DateOnly ExpiresOn, bool SafetyInduction);
 public sealed record AssignmentRequest(Guid BookingId, Guid PersonnelId, [Required] string Role, DateTimeOffset StartAt, DateTimeOffset EndAt, decimal? CustomerHourlyRate, decimal? InternalHourlyCost);
 public sealed record TimesheetRequest(DateOnly WorkDate, [Range(0, 24)] decimal RegularHours, [Range(0, 24)] decimal OvertimeHours, string? Notes);
-public sealed record SupplierRequest([Required] string SupplierNumber, [Required] string Name, string? Email, string? Phone, string? Address, string? TaxNumber, [Range(0, 365)] int PaymentTermsDays);
+public sealed record SupplierRequest(string? SupplierNumber, [Required] string Name, string? Email, string? Phone, string? Address, string? TaxNumber, [Range(0, 365)] int PaymentTermsDays);
 public sealed record PartUsageRequest(Guid InventoryPartId, [Range(1, 100000)] decimal Quantity);
 public sealed record DeliveryZoneRequest([Required] string Name, Guid? BranchId, Guid? DivisionId, decimal BaseCharge, decimal CostPerKilometre, decimal ChargePerKilometre, decimal FailedDeliveryCharge);
 public sealed record AlertRuleRequest([Required] string Name, AlertCategory Category, Guid? BranchId, Guid? DivisionId, decimal? Threshold, int LeadTimeHours, TaskPriority Priority, bool EmailEnabled);

@@ -11,6 +11,8 @@ export type AuthenticatedUser = {
   branchName: string | null
   divisionName: string | null
   roles: string[]
+  pages?: string[]
+  permissions?: string[]
   mustChangePassword: boolean
 }
 

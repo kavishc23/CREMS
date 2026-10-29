@@ -75,6 +75,16 @@ builder.Services.AddAuthentication().AddCookie(SystemAuthenticationSchemes.Custo
     options.Cookie.SameSite = SameSiteMode.Strict;
     options.ExpireTimeSpan = TimeSpan.FromMinutes(15);
     options.SlidingExpiration = true;
+    options.Events.OnValidatePrincipal = async context =>
+    {
+        var users = context.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = context.Principal is null ? null : await users.GetUserAsync(context.Principal);
+        var stampType = users.Options.ClaimsIdentity.SecurityStampClaimType;
+        if (user is null || !user.IsActive || user.AccountStatus is AccountLifecycleStatus.Suspended or AccountLifecycleStatus.Deactivated ||
+            user.LockoutEnabled && user.LockoutEnd > DateTimeOffset.UtcNow ||
+            user.SecurityStamp != context.Principal?.FindFirst(stampType)?.Value)
+            context.RejectPrincipal();
+    };
     options.Events.OnRedirectToLogin = context => { context.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; };
     options.Events.OnRedirectToAccessDenied = context => { context.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
 });

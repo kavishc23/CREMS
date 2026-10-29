@@ -111,7 +111,7 @@ export default function App() {
   useEffect(() => {
     if (checkingSession || !user || user.roles.includes('Customer') || !staffView) return
     const requestedPage = staffPageFromPath(window.location.pathname) ?? 'dashboard'
-    const allowedPage = canAccessPage(user.roles, requestedPage)
+    const allowedPage = canAccessPage(user.roles, requestedPage, user.pages)
       ? requestedPage
       : 'dashboard'
     // Synchronize authenticated application state with the requested browser route.
@@ -161,7 +161,7 @@ export default function App() {
 
   if (user.mustChangePassword) return <Suspense fallback={<LoadingScreen />}><ChangePasswordPage /></Suspense>
 
-  const activePage = canAccessPage(user.roles, page) ? page : 'dashboard'
+  const activePage = canAccessPage(user.roles, page, user.pages) ? page : 'dashboard'
   const content = activePage === 'dashboard'
     ? <DashboardPage userName={user.fullName || user.email} userRoles={user.roles} onNavigate={navigateStaff} />
     : activePage === 'assets' ? <AssetsPage userRoles={user.roles} />
@@ -180,7 +180,7 @@ export default function App() {
     : activePage === 'divisions' || activePage === 'configuration' ? <OrganizationWorkspacePage userRoles={user.roles} />
     : <BranchesPage userRoles={user.roles} />
 
-  return <AppShell activePage={activePage} onNavigate={navigateStaff} userKey={user.email} userName={user.fullName || user.email} userRoles={user.roles} divisionName={user.divisionName} branchName={user.branchName} onLogout={logoutStaff}>
+  return <AppShell activePage={activePage} onNavigate={navigateStaff} userKey={user.email} userName={user.fullName || user.email} userRoles={user.roles} userPages={user.pages} divisionName={user.divisionName} branchName={user.branchName} onLogout={logoutStaff}>
     <Suspense fallback={<LoadingScreen />}>{content}</Suspense>
   </AppShell>
 }

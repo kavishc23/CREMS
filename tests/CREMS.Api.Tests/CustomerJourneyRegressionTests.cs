@@ -465,6 +465,70 @@ public sealed class CustomerJourneyRegressionTests
         Assert.DoesNotContain(payload.GetProperty("divisions").EnumerateArray(), d => d.GetProperty("Id").GetGuid() == hidden.Id);
     }
 
+    [Fact]
+    public async Task Staff_customer_numbers_are_generated_and_cannot_be_changed_by_editing()
+    {
+        await using var f = await Fixture.Create();
+        f.Context.User = new ClaimsPrincipal(new ClaimsIdentity([
+            new Claim(ClaimTypes.NameIdentifier, f.User.Id.ToString()),
+            new Claim(ClaimTypes.Role, SystemRoles.SuperAdministrator)], "test"));
+        var controller = new CustomersController(f.Db, new CurrentStaffScope(f.Db), f.Users, new EmailQueue(), new TestEnvironment()) { ControllerContext = new() { HttpContext = f.Context } };
+        var result = await controller.Create(new SaveCustomerRequest("CUS-999999", "Staff-created customer", "staff.customer@example.test", "1234567", "Suva", null), TestContext.Current.CancellationToken);
+        var created = Assert.IsType<CustomerResponse>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
+        Assert.Equal("CUS-000002", created.CustomerNumber);
+        await controller.Update(created.Id, new SaveCustomerRequest("CUS-999998", "Updated name", created.Email, created.Phone, created.Address, null), TestContext.Current.CancellationToken);
+        Assert.Equal("CUS-000002", (await f.Db.Customers.FindAsync([created.Id], TestContext.Current.CancellationToken))!.CustomerNumber);
+    }
+
+    [Fact]
+    public async Task Customer_security_controls_lock_unlock_disable_and_enable_portal_access()
+    {
+        await using var f = await Fixture.Create();
+        f.Context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, f.User.Id.ToString()), new Claim(ClaimTypes.Role, SystemRoles.SuperAdministrator)], "test"));
+        var controller = new CustomersController(f.Db, new CurrentStaffScope(f.Db), f.Users, new EmailQueue(), new TestEnvironment()) { ControllerContext = new() { HttpContext = f.Context } };
+        var originalStamp = f.User.SecurityStamp;
+        Assert.IsType<NoContentResult>(await controller.CustomerSecurityAction(f.Customer.Id, "lock", TestContext.Current.CancellationToken));
+        Assert.True(await f.Users.IsLockedOutAsync(f.User));
+        Assert.Equal(AccountLifecycleStatus.Locked, f.User.AccountStatus);
+        var locked = await controller.GetAll(null, "Locked", cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<CustomerResponse>>(Assert.IsType<OkObjectResult>(locked.Result).Value));
+        var active = await controller.GetAll(null, "Active", cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<CustomerResponse>>(Assert.IsType<OkObjectResult>(active.Result).Value));
+        Assert.NotEqual(originalStamp, f.User.SecurityStamp);
+        Assert.IsType<NoContentResult>(await controller.CustomerSecurityAction(f.Customer.Id, "disable", TestContext.Current.CancellationToken));
+        Assert.False(f.User.IsActive);
+        Assert.Equal(AccountLifecycleStatus.Deactivated, f.User.AccountStatus);
+        var disabled = await controller.GetAll(null, "Disabled", cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<CustomerResponse>>(Assert.IsType<OkObjectResult>(disabled.Result).Value));
+        Assert.IsType<NoContentResult>(await controller.CustomerSecurityAction(f.Customer.Id, "enable", TestContext.Current.CancellationToken));
+        Assert.True(f.User.IsActive);
+        Assert.Equal(AccountLifecycleStatus.Locked, f.User.AccountStatus);
+        Assert.IsType<NoContentResult>(await controller.CustomerSecurityAction(f.Customer.Id, "unlock", TestContext.Current.CancellationToken));
+        Assert.False(await f.Users.IsLockedOutAsync(f.User));
+        Assert.Equal(AccountLifecycleStatus.ActivationPending, f.User.AccountStatus);
+        var route = typeof(CustomersController).GetMethod(nameof(CustomersController.CustomerSecurityAction))!
+            .GetCustomAttributes(typeof(HttpPostAttribute), true).Cast<HttpPostAttribute>().Single().Template;
+        Assert.Equal("{id:guid}/security/{operation}", route);
+    }
+
+    [Fact]
+    public async Task Supplier_numbers_are_generated_and_existing_references_and_tax_data_are_preserved()
+    {
+        await using var f = await Fixture.Create();
+        f.Context.User = new ClaimsPrincipal(new ClaimsIdentity([
+            new Claim(ClaimTypes.NameIdentifier, f.User.Id.ToString()),
+            new Claim(ClaimTypes.Role, SystemRoles.SuperAdministrator)], "test"));
+        var controller = new MaintenanceDirectoryController(f.Db, new CurrentStaffScope(f.Db)) { ControllerContext = new() { HttpContext = f.Context } };
+        Assert.IsType<OkObjectResult>(await controller.CreateSupplier(new SupplierDirectoryRequest("SUP-999999", "Test supplier"), TestContext.Current.CancellationToken));
+        var supplier = await f.Db.Suppliers.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("SUP-000001", supplier.SupplierNumber);
+        supplier.TaxNumber = "Existing tax data";
+        await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        Assert.IsType<OkObjectResult>(await controller.UpdateSupplier(supplier.Id, new SupplierDirectoryRequest("SUP-999998", "Updated supplier", ExpectedVersion: supplier.UpdatedAt ?? supplier.CreatedAt), TestContext.Current.CancellationToken));
+        Assert.Equal("SUP-000001", supplier.SupplierNumber);
+        Assert.Equal("Existing tax data", supplier.TaxNumber);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public const string Password = "Portfolio123!";
