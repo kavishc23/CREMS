@@ -85,16 +85,17 @@ public sealed class MaintenanceDirectoryController(ApplicationDbContext db, Curr
         var item = id.HasValue ? await db.Suppliers.SingleOrDefaultAsync(x => x.Id == id, token) : null;
         if (id.HasValue && item is null) return NotFound();
         if (item is not null && request.ExpectedVersion != (item.UpdatedAt ?? item.CreatedAt)) return Conflict(new { message = "This supplier changed. Refresh the directory before editing again." });
-        if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.SupplierNumber)) return BadRequest(new { message = "Enter the supplier name and number." });
-        var number = request.SupplierNumber.Trim().ToUpperInvariant();
-        if (await db.Suppliers.AnyAsync(x => x.Id != id && x.SupplierNumber.ToUpper() == number, token)) return Conflict(new { message = "That supplier number already exists." });
+        if (string.IsNullOrWhiteSpace(request.Name)) return BadRequest(new { message = "Enter the supplier name." });
+        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(token) : null;
+        var number = item?.SupplierNumber ?? await RecordNumbers.NextAsync(db, "Supplier", token);
         var before = item is null ? null : $"{item.Name}; active {item.IsActive}";
         if (item is null) { item = new Supplier { SupplierNumber = number, Name = request.Name.Trim() }; db.Suppliers.Add(item); }
         item.SupplierNumber = number; item.Name = request.Name.Trim(); item.Email = Clean(request.Email); item.Phone = Clean(request.Phone);
-        item.Address = Clean(request.Address); item.TaxNumber = Clean(request.TaxNumber); item.PaymentTermsDays = request.PaymentTermsDays;
+        item.Address = Clean(request.Address); item.PaymentTermsDays = request.PaymentTermsDays;
         item.IsActive = request.IsActive; item.UpdatedAt = DateTimeOffset.UtcNow;
         AuditWriter.Record(db, scope, "Maintenance supplier saved", nameof(Supplier), item.Id, $"{item.SupplierNumber}: supplier directory updated.", null, before, $"{item.Name}; active {item.IsActive}");
         await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
         return Ok(new { item.Id });
     }
 
@@ -106,6 +107,6 @@ public sealed record TechnicianDirectoryRequest([Required, StringLength(200)] st
     [EnumDataType(typeof(PersonnelAvailability))] PersonnelAvailability Availability = PersonnelAvailability.Available,
     bool IsActive = true, DateTimeOffset? ExpectedVersion = null, TechnicianLocationRequest[]? Locations = null);
 public sealed record TechnicianLocationRequest(Guid BranchId, Guid DivisionId);
-public sealed record SupplierDirectoryRequest([Required, StringLength(100)] string SupplierNumber, [Required, StringLength(200)] string Name,
+public sealed record SupplierDirectoryRequest(string? SupplierNumber, [Required, StringLength(200)] string Name,
     [EmailAddress, StringLength(200)] string? Email = null, [StringLength(80)] string? Phone = null, [StringLength(1000)] string? Address = null,
     [StringLength(100)] string? TaxNumber = null, [Range(0, 365)] int PaymentTermsDays = 30, bool IsActive = true, DateTimeOffset? ExpectedVersion = null);

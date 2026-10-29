@@ -98,8 +98,11 @@ public sealed class MaintenanceTechnicianTests
         Assert.IsType<ConflictObjectResult>(await directory.UpdateTechnician(tech.Id, request, Token));
         Assert.IsType<OkObjectResult>(await directory.UpdateTechnician(tech.Id, request with { StandardCostRate = 45, IsActive = false, ExpectedVersion = tech.UpdatedAt ?? tech.CreatedAt }, Token)); Assert.Equal(45m, tech.StandardCostRate); Assert.False(tech.IsActive); Assert.Equal(originalNumber, tech.EmployeeNumber);
         Assert.IsType<OkObjectResult>(await directory.CreateSupplier(new("SUP-1", "Fleet Services"), Token));
-        Assert.IsType<ConflictObjectResult>(await directory.CreateSupplier(new("sup-1", "Duplicate"), Token));
-        var supplier = await db.Suppliers.SingleAsync(Token);
+        Assert.IsType<OkObjectResult>(await directory.CreateSupplier(new("sup-1", "Second supplier"), Token));
+        var supplierNumbers = await db.Suppliers.Select(item => item.SupplierNumber).ToListAsync(Token);
+        Assert.Equal(2, supplierNumbers.Distinct().Count());
+        Assert.All(supplierNumbers, number => Assert.Matches("^SUP-[0-9]{6}$", number));
+        var supplier = await db.Suppliers.SingleAsync(item => item.Name == "Fleet Services", Token);
         Assert.IsType<OkObjectResult>(await directory.UpdateSupplier(supplier.Id, new("SUP-1", "Fleet Services Updated", IsActive: false, ExpectedVersion: supplier.UpdatedAt ?? supplier.CreatedAt), Token)); Assert.False(supplier.IsActive);
         Assert.Equal(SystemPolicies.AdministerSystem, typeof(MaintenanceDirectoryController).GetCustomAttribute<AuthorizeAttribute>()!.Policy);
         Assert.True(await db.AuditEvents.AnyAsync(x => x.Action == "Maintenance technician saved", Token));
