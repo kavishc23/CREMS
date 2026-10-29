@@ -2,6 +2,30 @@
 
 ## Installation
 
+### Windows laptop (recommended evaluation workflow)
+
+Use Windows 10/11 with PowerShell 5.1 or newer and an internet connection. Install the following from their official websites, then reopen PowerShell:
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (SDK, not just runtime).
+- [Node.js LTS](https://nodejs.org/) version 22 or newer.
+- Either [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL 2 and Linux containers enabled, or access to an installed Microsoft SQL Server. SQL Server Express is suitable for a small local evaluation. SQL Server Developer and the supplied Docker image are for development/testing, not a production licence.
+
+Clone the repository or extract its source ZIP, open PowerShell in the folder containing README.md, and run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1
+```
+
+For Docker, open Docker Desktop first. Choose `docker` and supply a strong database password. For an installed server choose `existing` and provide a connection string, for example `Server=localhost\SQLEXPRESS;Database=Crems;Integrated Security=True;TrustServerCertificate=True`. The Windows account running CREMS must have permission to create/update that database. Use a dedicated empty database for evaluation, not an existing business database.
+
+Enter the initial administrator email and a strong password when prompted. Secrets are masked while entering them and saved in the ignored `.env.windows.json` file. This file contains plaintext credentials: keep it private and exclude it when sharing a ZIP. The script restores dependencies, builds the API, waits for SQL Server/API readiness, and starts the frontend. Open `http://localhost:5173` and sign in. Development startup automatically populates a new database with demonstration data; use fictional information during evaluation. Additional seed utilities under `ops/` are optional.
+
+Use the same command each time. Press Ctrl+C to stop the application. The Docker database remains running and retains data; stop it separately with `docker compose stop sqlserver` after closing CREMS. Never use `docker compose down -v` unless intentionally deleting the database. If a process remains after closing the terminal, close its terminal or stop that specific process before restarting.
+
+Docker is **not required** if SQL Server is installed locally or hosted elsewhere. It only supplies the database; the API and frontend run directly on Windows. This command is intended for local installation and evaluation, not unattended production hosting. Email is disabled, so delivery and email OTP workflows require the email configuration below and a separate configured API startup.
+
+### macOS/Linux
+
 Install Docker Desktop, the .NET 10 SDK, and Node.js 22 or newer. Clone the repository, then run:
 
 ```bash
@@ -21,6 +45,17 @@ Open `http://localhost:5173`. Press `Ctrl+C` in the startup terminal to stop the
 Set `CREMS_ADMIN_EMAIL`, `CREMS_ADMIN_PASSWORD`, and `CREMS_ADMIN_FULL_NAME` in `.env` before the first start. CREMS creates this administrator automatically when the database is initialized. After confirming sign-in, change the account password in CREMS and replace the bootstrap value in `.env` with a different long random value; existing passwords are not overwritten during normal startup. Do not share `.env` or commit it to Git.
 
 ## Database backups
+
+On Windows with Docker, use PowerShell to create and copy a backup (the container already has its database password):
+
+```powershell
+$container = docker compose ps -q sqlserver
+docker exec $container mkdir -p /var/opt/mssql/backup
+docker exec $container sh -c '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -Q "BACKUP DATABASE [Crems] TO DISK = N''/var/opt/mssql/backup/crems.bak'' WITH INIT"'
+docker cp "${container}:/var/opt/mssql/backup/crems.bak" .\crems-backup.bak
+```
+
+For installed SQL Server, use SQL Server Management Studio's database **Tasks > Back Up** action. Also back up uploaded files under `src/CREMS.Api/App_Data` and API data-protection keys; a SQL backup does not include those files. Keep all backups outside source control.
 
 Create a SQL Server backup before upgrades or major data imports:
 

@@ -27,6 +27,16 @@ docs/            Maintained setup, configuration, and operations guides
 
 ## Run locally
 
+### Windows client setup
+
+Install the prerequisites in [Client handover](docs/CLIENT_HANDOVER.md), open PowerShell in this repository, and run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1
+```
+
+The first run asks for database and administrator settings. Subsequent runs use the same command. Docker is optional when an existing SQL Server is available. This is a local evaluation setup; email is disabled by the Windows launcher.
+
 ### One-command startup
 
 Copy the environment template, fill in the required values, then start the complete local stack:
