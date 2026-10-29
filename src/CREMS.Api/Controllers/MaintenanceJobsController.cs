@@ -34,6 +34,7 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
     [HttpPost]
     public async Task<ActionResult> Create(SaveMaintenanceJobRequest request, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(request.FaultDescription) || string.IsNullOrWhiteSpace(request.ServiceType)) return BadRequest(new { message = "Enter the maintenance type and work required before saving." });
         await using var transaction = await MaintenanceRules.BeginAsync(db, cancellationToken);
         var asset = await db.Assets.Include(item => item.Branch).Include(item => item.Division).FirstOrDefaultAsync(item => item.Id == request.AssetId, cancellationToken);
         if (asset is null) return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["assetId"] = ["Select a valid asset."] }));
@@ -81,6 +82,8 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
     [HttpPut("{id:guid}")]
     public async Task<ActionResult> Update(Guid id, UpdateMaintenanceJobRequest request, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(request.FaultDescription) || string.IsNullOrWhiteSpace(request.ServiceType)) return BadRequest(new { message = "Enter the maintenance type and work required before saving." });
+        if (request.Status == MaintenanceStatus.InProgress && !request.AssignedPersonnelId.HasValue && !request.SupplierId.HasValue) return BadRequest(new { message = "Assign a technician or an external supplier before starting work." });
         await using var transaction = await MaintenanceRules.BeginAsync(db, cancellationToken);
         var job = await db.MaintenanceJobs.Include(item => item.Asset).FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (job is null) return NotFound();

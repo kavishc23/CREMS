@@ -45,9 +45,10 @@ public static class ConfiguredHireRules
     public static async Task<BookingConfigurationSnapshot?> Resolve(ApplicationDbContext db, Booking booking, CancellationToken token)
     {
         var saved = OrganizationConfiguration.Read<BookingConfigurationSnapshot>(booking.ConfigurationSnapshotJson);
-        if (saved is not null) return saved;
         var asset = booking.Items.FirstOrDefault()?.Asset;
-        return asset is null ? null : await Capture(db, asset, null, token);
+        var resolved = saved ?? (asset is null ? null : await Capture(db, asset, null, token));
+        if (resolved is not null && asset is not null && (asset.Type is AssetType.Scaffolding or AssetType.PortableSanitation or AssetType.WasteContainer or AssetType.PropertyUnit || AssetCategoryPolicy.Code(asset) is "SCAFFOLD" or "PORTABLE_TOILET" or "BIG_BIN" or "PROPERTY_UNIT")) return resolved with { TracksFuel = false, TracksMeter = false, MeterUnit = null };
+        return resolved;
     }
 
     public static async Task<string?> ValidateInspection(ApplicationDbContext db, Booking booking, InspectionStage stage,

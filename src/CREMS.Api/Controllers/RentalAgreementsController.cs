@@ -38,9 +38,21 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         return Ok(agreement is null ? BuildDraft(booking) : BuildApproved(agreement, booking));
     }
 
+    [HttpGet("{bookingId:guid}/pickup-readiness")]
+    public async Task<ActionResult> GetPickupReadiness(Guid bookingId, CancellationToken token)
+    {
+        var booking = await LoadBooking(bookingId, token);
+        if (booking is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
+        var reasons = await PickupReadiness.Check(db, booking, token);
+        return Ok(new { canPickup = reasons.Count == 0, reasons });
+    }
+
     [HttpPost("{bookingId:guid}/pickup")]
     public async Task<ActionResult> Pickup(Guid bookingId, PickupRentalRequest request, CancellationToken cancellationToken)
     {
+        await using var transaction = await MaintenanceRules.BeginAsync(db, cancellationToken);
         var booking = await LoadBooking(bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
@@ -51,14 +63,8 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         if (string.IsNullOrWhiteSpace(request.ScannedAssetNumber) ||
             !string.Equals(request.ScannedAssetNumber.Trim(), allocatedAssetNumber, StringComparison.OrdinalIgnoreCase))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["asset"] = ["Scan or enter the allocated asset QR number before handover."] }));
-        var allocatedAsset = booking.Items.FirstOrDefault()?.Asset;
-        if (allocatedAsset is null || allocatedAsset.Status is not (AssetStatus.Available or AssetStatus.Reserved) ||
-            await db.BookingItems.AnyAsync(item => item.AssetId == allocatedAsset.Id && item.BookingId != bookingId &&
-                (item.Booking!.Status == BookingStatus.ConvertedToRental ||
-                 item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)), cancellationToken) ||
-            await db.MaintenanceJobs.AnyAsync(job => job.AssetId == allocatedAsset.Id &&
-                (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null), cancellationToken))
-            return Conflict(new { message = "The asset is not at the branch and released for pickup. Complete any return and safety checks first." });
+        var readinessProblems = await PickupReadiness.Check(db, booking, cancellationToken);
+        if (readinessProblems.Count > 0) return Conflict(new { message = string.Join(" ", readinessProblems) });
         var customerWillDrive = booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.IsVehicle(x.Asset.Type)) &&
             !booking.Charges.Any(x => x.Category is ChargeCategory.Driver or ChargeCategory.Operator);
         if (!request.IdentificationVerified || customerWillDrive && !request.DriverLicenceVerified || !request.PaymentVerified)
@@ -74,8 +80,8 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PreHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, false, cancellationToken);
         if (configuredError is not null) return BadRequest(new { message = configuredError });
         await ConfiguredHireRules.CaptureIfMissing(db, booking, cancellationToken);
-        if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || !request.LicenceExpiry.HasValue || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
-            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["licence"] = ["A valid, unexpired driver licence is required."] }));
+        if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || !DriverLicenceRules.ValidNumber(request.LicenceNumber) || !DriverLicenceRules.ValidClasses(request.LicenceClass) || !request.LicenceExpiry.HasValue || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["licence"] = ["Enter a numeric licence number, select every applicable class from 1 to 8, and enter a future expiry date."] }));
         // Older confirmed bookings may already contain an agreement from the
         // previous flow. Reuse that record at checkout with the fresh signature
         // instead of blocking handover or creating a duplicate agreement.
@@ -90,7 +96,23 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             return BadRequest(new { message = "The amount collected exceeds the remaining refundable bond. Previously recorded bond payments are already included." });
         if (booking.BondAmountHeld + request.AmountCollected < booking.DepositRequired)
             return BadRequest(new { message = "Receive the full refundable bond before releasing the asset." });
+        var paidHire = await db.RentalPayments.Where(payment => payment.BookingId == bookingId && payment.Status == PaymentStatus.Recorded && (payment.Type == PaymentType.RentalCharge || payment.Type == PaymentType.AdditionalCharge)).SumAsync(payment => (decimal?)payment.Amount, cancellationToken) ?? 0;
+        var dueHire = Math.Max(0, decimal.Round(draft.Pricing.Total - paidHire, 2, MidpointRounding.AwayFromZero));
+        if (request.AmountCollected != decimal.Round(request.AmountCollected, 2) || request.RentalAmountCollected != decimal.Round(request.RentalAmountCollected, 2)) return BadRequest(new { message = "Enter hire and bond amounts with no more than two decimal places." });
+        if (request.RentalAmountCollected < 0 || request.RentalAmountCollected > dueHire) return BadRequest(new { message = "The hire payment must be between zero and the outstanding hire balance." });
+        if ((request.AmountCollected > 0 || request.RentalAmountCollected > 0) && string.IsNullOrWhiteSpace(request.ReceiptNumber)) return BadRequest(new { message = "Enter the receipt or transaction reference for the money received." });
+        if (request.RentalAmountCollected < dueHire && (!request.PayHireOnReturn || string.IsNullOrWhiteSpace(request.PaymentDeferralReason))) return BadRequest(new { message = "Collect the hire balance or provide a supervisor-approved reason to pay at return." });
+        if (request.RentalAmountCollected < dueHire && !scope.IsAdministrator && !User.IsInRole(SystemRoles.BranchManager)) return BadRequest(new { message = "A branch manager or administrator must approve hire payment at return." });
+        if ((request.AmountCollected > 0 || request.RentalAmountCollected > 0) && (!Enum.IsDefined(request.PaymentMethod) || request.PaymentMethod == PaymentMethod.PurchaseOrder)) return BadRequest(new { message = "Select the actual payment method used to receive money." });
+        var paymentReference = request.ReceiptNumber?.Trim();
+        if (paymentReference?.Length > 58) return BadRequest(new { message = "Keep the receipt or transaction reference to 58 characters or fewer." });
+        var splitReceipt = request.RentalAmountCollected > 0 && request.AmountCollected > 0;
+        var hireReceipt = splitReceipt ? $"{paymentReference}-H" : paymentReference;
+        var bondReceipt = splitReceipt ? $"{paymentReference}-B" : paymentReference;
+        if ((request.RentalAmountCollected > 0 && await db.RentalPayments.AnyAsync(payment => payment.ReceiptNumber == hireReceipt, cancellationToken)) || (request.AmountCollected > 0 && await db.RentalPayments.AnyAsync(payment => payment.ReceiptNumber == bondReceipt, cancellationToken))) return Conflict(new { message = "That receipt is already recorded. Review existing payments before recording it again." });
         var now = DateTimeOffset.UtcNow;
+        if (request.RentalAmountCollected > 0) db.RentalPayments.Add(new RentalPayment { BookingId = booking.Id, Type = PaymentType.RentalCharge, Method = request.PaymentMethod, Amount = request.RentalAmountCollected, ReceiptNumber = hireReceipt!, Note = $"Hire payment collected at pickup. Transaction reference: {paymentReference}", RecordedByUserId = scope.UserId, RecordedByName = scope.UserName });
+        if (request.RentalAmountCollected < dueHire) AuditWriter.Record(db, scope, "Hire payment deferred to return", "Booking", booking.Id, request.PaymentDeferralReason!.Trim(), booking.BranchId);
         var agreement = existingAgreement ?? new RentalAgreement
         {
             AgreementNumber = await RentalSettings.Reference(db, true, cancellationToken),
@@ -137,19 +159,23 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         inspection.CompletedByName = scope.UserName;
         inspection.CompletedAt = now;
         if (customerWillDrive)
-            db.AuthorizedDrivers.Add(new AuthorizedDriver
+        {
+            var driver = await db.AuthorizedDrivers.FirstOrDefaultAsync(existing => existing.BookingId == booking.Id && existing.LicenceNumber == request.LicenceNumber!.Trim(), cancellationToken);
+            if (driver is null)
             {
-                BookingId = booking.Id, FullName = request.CustomerSignatureName.Trim(), LicenceNumber = request.LicenceNumber!.Trim(),
-                LicenceClass = Normalize(request.LicenceClass), LicenceExpiry = request.LicenceExpiry!.Value,
-                IsPrimary = true, Verified = true,
-            });
+                driver = new AuthorizedDriver { BookingId = booking.Id, FullName = request.CustomerSignatureName.Trim(), LicenceNumber = request.LicenceNumber!.Trim() };
+                db.AuthorizedDrivers.Add(driver);
+            }
+            driver.FullName = request.CustomerSignatureName.Trim();
+            driver.LicenceClass = DriverLicenceRules.NormalizeClasses(request.LicenceClass!);
+            driver.LicenceExpiry = request.LicenceExpiry!.Value; driver.IsPrimary = true; driver.Verified = true;
+        }
         if (request.AmountCollected > 0)
         {
             db.RentalPayments.Add(new RentalPayment
             {
                 BookingId = booking.Id, Type = PaymentType.BondCollection, Method = request.PaymentMethod,
-                Amount = request.AmountCollected, ReceiptNumber = string.IsNullOrWhiteSpace(request.ReceiptNumber)
-                    ? $"RCPT-{now:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}" : request.ReceiptNumber.Trim(),
+                Amount = request.AmountCollected, ReceiptNumber = bondReceipt!, Note = $"Refundable bond collected at pickup. Transaction reference: {paymentReference}",
                 RecordedByUserId = scope.UserId, RecordedByName = scope.UserName,
             });
             booking.BondAmountHeld += request.AmountCollected;
@@ -168,6 +194,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         AuditWriter.Record(db, scope, "Rental pickup completed", "Booking", booking.Id,
             $"{agreement.AgreementNumber} was signed and {booking.BookingNumber} was handed over to the customer.", booking.BranchId);
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return Ok(BuildApproved(agreement, booking));
     }
 
@@ -296,4 +323,9 @@ public sealed record PickupRentalRequest(
     string? DamageNotes,
     IReadOnlyList<string>? EvidenceDataUrls,
     IReadOnlyList<string>? DamageZones,
-    IReadOnlyList<string>? ChecklistItems, string? AccessoryNotes, IReadOnlyList<string>? ChecklistAllItems = null, IReadOnlyList<string>? ChecklistFailedItems = null);
+    IReadOnlyList<string>? ChecklistItems, string? AccessoryNotes, IReadOnlyList<string>? ChecklistAllItems = null, IReadOnlyList<string>? ChecklistFailedItems = null)
+{
+    [System.ComponentModel.DataAnnotations.Range(0, 1000000)] public decimal RentalAmountCollected { get; init; }
+    public bool PayHireOnReturn { get; init; }
+    public string? PaymentDeferralReason { get; init; }
+}

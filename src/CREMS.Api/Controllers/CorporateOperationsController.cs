@@ -233,6 +233,8 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
         {
             var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.Division).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.AssetCategory).Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering).Include(x => x.Charges).FirstOrDefaultAsync(x => x.Id == bookingId, token);
             if (booking is null || booking.Status != BookingStatus.Draft) return Validation("booking", "Only an open rental request can be quoted.");
+            var priceError = QuotationReadiness.Validate(booking, QuoteLineSerialization.Deserialize(quote.LineItemsJson).Select(line => (line.Description, line.Category, line.Rate, line.CostRate)));
+            if (priceError is not null) return Validation("pricing", priceError);
             var match = await ApprovalWorkflowService.MatchBookingAsync(db, new(booking.BranchId, quote.DivisionId, quote.Total,
                 booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.IsEquipment(x.Asset.Type)),
                 booking.Items.Any(x => x.Asset != null && AssetCategoryPolicy.RequiresPersonnel(x.Asset)) || booking.Charges.Any(x => x.Category == ChargeCategory.Operator || x.Category == ChargeCategory.Driver || x.Category == ChargeCategory.Labour),

@@ -197,7 +197,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
     [HttpGet("{bookingId:guid}/return-charges")]
     public async Task<ActionResult> ReturnCharges(Guid bookingId, CancellationToken cancellationToken)
     {
-        var booking = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset).Include(x => x.Inspections)
+        var booking = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset).Include(x => x.Inspections).Include(x => x.Charges).Include(x => x.Payments)
             .FirstOrDefaultAsync(x => x.Id == bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
@@ -205,7 +205,10 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (booking.Status != BookingStatus.ConvertedToRental && !(booking.Status == BookingStatus.Completed && !booking.Inspections.Any(x => x.Type == InspectionType.Return))) return BadRequest(new { message = "Only an active rental can be returned." });
         var returnedAt = DateTimeOffset.UtcNow;
         var multiplier = await LateFeeMultiplier(cancellationToken);
-        return Ok(new { returnedAt, lateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt, multiplier), multiplier });
+        var hireSubtotal = Math.Max(0, booking.Items.Sum(HirePricing.Amount) - booking.DiscountAmount + booking.Charges.Sum(charge => charge.Quantity * charge.UnitRate));
+        var taxableSubtotal = Math.Max(0, booking.Items.Where(item => item.HireIsTaxable).Sum(HirePricing.Amount) - booking.DiscountAmount + booking.Charges.Where(charge => charge.IsTaxable).Sum(charge => charge.Quantity * charge.UnitRate));
+        var paidHire = booking.Payments.Where(payment => payment.Status == PaymentStatus.Recorded && (payment.Type == PaymentType.RentalCharge || payment.Type == PaymentType.AdditionalCharge)).Sum(payment => payment.Amount);
+        return Ok(new { returnedAt, lateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt, multiplier), multiplier, hireSubtotal, taxableSubtotal, taxRate = booking.TaxRate, paidHire });
     }
 
     [HttpPost("{bookingId:guid}/return")]
@@ -214,12 +217,14 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         await using var transaction = await MaintenanceRules.BeginAsync(db, cancellationToken);
         var booking = await db.Bookings.Include(item => item.Customer).Include(item => item.Items).ThenInclude(item => item.Asset)
             .Include(item => item.Inspections).Include(item => item.Payments).Include(item => item.Charges)
+            .Include(item => item.Invoice).ThenInclude(invoice => invoice!.Lines)
             .FirstOrDefaultAsync(item => item.Id == bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status != BookingStatus.ConvertedToRental && !(booking.Status == BookingStatus.Completed && !booking.Inspections.Any(x => x.Type == InspectionType.Return)))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["status"] = ["Only an active rental can be returned."] }));
+        if (booking.Invoice?.Status == InvoiceStatus.Voided) return Conflict(new { message = "Resolve the voided invoice in Finance before completing this return." });
         var allocatedAssetNumber = booking.Items.FirstOrDefault()?.Asset?.AssetNumber;
         if (string.IsNullOrWhiteSpace(request.ScannedAssetNumber) ||
             !string.Equals(request.ScannedAssetNumber.Trim(), allocatedAssetNumber, StringComparison.OrdinalIgnoreCase))
@@ -277,7 +282,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
                 ReceiptNumber = $"BRF-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
                 Note = booking.BondDeductionAmount > 0 ? $"Bond refund after deduction: {booking.BondDeductionReason}" : "Full refundable bond returned.",
                 RecordedByUserId = scope.UserId, RecordedByName = scope.UserName });
-        var hasDamage = !string.IsNullOrWhiteSpace(request.DamageNotes);
+        var hasDamage = !string.IsNullOrWhiteSpace(request.DamageNotes) || request.ChecklistFailedItems?.Count > 0;
         foreach (var item in booking.Items.Where(item => item.Asset is not null))
         {
             var asset=item.Asset!;if(request.MeterReading.HasValue)asset.MeterUnit=await ConfiguredHireRules.EffectiveMeterUnit(db,asset,cancellationToken);var from=asset.Status;
@@ -294,9 +299,21 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var invoiceSubtotal = Math.Max(0, rentalSubtotal - booking.DiscountAmount + quotedChargeTotal + returnChargeTotal);
         var taxableSubtotal = Math.Max(0, booking.Items.Where(x=>x.HireIsTaxable).Sum(HirePricing.Amount) - booking.DiscountAmount +
             booking.Charges.Where(x => x.IsTaxable).Sum(x => x.Quantity * x.UnitRate) + returnChargeTotal);
-        var invoiceTax = decimal.Round(taxableSubtotal * booking.TaxRate / 100m, 2);
+        var invoiceTax = decimal.Round(taxableSubtotal * booking.TaxRate / 100m, 2, MidpointRounding.AwayFromZero);
         var paid = await db.RentalPayments.Where(x => x.BookingId == bookingId && x.Status == PaymentStatus.Recorded &&
             (x.Type == PaymentType.RentalCharge || x.Type == PaymentType.AdditionalCharge)).SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
+        if (request.AmountCollected != decimal.Round(request.AmountCollected, 2)) return BadRequest(new { message = "Enter the payment amount in dollars and cents, with no more than two decimal places." });
+        if (request.AmountCollected > Math.Max(0, invoiceSubtotal + invoiceTax - paid)) return BadRequest(new { message = "The payment exceeds the outstanding final invoice balance." });
+        if (request.AmountCollected > 0)
+        {
+            if (string.IsNullOrWhiteSpace(request.ReceiptNumber)) return BadRequest(new { message = "Enter a receipt or transaction reference for the return payment." });
+            if (!Enum.IsDefined(request.PaymentMethod) || request.PaymentMethod == PaymentMethod.PurchaseOrder) return BadRequest(new { message = "Select the actual payment method used to receive money." });
+            var receipt = request.ReceiptNumber.Trim();
+            if (receipt.Length > 60) return BadRequest(new { message = "Keep the payment reference to 60 characters or fewer." });
+            if (await db.RentalPayments.AnyAsync(payment => payment.ReceiptNumber == receipt, cancellationToken)) return Conflict(new { message = "That payment reference is already recorded. Review existing receipts before recording another payment." });
+            db.RentalPayments.Add(new RentalPayment { BookingId = booking.Id, Type = PaymentType.RentalCharge, Method = request.PaymentMethod, Amount = request.AmountCollected, ReceiptNumber = receipt, Note = "Final hire settlement received at return.", RecordedByUserId = scope.UserId, RecordedByName = scope.UserName });
+            paid += request.AmountCollected;
+        }
         var invoiceLines = booking.Items.Select(item => new InvoiceLine { Description = $"{item.Asset?.Name ?? "Rental"} hire ({item.HireUnit})", Quantity = HirePricing.Quantity(item), UnitPrice = item.DailyRate, TaxRate = booking.TaxRate, IsTaxable = item.HireIsTaxable }).ToList();
         if (booking.DiscountAmount > 0)
             invoiceLines.Add(new InvoiceLine { Description = "Discount", Quantity = 1, UnitPrice = -booking.DiscountAmount, TaxRate = booking.TaxRate, IsTaxable = true });
@@ -310,17 +327,14 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         }.Where(x => x.Item2 > 0))
             invoiceLines.Add(new InvoiceLine { Description = line.Item1, Quantity = 1, UnitPrice = line.Item2,
                 TaxRate = booking.TaxRate, IsTaxable = true });
-        var invoice = new RentalInvoice
-        {
-            BookingId = booking.Id, InvoiceNumber = $"INV-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
-            LineItemsJson = System.Text.Json.JsonSerializer.Serialize(invoiceLines.Select(x => new
-                { description = x.Description, quantity = x.Quantity, unitPrice = x.UnitPrice, amount = x.Quantity * x.UnitPrice })),
-            Subtotal = invoiceSubtotal, TaxAmount = invoiceTax, Total = invoiceSubtotal + invoiceTax,
-            AmountPaid = paid, BalanceDue = Math.Max(0, invoiceSubtotal + invoiceTax - paid),
-            Status = paid >= invoiceSubtotal + invoiceTax ? InvoiceStatus.Paid : paid > 0 ? InvoiceStatus.PartiallyPaid : InvoiceStatus.Issued,
-            Lines = invoiceLines,
-        };
-        db.RentalInvoices.Add(invoice);
+        var invoice = booking.Invoice ?? new RentalInvoice { LineItemsJson = "[]", BookingId = booking.Id, InvoiceNumber = $"INV-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}" };
+        if (booking.Invoice is not null) db.InvoiceLines.RemoveRange(invoice.Lines);
+        invoice.LineItemsJson = System.Text.Json.JsonSerializer.Serialize(invoiceLines.Select(line => new { description = line.Description, quantity = line.Quantity, unitPrice = line.UnitPrice, amount = line.Quantity * line.UnitPrice }));
+        invoice.Subtotal = invoiceSubtotal; invoice.TaxAmount = invoiceTax; invoice.Total = invoiceSubtotal + invoiceTax;
+        invoice.AmountPaid = paid; invoice.BalanceDue = Math.Max(0, invoice.Total - paid);
+        invoice.Status = paid >= invoice.Total ? InvoiceStatus.Paid : paid > 0 ? InvoiceStatus.PartiallyPaid : InvoiceStatus.Issued;
+        invoice.Lines = invoiceLines;
+        if (booking.Invoice is null) db.RentalInvoices.Add(invoice);
         if (!string.IsNullOrWhiteSpace(booking.Customer?.Email)) db.RentalNotifications.Add(new RentalNotification { BookingId = booking.Id, Channel = NotificationChannel.Email, Recipient = booking.Customer.Email, Subject = $"Final invoice {invoice.InvoiceNumber}", Message = $"Your rental {booking.BookingNumber} has been returned. Final total: FJD {invoice.Total:0.00}; balance due: FJD {invoice.BalanceDue:0.00}." });
         var agreement = await db.RentalAgreements.FirstOrDefaultAsync(x => x.BookingId == bookingId, cancellationToken);
         if (agreement is not null) agreement.Status = AgreementStatus.Completed;
@@ -407,6 +421,9 @@ public sealed record ReturnInspectionRequest(
         ConditionNotes, DamageNotes, SignatureName)
 {
     public DateTimeOffset? ReturnedAt { get; init; }
+    [Range(0, 1000000)] public decimal AmountCollected { get; init; }
+    public PaymentMethod PaymentMethod { get; init; }
+    public string? ReceiptNumber { get; init; }
 }
 public sealed record RentalQueueCounts(int PickupToday, int OnHire, int DueToday, int Overdue, int ReturnInProgress, int RecentlyCompleted);
 public sealed record RentalWorkQueueResponse(IReadOnlyList<RentalWorkQueueRow> Items, RentalQueueCounts Counts, int Page, int PageSize, int Total);

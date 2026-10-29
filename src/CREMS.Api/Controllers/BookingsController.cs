@@ -90,6 +90,9 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                 x.Customer.IsBlocked ? "Customer account is blocked" : x.Items.Count == 0 ? "Asset information is missing" :
                     x.Items.Any(i => !i.Asset!.IsActive || i.Asset.Status == AssetStatus.Maintenance || i.Asset.Status == AssetStatus.Inspection || i.Asset.Status == AssetStatus.OutOfService) ? "Asset is not available" : null))
             .ToListAsync(cancellationToken);
+        var approvalIds = await draftWithApproval.ToListAsync(cancellationToken);
+        var quotationIds = await quotationRequired.Select(x => x.Id).ToListAsync(cancellationToken);
+        rows = rows.Select(row => row with { Queue = row.Status == "Confirmed" ? "Confirmed" : row.Status is "Cancelled" or "Expired" ? "Closed" : approvalIds.Contains(row.Id) ? "AwaitingApproval" : quotationIds.Contains(row.Id) ? "QuotationRequired" : "NewRequests" }).ToList();
         return Ok(new BookingWorkQueueResponse(rows, counts, page, pageSize, total));
     }
 
@@ -158,6 +161,8 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             return BadRequest(new { message = "Driver/operator charges are disabled for this asset. Change its personnel policy in the asset register first." });
         if (request.Deposit < booking.BondAmountHeld) return BadRequest(new { message = "The required bond cannot be reduced below the amount already held. Settle the held bond through the return process." });
         var existing = await db.SalesQuotes.FirstOrDefaultAsync(x => x.ConvertedBookingId == id, cancellationToken);
+        var priceError = QuotationReadiness.Validate(booking, request.Lines.Select(line => (line.Description, line.Category, line.Rate, line.CostRate)), existing is null ? null : QuoteLineSerialization.Deserialize(existing.LineItemsJson).Select(line => (line.Description, line.Category)));
+        if (priceError is not null) return BadRequest(new { message = priceError });
         var totals = QuotePolicy.Calculate(request.Lines.Select(x => (x.Quantity, x.Rate, x.IsTaxable)), request.Discount, request.TaxRate);
         if (request.Discount > totals.Subtotal) return BadRequest(new { message = "Discount cannot exceed the quotation subtotal." });
         var quote = existing ?? new SalesQuote { QuoteNumber = $"QUO-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}", CustomerId = booking.CustomerId, BranchId = booking.BranchId, DivisionId = booking.Items.FirstOrDefault()?.Asset?.DivisionId, AssignedUserId = scope.UserId, ConvertedBookingId = booking.Id, ValidUntil = request.ValidUntil };
@@ -583,7 +588,10 @@ public sealed record BookingWorkQueueRow(Guid Id, string BookingNumber, DateTime
     Guid CustomerId, string CustomerName, string? CustomerEmail, string? CustomerPhone, bool CustomerIsBlocked,
     string CustomerType, Guid BranchId, string BranchName, string DivisionName, string ServiceName,
     string? AssetNumber, string? AssetName, string? Category, DateTimeOffset? StartAt, DateTimeOffset? EndAt,
-    decimal EstimatedValue, decimal DepositRequired, decimal TaxRate, DateTimeOffset? ApprovedAt, bool HasAgreement, string? Warning);
+    decimal EstimatedValue, decimal DepositRequired, decimal TaxRate, DateTimeOffset? ApprovedAt, bool HasAgreement, string? Warning)
+{
+    public string Queue { get; init; } = "NewRequests";
+}
 public sealed record PrepareBookingQuotationLine(string Description, decimal Quantity, decimal Rate, decimal CostRate, ChargeUnit Unit = ChargeUnit.Unit, ChargeCategory Category = ChargeCategory.Other, bool IsTaxable = true);
 public sealed record PrepareBookingQuotationRequest(DateTimeOffset ValidUntil, decimal Deposit, decimal Discount, decimal TaxRate, string? RevisionReason, IReadOnlyList<PrepareBookingQuotationLine> Lines);
 public sealed record CustomerRequestDecision(bool Approved, string? Note);

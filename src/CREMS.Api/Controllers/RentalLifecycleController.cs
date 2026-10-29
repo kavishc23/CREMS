@@ -37,7 +37,8 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
     {
         var access = await GetBooking(bookingId, cancellationToken); if (access.Result is not null) return access.Result;
         if (request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)) return Validation("licenceExpiry", "The driver licence must not be expired.");
-        var driver = new AuthorizedDriver { BookingId = bookingId, FullName = request.FullName.Trim(), LicenceNumber = request.LicenceNumber.Trim(), LicenceClass = Clean(request.LicenceClass), LicenceExpiry = request.LicenceExpiry, Verified = request.Verified };
+        if (!CREMS.Api.Services.DriverLicenceRules.ValidNumber(request.LicenceNumber) || !CREMS.Api.Services.DriverLicenceRules.ValidClasses(request.LicenceClass)) return BadRequest(new { message = "Enter a numeric licence number and select the applicable classes from 1 to 8." });
+        var driver = new AuthorizedDriver { BookingId = bookingId, FullName = request.FullName.Trim(), LicenceNumber = request.LicenceNumber.Trim(), LicenceClass = CREMS.Api.Services.DriverLicenceRules.NormalizeClasses(request.LicenceClass!), LicenceExpiry = request.LicenceExpiry, Verified = request.Verified };
         db.AuthorizedDrivers.Add(driver); AuditWriter.Record(db, access.Scope!, "Authorized driver added", "Booking", bookingId, $"{driver.FullName} was added to {access.Booking!.BookingNumber}.", access.Booking.BranchId);
         await db.SaveChangesAsync(cancellationToken); return Ok(driver);
     }

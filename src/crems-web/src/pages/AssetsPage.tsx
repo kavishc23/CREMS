@@ -13,7 +13,7 @@ import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined'
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, InputAdornment,
-  MenuItem, Pagination, Stack, Step, StepLabel, Stepper, Table, TableBody, TableCell,
+  MenuItem, Pagination, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, IconButton, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
@@ -22,6 +22,7 @@ import { roles } from '../auth/access'
 import { PageHeader } from '../components/PageHeader'
 import { ReportButton } from '../components/ReportButton'
 import { loadAssetRegisterReports } from '../utils/moduleReports'
+import { WorkspaceSections } from '../components/WorkspaceSections'
 import { AssetQrLabelDialog } from '../components/AssetQrLabelDialog'
 import { AssetProfileDialog } from '../components/AssetProfileDialog'
 import { PublicAssetDetailDialog } from '../components/PublicAssetDetailDialog'
@@ -194,7 +195,7 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if(editTab<3){setEditTab(editTab+1);return}
+    if(!editing&&editTab<3){setEditTab(editTab+1);return}
     if(!form.assetNumber.trim()||!form.name.trim()||!form.divisionId||!form.branchId){setEditTab(0);setError('Complete the asset identity and location.');return}
     setSaving(true); setError('')
     try {
@@ -274,10 +275,10 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
         </TableBody></Table></TableContainer>}
       <Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" alignItems={{xs:'stretch',sm:'center'}} gap={1.25} sx={{p:1.5,borderTop:1,borderColor:'divider'}}><Typography variant="body2" color="text.secondary">Showing {totalAssets===0?0:(page-1)*assetPageSize+1}–{Math.min(page*assetPageSize,totalAssets)} of {totalAssets.toLocaleString()}</Typography><Stack direction="row" alignItems="center" justifyContent="flex-end" gap={0.75}><Button size="small" variant="outlined" disabled={page<=1} onClick={()=>setPage(current=>Math.max(1,current-1))}>Previous</Button><Pagination page={page} count={Math.max(1,Math.ceil(totalAssets/assetPageSize))} onChange={(_,value)=>setPage(value)} color="primary" siblingCount={0} boundaryCount={1} hidePrevButton hideNextButton/><Button size="small" variant="outlined" disabled={page>=Math.ceil(totalAssets/assetPageSize)} onClick={()=>setPage(current=>Math.min(Math.ceil(totalAssets/assetPageSize),current+1))}>Next</Button></Stack></Stack>
     </CardContent></Card><Card variant="outlined" sx={{position:{lg:'sticky'},top:{lg:16},height:{lg:'calc(100dvh - 32px)'},overflow:'hidden',display:{xs:selectedAsset?'block':'none',lg:'block'}}}>{selectedAsset?<><Box sx={{height:{xs:180,lg:'clamp(150px,26vh,240px)'},bgcolor:'grey.100',position:'relative',flexShrink:0}}>{photoUrls(selectedAsset)[0]&&<Box component="img" src={photoUrls(selectedAsset)[0]} alt={selectedAsset.name} sx={{width:'100%',height:'100%',objectFit:'contain'}}/>}<IconButton aria-label="QR label" onClick={()=>setQrAsset(selectedAsset)} sx={{position:'absolute',right:12,bottom:12,bgcolor:'white','&:hover':{bgcolor:'grey.100'}}}><QrCode2Outlined/></IconButton></Box><CardContent sx={{p:{xs:2,lg:2.25},height:{lg:'calc(100% - clamp(150px,26vh,240px))'},display:'flex',flexDirection:'column','&:last-child':{pb:{xs:2,lg:2.25}}}}><Typography variant="overline" color="text.secondary">{selectedAsset.assetNumber}</Typography><Typography variant="h5" fontWeight={850} lineHeight={1.15}>{selectedAsset.name}</Typography><Typography variant="body2" color="text.secondary" mt={0.5}>{selectedAsset.registrationNumber||selectedAsset.serialNumber||'Identification pending'} · {selectedAsset.branchName}</Typography><Stack direction="row" gap={1} mt={1.5} flexWrap="wrap"><Button variant="contained" size="small" onClick={()=>setProfileAssetId(selectedAsset.id)}>Open full profile</Button>{canEdit&&<Button variant="outlined" size="small" startIcon={<EditOutlined/>} onClick={()=>openEdit(selectedAsset)}>Edit</Button>}</Stack><Chip size="small" label={selectedAsset.status.replace(/([a-z])([A-Z])/g,'$1 $2')} color={statusColors[selectedAsset.status]??'default'} sx={{alignSelf:'flex-start',mt:1.25}}/><Box sx={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',columnGap:2,rowGap:{xs:1.25,lg:'clamp(8px,1.4vh,16px)'},mt:1.5,pt:1.5,borderTop:1,borderColor:'divider'}}>{[['Division',selectedAsset.divisionName||'—'],['Category',selectedAsset.category||selectedAsset.type],['Meter',selectedAsset.currentMeterReading==null?'Not recorded':`${selectedAsset.currentMeterReading.toLocaleString()} ${selectedAsset.meterUnit||''}`],['Rate',selectedAsset.useServiceHireRate?'Configured service rate':`FJD ${selectedAsset.dailyRate.toFixed(2)}/${selectedAsset.hireUnit?.toLowerCase()??'day'}`],['Refundable bond',selectedAsset.inheritBond?'Service / division default':`FJD ${(selectedAsset.defaultBondAmount??0).toFixed(2)}`],['Next service',selectedAsset.nextServiceDate?new Date(selectedAsset.nextServiceDate).toLocaleDateString('en-FJ'):'Not scheduled'],['Model',[selectedAsset.manufacturer,selectedAsset.model,selectedAsset.modelYear].filter(Boolean).join(' ')||'—']].map(([label,value],index)=><Box key={label} sx={index===6?{gridColumn:'1 / -1'}:undefined}><Typography variant="caption" color="text.secondary" display="block">{label}</Typography><Typography variant="body2" fontWeight={750} lineHeight={1.25}>{value}</Typography></Box>)}</Box>{canManagePhotos&&<Stack direction="row" gap={0.5} mt="auto" pt={1.25} flexWrap="wrap" sx={{borderTop:1,borderColor:'divider'}}><Button size="small" startIcon={<ImageOutlined/>} onClick={()=>setPhotoAsset(selectedAsset)}>Photos</Button>{canViewFinancials&&<><Button size="small" startIcon={<InsightsOutlined/>} onClick={()=>void openPerformance(selectedAsset)}>Financials</Button><Button size="small" startIcon={<QrCode2Outlined/>} onClick={()=>setQrAsset(selectedAsset)}>QR label</Button></>}</Stack>}</CardContent></>:<CardContent><Typography color="text.secondary">Choose an asset to see its details.</Typography></CardContent>}</Card></Box>
-    <Dialog open={open} onClose={()=>!saving&&setOpen(false)} fullWidth maxWidth="md" slotProps={{paper:{sx:{height:'min(780px, calc(100dvh - 48px))',maxHeight:'calc(100dvh - 24px)',overflow:'hidden'}}}}>
+    <Dialog open={open} onClose={()=>!saving&&setOpen(false)} fullWidth maxWidth="lg" slotProps={{paper:{sx:{height:'min(850px, calc(100dvh - 48px))',maxHeight:'calc(100dvh - 24px)',overflow:'hidden'}}}}>
       <Box component="form" onSubmit={save} sx={{display:'flex',flexDirection:'column',minHeight:0,height:'100%'}}>
         <DialogTitle sx={{borderBottom:1,borderColor:'divider'}}>{editing?'Edit asset':'Add asset'}<Typography variant="body2" color="text.secondary">{divisions.find(d=>d.id===form.divisionId)?.name||'Choose a division'} · {selectedCategory?.name||'Asset registration'}</Typography></DialogTitle>
-        <Box sx={{px:{xs:2,sm:3},py:2,borderBottom:1,borderColor:'divider',flexShrink:0}}><Stepper activeStep={editTab}>{assetSteps.map((label,i)=><Step key={label}><StepLabel><Box sx={{display:{xs:editTab===i?'block':'none',sm:'block'}}}>{label}</Box></StepLabel></Step>)}</Stepper></Box>
+        <Box sx={{display:'flex',flexDirection:{xs:'column',md:'row'},flex:1,minHeight:0}}><WorkspaceSections labels={assetSteps} active={editTab} onChange={setEditTab}/>
         <DialogContent sx={{p:{xs:2,sm:3},minHeight:0}}>
           {error&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
           <Typography variant="h6" fontWeight={800} mb={2}>{assetSteps[editTab]}</Typography>
@@ -319,8 +320,8 @@ export function AssetsPage({ userRoles }: { userRoles: string[] }) {
             <Box sx={{gridColumn:'1 / -1',p:2,bgcolor:'background.default',borderRadius:1}}><Typography fontWeight={800}>{form.assetNumber} · {form.name}</Typography><Typography variant="body2" color="text.secondary">{selectedCategory?.name||form.type} · {branches.find(b=>b.id===form.branchId)?.name} · {form.useServiceHireRate?'Service rate':`FJD ${form.dailyRate||0} / ${form.hireUnit.toLowerCase()}`}</Typography><Typography variant="body2" mt={1}>This asset follows its division booking rules, branch availability and category handover / return checks.</Typography></Box>
           </>}
           </Box>
-        </DialogContent>
-        <DialogActions sx={{p:2,borderTop:1,borderColor:'divider',justifyContent:'space-between',flexShrink:0}}><Button disabled={saving} onClick={()=>setOpen(false)}>Cancel</Button><Stack direction="row" gap={1}>{editTab>0&&<Button disabled={saving} onClick={()=>{setError('');setEditTab(editTab-1)}}>Back</Button>}<Button type="submit" variant="contained" disabled={saving||!attributesReady||!form.divisionId||!form.branchId}>{saving?'Saving…':editTab===3?'Save asset':'Continue'}</Button></Stack></DialogActions>
+        </DialogContent></Box>
+        <DialogActions sx={{p:2,borderTop:1,borderColor:'divider',justifyContent:'space-between',flexShrink:0}}><Button disabled={saving} onClick={()=>setOpen(false)}>Cancel</Button><Stack direction="row" gap={1}>{editTab>0&&<Button disabled={saving} onClick={()=>{setError('');setEditTab(editTab-1)}}>Back</Button>}<Button type="submit" variant="contained" disabled={saving||!attributesReady||!form.divisionId||!form.branchId}>{saving?'Saving…':editing||editTab===3?'Save asset':'Continue'}</Button></Stack></DialogActions>
       </Box>
     </Dialog>
 
