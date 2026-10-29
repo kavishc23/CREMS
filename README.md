@@ -29,6 +29,9 @@ docs/            Maintained setup, configuration, and operations guides
 
 ### Windows client setup
 
+Follow the detailed [Windows client run guide](docs/CLIENT_RUN_GUIDE.md) for first-time installation, everyday startup, optional SMTP, backups and troubleshooting.
+An offline [PDF copy](docs/CREMS_Client_Run_Guide.pdf) is included for client handover.
+
 Install the prerequisites in [Client handover](docs/CLIENT_HANDOVER.md), open PowerShell in this repository, and run:
 
 ```powershell

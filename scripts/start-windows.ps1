@@ -1,4 +1,4 @@
-param([switch]$Setup)
+param([switch]$Setup, [switch]$EnableEmail)
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
@@ -69,7 +69,7 @@ try {
     $env:BootstrapAdmin__Email = $settings.AdminEmail
     $env:BootstrapAdmin__Password = $settings.AdminPassword
     $env:BootstrapAdmin__FullName = $settings.AdminName
-    $env:Email__Enabled = 'false'
+    $env:Email__Enabled = if ($EnableEmail) { 'true' } else { 'false' }
     $env:CREMS_API_URL = 'http://localhost:5080'
     $env:CREMS_FRONTEND_URL = 'http://localhost:5173'
     $env:FrontendUrl = $env:CREMS_FRONTEND_URL

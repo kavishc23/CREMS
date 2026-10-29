@@ -25,11 +25,18 @@ output/**/wbs_qa/
 src/crems-web/vite.config.js
 src/crems-web/vite.config.d.ts
 **/.env
+**/.env.*
+!**/.env.example
+*.pfx
+*.p12
+*.key
 src/CREMS.Api/App_Data/customer-documents/
 src/CREMS.Api/App_Data/customer-licences/
 *.user
 .data-protection/
 *.suo
 src/CREMS.Api/App_Data/maintenance-documents/
+# Existing tracked demonstration photos remain available; new uploads stay local.
+src/CREMS.Api/App_Data/asset-images/
 src/CREMS.Api/wwwroot/
 outputs/operational-label-backup-*.json
