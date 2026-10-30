@@ -350,26 +350,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         var asset = await db.Assets.AsNoTracking().Include(x => x.Branch).Include(x => x.Division).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (asset is null) return NotFound();
         var scope = await staffScope.GetAsync(User); if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
-        var items = await db.BookingItems.AsNoTracking().Where(x => x.AssetId == id && x.Booking != null && (x.Booking.Status == CREMS.Api.Domain.Rentals.BookingStatus.Completed || x.Booking.Status == CREMS.Api.Domain.Rentals.BookingStatus.ConvertedToRental))
-            .Select(x => new { x.StartAt, x.EndAt, x.DailyRate, x.HireQuantity, x.BookingId, x.Booking!.DiscountAmount, x.Booking.AdditionalCharges, ItemCount = x.Booking.Items.Count }).ToListAsync(cancellationToken);
-        var bookingIds = items.Select(x => x.BookingId).Distinct().ToList();
-        var componentCharges = await db.BookingCharges.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId) && (x.AssetId == id || x.AssetId == null)).ToListAsync(cancellationToken);
-        var componentRevenue = componentCharges.Sum(x => x.Quantity * x.UnitRate); var componentExpense = componentCharges.Sum(x => x.Quantity * x.UnitCost);
-        var recordedComponentRevenue = componentCharges.GroupBy(x => x.BookingId).ToDictionary(x => x.Key, x => x.Sum(c => c.Quantity * c.UnitRate));
-        var rentalRevenue = items.Sum(x => (x.HireQuantity ?? Math.Max(1, (decimal)Math.Ceiling((x.EndAt - x.StartAt).TotalDays))) * x.DailyRate + (x.ItemCount == 1 ? Math.Max(0, x.AdditionalCharges - recordedComponentRevenue.GetValueOrDefault(x.BookingId)) - x.DiscountAmount : 0)) + componentRevenue;
-        var maintenance = await db.MaintenanceJobs.AsNoTracking().Where(x => x.AssetId == id).OrderByDescending(x => x.ReportedAt).ToListAsync(cancellationToken);
-        var costs = await db.AssetCostEntries.AsNoTracking().Where(x => x.AssetId == id).OrderByDescending(x => x.OccurredOn).ToListAsync(cancellationToken);
-        var transferCost = await db.AssetTransfers.AsNoTracking().Where(x => x.AssetId == id && (x.Status == CREMS.Api.Domain.Corporate.TransferStatus.Received || x.Status == CREMS.Api.Domain.Corporate.TransferStatus.Inspected)).SumAsync(x => (decimal?)x.TransferCost, cancellationToken) ?? 0;
-        var maintenanceExpense = maintenance.Sum(x => x.ActualCost ?? 0);
-        var operatingExpense = costs.Sum(x => x.Amount) + componentExpense; var totalExpense = maintenanceExpense + operatingExpense + transferCost;
-        var inspectionCount = await db.RentalInspections.CountAsync(x => x.Booking!.Items.Any(i => i.AssetId == id), cancellationToken);
-        return Ok(new { asset.Id, asset.AssetNumber, asset.Name, asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear, asset.Status, branchName = asset.Branch!.Name, divisionName = asset.Division?.Name,
-            rentalRevenue, maintenanceExpense, operatingExpense, transferExpense = transferCost, totalExpense, operatingProfit = rentalRevenue - totalExpense,
-            asset.AcquisitionCost, asset.CurrentBookValue, lifetimeNetAfterAcquisition = rentalRevenue - totalExpense - asset.AcquisitionCost,
-            rentalCount = items.Select(x => x.BookingId).Distinct().Count(), rentalDays = items.Sum(x => Math.Max(1, Math.Ceiling((x.EndAt - x.StartAt).TotalDays))), inspectionCount,
-            maintenance = maintenance.Select(x => new { x.Id, x.JobNumber, x.ServiceType, x.Status, x.ReportedAt, x.CompletedAt, x.ActualCost, x.PartsCost, x.LabourCost, x.TransportCost, x.ExternalServiceCost, x.TaxCost, x.TaxMode, x.TaxRate, x.OtherCost, x.DowntimeHours, x.InvoiceNumber }),
-            chargeComponents = componentCharges.Select(x => new { x.Id, x.Description, x.Category, x.Unit, x.Quantity, x.UnitRate, x.UnitCost, revenue = x.Quantity * x.UnitRate, expense = x.Quantity * x.UnitCost }),
-            costs = costs.Select(x => new { x.Id, x.Category, x.Description, x.Amount, x.OccurredOn, x.Supplier, x.ReferenceNumber }) });
+        return Ok(await AssetFinancialBreakdown.Build(db, id, cancellationToken));
     }
 
     [HttpPost("{id:guid}/costs")]

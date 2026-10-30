@@ -27,7 +27,7 @@ public static class HirePricing
     public static decimal Amount(BookingItem item) => decimal.Round(item.DailyRate*Quantity(item),2,MidpointRounding.AwayFromZero);
     public static decimal Tax(Booking booking) => decimal.Round(Math.Max(0,
         booking.Items.Where(x=>x.HireIsTaxable).Sum(Amount) - booking.DiscountAmount +
-        booking.Charges.Where(x=>x.IsTaxable).Sum(x=>x.Quantity*x.UnitRate) +
-        Math.Max(0, booking.AdditionalCharges-booking.Charges.Sum(x=>x.Quantity*x.UnitRate))) * booking.TaxRate/100m,2);
+        booking.Charges.Where(x=>x.IsTaxable).Sum(x=>decimal.Round(x.Quantity*x.UnitRate,2,MidpointRounding.AwayFromZero)) +
+        Math.Max(0, booking.AdditionalCharges-booking.Charges.Sum(x=>decimal.Round(x.Quantity*x.UnitRate,2,MidpointRounding.AwayFromZero)))) * booking.TaxRate/100m,2,MidpointRounding.AwayFromZero);
     public static decimal DailyEquivalent(BookingItem item) => item.HireUnit == ChargeUnit.Day && item.HireQuantity is null ? item.DailyRate : Amount(item)/Math.Max(1,(decimal)Math.Ceiling((item.EndAt-item.StartAt).TotalDays));
 }

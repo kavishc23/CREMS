@@ -1,7 +1,6 @@
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined'
 import { useActionNotice } from '../components/useActionNotice'
 import { downloadRentalFinancialPdf } from '../utils/rentalFinancialPdf'
-import { rentalReference } from '../utils/rentalReference'
 import { customerJourneyStage, customerStageColor, customerStageLabel, customerJourneyActions, hasQuotationOffer } from '../utils/customerJourney'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { toast } from '../components/ToastHost'
@@ -49,7 +48,7 @@ type BookingDetails = {
   pricing: { baseSubtotal: number; discountAmount: number; charges: { description: string; quantity: number; unitRate: number; amount: number }[]; chargeTotal: number; taxRate: number; taxAmount: number; total: number; depositRequired: number; additionalCharges?: number; additionalChargesDescription?: string }
   bond: { required: number; held: number; deduction: number; bondDeductionReason: string | null; refund: number; status: string; bondSettledAt: string | null }
   agreement: { agreementNumber: string; status: string; termsVersion: string; terms: { title: string; content: string }[] | null; customerSignatureName: string; customerSignedAt: string; approvedByName: string; approvedAt: string } | null
-  invoice: { invoiceNumber: string; status: string; issuedAt: string; subtotal: number; taxAmount: number; total: number; amountPaid: number; balanceDue: number; lines: { description: string; quantity: number; unitPrice: number }[] } | null
+  invoice: { invoiceNumber: string; status: string; issuedAt: string; subtotal: number; taxAmount: number; taxInclusive?: boolean; adjustment?: number; total: number; amountPaid: number; balanceDue: number; lines: { description: string; quantity: number; unitPrice: number; amount?: number; unit?: string }[] } | null
   payments: { receiptNumber: string; type: string; method: string; amount: number; status: string; createdAt: string }[]
   inspections: { type: string; meterReading: number | null; fuelLevelPercent: number | null; conditionNotes: string | null; damageNotes: string | null; completedAt: string }[]
   incidents: { incidentNumber: string; type: string; status: string; occurredAt: string; description: string; location: string | null }[]
@@ -218,7 +217,6 @@ export function CustomerPortalPage({ onBack, onSessionChange }: { onBack: () => 
     finally { setSubmitting(false) }
   }
   async function resendConfirmation(bookingId: string) { setSubmitting(true); try { await api.post(`/customer-account/bookings/${bookingId}/resend-confirmation`); setNotice('A fresh confirmation email has been queued.') } catch (reason) { setError(apiMessage(reason, 'Unable to resend the confirmation.')) } finally { setSubmitting(false) } }
-  async function uploadCustomerDocument(file?: File) { if (!file) return; setSubmitting(true); setError(''); try { const form = new FormData(); form.append('file', file); form.append('type', 'DriverLicence'); await api.post('/customer-account/documents/upload', form); setNotice('Driver licence uploaded securely.'); await loadPortalData() } catch (reason) { setError(apiMessage(reason, 'The driver licence could not be uploaded.')) } finally { setSubmitting(false) } }
   async function viewCustomerDocument(documentId: string) { setError(''); try { const response = await api.get(`/customer-account/documents/${documentId}/download`, { responseType: 'blob' }); const url = URL.createObjectURL(response.data); window.open(url, '_blank', 'noopener,noreferrer'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) } catch (reason) { setError(apiMessage(reason, 'The document could not be opened.')) } }
   async function decideQuote(quote: Quote, accepted: boolean, note?: string) {
     if (quoteDecisionPending.current) return
@@ -392,9 +390,6 @@ function QuotePrintButton({quote}:{quote:Quote}){return <Button size="small" var
 type ActivityFilter = 'all' | 'bookings' | 'quotations' | 'confirmed' | 'on-hire' | 'completed' | 'cancelled'
 type JourneySort = 'recent' | 'oldest' | 'needs-action'
 type Journey = { id: string; kind: 'booking' | 'quote'; createdAt: string; attention: boolean; active: boolean; title: string; meta: string; reference: string; status: string; dateText: string; total?: number; booking?: Booking; quote?: Quote }
-const needsBookingAction = (booking: Booking) => booking.status === 'Draft'
-const needsQuoteAction = (quote: Quote) => ['Sent', 'Negotiating'].includes(quote.status)
-const activeBooking = (booking: Booking) => ['Confirmed', 'ConvertedToRental'].includes(booking.status)
 
 function RentalJourneys({ bookings, quotes, search, filter, sort, page, expanded, loading, onSearch, onFilter, onSort, onPage, onExpand, onOpenBooking, onChangeBooking, onViewQuote, onCancelQuote, onBrowse }: {
   bookings: Booking[]; quotes: Quote[]; search: string; filter: ActivityFilter; sort: JourneySort; page: number; expanded: string | null; loading: boolean
@@ -421,7 +416,6 @@ function RentalJourneys({ bookings, quotes, search, filter, sort, page, expanded
     ...bookings.filter(booking => !linkedIds.has(booking.id)).map(booking => journeyFor(booking)),
   ]
   const filtered = journeys.filter(journey => `${journey.title} ${journey.meta} ${journey.reference} ${journey.quote?.quoteNumber ?? ""} ${journey.booking?.reference ?? ""}`.toLowerCase().includes(search.trim().toLowerCase())).filter(journey => filter === 'all' ? true : filter === 'bookings' ? journey.kind === 'booking' : filter === 'quotations' ? journey.kind === 'quote' : journey.status === ({ confirmed: 'Confirmed', 'on-hire': 'OnHire', completed: 'Completed', cancelled: 'Cancelled' } as Record<string, string>)[filter]).sort((a, b) => sort === 'needs-action' ? Number(b.attention) - Number(a.attention) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() : (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) * (sort === 'recent' ? 1 : -1))
-  const attention = journeys.filter(journey => journey.attention).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   const pageSize = 10; const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize)); const currentPage = Math.min(page, totalPages - 1); const pageJourneys = filtered.slice(currentPage * pageSize, currentPage * pageSize + pageSize)
   const filters: { value: ActivityFilter; label: string }[] = [{ value: 'all', label: 'All' }, { value: 'bookings', label: 'Bookings' }, { value: 'quotations', label: 'Quotations' }, { value: 'confirmed', label: 'Confirmed' }, { value: 'on-hire', label: 'On Hire' }, { value: 'completed', label: 'Completed' }, { value: 'cancelled', label: 'Cancelled' }]
   return <Stack spacing={2.5}>
@@ -496,8 +490,8 @@ function BookingDetailDialog({ booking, quotation, agreementOnly = false, onClos
     try {
       await downloadRentalFinancialPdf({ kind: booking.invoice.balanceDue > 0 ? 'Invoice' : 'Receipt', reference: booking.invoice.invoiceNumber,
         details: [['Booking', booking.reference], ['Rental', item?.name ?? 'Rental service'], ['Branch', booking.branch.name], ['Issued', date(booking.invoice.issuedAt)], ['Status', booking.invoice.status]],
-        lines: booking.invoice.lines.map(line => ({ description: line.description, quantity: line.quantity, rate: line.unitPrice })),
-        totals: [{ label: 'Subtotal', amount: booking.invoice.subtotal }, { label: 'VAT', amount: booking.invoice.taxAmount }, { label: 'Invoice total', amount: booking.invoice.total, emphasis: true }, { label: 'Payments received', amount: booking.invoice.amountPaid }, { label: 'Balance due', amount: booking.invoice.balanceDue, emphasis: true }],
+        lines: booking.invoice.lines.length ? booking.invoice.lines.map(line => ({ description: line.description, quantity: line.quantity, rate: line.unitPrice, amount: line.amount, unit: line.unit })) : [{ description: 'Legacy recorded invoice total (itemisation unavailable)', quantity: 1, rate: booking.invoice.total }],
+        totals: [{ label: booking.invoice.taxInclusive ? 'Subtotal including VAT' : 'Subtotal before VAT', amount: booking.invoice.subtotal }, { label: booking.invoice.taxInclusive ? 'VAT included above' : 'VAT', amount: booking.invoice.taxAmount }, ...(booking.invoice.adjustment ? [{ label: 'Invoice adjustments / credits', amount: booking.invoice.adjustment }] : []), { label: 'Invoice total', amount: booking.invoice.total, emphasis: true }, { label: 'Payments and bond applied', amount: booking.invoice.amountPaid }, { label: 'Balance due', amount: booking.invoice.balanceDue, emphasis: true }],
         note: booking.invoice.balanceDue > 0 ? 'Please contact your branch for payment arrangements. This invoice is not proof of payment.' : 'Payment received as recorded above. Thank you for choosing Carpenters Rentals & Hire.' })
     } catch (reason) { setDocumentError(apiMessage(reason, 'The invoice could not be downloaded.')) }
   }

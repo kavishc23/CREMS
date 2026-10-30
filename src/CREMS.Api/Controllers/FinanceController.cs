@@ -2,6 +2,19 @@ using CREMS.Api.Data;using CREMS.Api.Domain.Identity;using CREMS.Api.Domain.Rent
 namespace CREMS.Api.Controllers;
 [ApiController,Route("api/finance"),Authorize(Policy=SystemPolicies.ManageFinance)] public sealed class FinanceController(ApplicationDbContext db,CurrentStaffScope staffScope):ControllerBase
 {
+ [HttpGet("invoices/{id:guid}/document")]
+ public async Task<ActionResult> InvoiceDocument(Guid id, CancellationToken token)
+ {
+  var invoice = await db.RentalInvoices.AsNoTracking().Include(x => x.Lines).Include(x => x.Booking).ThenInclude(x => x!.Customer)
+   .Include(x => x.Booking).ThenInclude(x => x!.Branch).FirstOrDefaultAsync(x => x.Id == id, token);
+  if (invoice?.Booking is null) return NotFound();
+  var scope = await staffScope.GetAsync(User);
+  if (scope is null || !scope.HasBranchAccess(invoice.Booking.BranchId)) return Forbid();
+  return Ok(new { invoice.Id, invoice.InvoiceNumber, invoice.Booking.BookingNumber, customerName = invoice.Booking.Customer?.Name,
+   branchName = invoice.Booking.Branch?.Name, invoice.Subtotal, invoice.TaxAmount, invoice.TaxInclusive, invoice.Total, invoice.AmountPaid, invoice.BalanceDue,
+   status = invoice.Status.ToString(), invoice.IssuedAt, lines = InvoiceDocumentLines.Read(invoice),
+   adjustment = RentalFinancials.Money(invoice.Total - (invoice.TaxInclusive ? invoice.Subtotal : invoice.Subtotal + invoice.TaxAmount)) });
+ }
  [HttpGet("workspace")]
  public async Task<ActionResult> Workspace(CancellationToken token)
  {
@@ -12,10 +25,13 @@ namespace CREMS.Api.Controllers;
   var invoiceIds=allInvoices.Select(x=>x.Id).ToArray();
   var credits=await db.CreditNotes.AsNoTracking().Where(x=>invoiceIds.Contains(x.InvoiceId)&&x.Status==CreditNoteStatus.Applied).ToListAsync(token);
   var creditByInvoice=credits.GroupBy(x=>x.InvoiceId).ToDictionary(x=>x.Key,x=>x.Sum(y=>y.Subtotal));
-  var invoiceRows=await invoices.OrderByDescending(x=>x.IssuedAt).Take(200).Select(x=>new{x.Id,x.InvoiceNumber,x.BookingId,BookingNumber=x.Booking!.BookingNumber,CustomerName=x.Booking.Customer!.Name,BranchName=x.Booking.Branch!.Name,x.Subtotal,x.TaxAmount,x.Total,x.AmountPaid,x.BalanceDue,Status=x.Status.ToString(),x.IssuedAt}).ToListAsync(token);
-  var invoiceDisplay=invoiceRows.Select(x=>new{x.Id,x.InvoiceNumber,x.BookingId,x.BookingNumber,x.CustomerName,x.BranchName,x.Subtotal,x.TaxAmount,x.Total,x.AmountPaid,x.BalanceDue,x.Status,x.IssuedAt,creditSubtotal=creditByInvoice.GetValueOrDefault(x.Id)}).ToArray();
+  var invoiceRows=await invoices.OrderByDescending(x=>x.IssuedAt).Take(200).Select(x=>new{x.Id,x.InvoiceNumber,x.BookingId,BookingNumber=x.Booking!.BookingNumber,CustomerName=x.Booking.Customer!.Name,CustomerId=x.Booking.CustomerId,BranchName=x.Booking.Branch!.Name,x.Subtotal,x.TaxAmount,x.Total,x.AmountPaid,x.BalanceDue,Status=x.Status.ToString(),x.IssuedAt}).ToListAsync(token);
+  var invoiceDisplay=invoiceRows.Select(x=>new{x.Id,x.InvoiceNumber,x.BookingId,x.BookingNumber,x.CustomerName,x.CustomerId,x.BranchName,x.Subtotal,x.TaxAmount,x.Total,x.AmountPaid,x.BalanceDue,x.Status,x.IssuedAt,creditSubtotal=creditByInvoice.GetValueOrDefault(x.Id)}).ToArray();
   var paymentRows=await payments.OrderByDescending(x=>x.CreatedAt).Take(200).Select(x=>new{x.Id,x.BookingId,BookingNumber=x.Booking!.BookingNumber,CustomerName=x.Booking.Customer!.Name,BranchName=x.Booking.Branch!.Name,Type=x.Type.ToString(),Method=x.Method.ToString(),x.Amount,x.ReceiptNumber,Status=x.Status.ToString(),x.CreatedAt,x.RecordedByName}).ToListAsync(token);
-  return Ok(new{summary=new{revenue=ReportingKpis.Revenue(allInvoices,credits),invoiced=ReportingKpis.GrossInvoiced(allInvoices),received=paymentRows.Where(x=>x.Status==PaymentStatus.Recorded.ToString()&&x.Type!=PaymentType.Refund.ToString()&&x.Type!=PaymentType.BondRefund.ToString()).Sum(x=>x.Amount),outstanding=ReportingKpis.Outstanding(allInvoices),unpaidInvoices=allInvoices.Count(x=>x.Status!=InvoiceStatus.Voided&&x.BalanceDue>0),depositsHeld=paymentRows.Where(x=>x.Type==PaymentType.Deposit.ToString()&&x.Status==PaymentStatus.Recorded.ToString()).Sum(x=>x.Amount)},invoices=invoiceDisplay,payments=paymentRows});
+  var cashReceived = await payments.Where(x => x.Status == PaymentStatus.Recorded && (x.Type == PaymentType.RentalCharge || x.Type == PaymentType.AdditionalCharge)).SumAsync(x => (decimal?)x.Amount, token) ?? 0;
+  var heldBonds = await db.Bookings.AsNoTracking().Where(x => scope.IsAdministrator || scope.BranchIds.Contains(x.BranchId))
+   .SumAsync(x => (decimal?)(x.BondAmountHeld - x.BondRefundAmount - (x.BondSettledAt != null ? x.BondDeductionAmount : 0)), token) ?? 0;
+  return Ok(new{summary=new{revenue=ReportingKpis.Revenue(allInvoices,credits),invoiced=ReportingKpis.GrossInvoiced(allInvoices),received=cashReceived,outstanding=ReportingKpis.Outstanding(allInvoices),unpaidInvoices=allInvoices.Count(x=>x.Status!=InvoiceStatus.Voided&&x.BalanceDue>0),depositsHeld=Math.Max(0,heldBonds)},invoices=invoiceDisplay,payments=paymentRows});
  }
  [HttpGet("bookings/{bookingId:guid}/reconciliation")]
  public async Task<ActionResult> Reconciliation(Guid bookingId,CancellationToken token)
@@ -50,9 +66,80 @@ namespace CREMS.Api.Controllers;
    payments=booking.Payments.OrderBy(x=>x.CreatedAt).Select(x=>new{x.Id,x.ReceiptNumber,type=x.Type.ToString(),status=x.Status.ToString(),x.Amount,x.CreatedAt}),
    allocations,creditNotes=credits,recordedPayments=recorded,allocatedPayments=allocated,issues});
  }
- [HttpPut("invoices/{id:guid}/lines")]public async Task<ActionResult> Lines(Guid id,IReadOnlyList<InvoiceLineRequest> lines,CancellationToken token){var invoice=await db.RentalInvoices.Include(x=>x.Booking).Include(x=>x.Lines).FirstOrDefaultAsync(x=>x.Id==id,token);if(invoice is null)return NotFound();var scope=await staffScope.GetAsync(User);if(scope is null||!scope.HasBranchAccess(invoice.Booking!.BranchId))return Forbid();if(invoice.Status is InvoiceStatus.Paid or InvoiceStatus.Voided)return BadRequest();db.InvoiceLines.RemoveRange(invoice.Lines);invoice.Lines=lines.Select(x=>new InvoiceLine{Description=x.Description.Trim(),Quantity=x.Quantity,UnitPrice=x.UnitPrice,TaxRate=x.TaxRate,IsTaxable=x.IsTaxable}).ToList();invoice.Subtotal=invoice.Lines.Sum(x=>x.Quantity*x.UnitPrice);invoice.TaxAmount=invoice.TaxInclusive?invoice.Lines.Where(x=>x.IsTaxable).Sum(x=>x.Quantity*x.UnitPrice-x.Quantity*x.UnitPrice/(1+x.TaxRate/100)):invoice.Lines.Where(x=>x.IsTaxable).Sum(x=>x.Quantity*x.UnitPrice*x.TaxRate/100);invoice.Total=invoice.TaxInclusive?invoice.Subtotal:invoice.Subtotal+invoice.TaxAmount;invoice.BalanceDue=Math.Max(0,invoice.Total-invoice.AmountPaid);await db.SaveChangesAsync(token);return Ok(invoice);}
- [HttpPost("payments/{paymentId:guid}/allocate")]public async Task<ActionResult> Allocate(Guid paymentId,AllocationRequest request,CancellationToken token){var payment=await db.RentalPayments.Include(x=>x.Booking).FirstOrDefaultAsync(x=>x.Id==paymentId,token);var invoice=await db.RentalInvoices.FirstOrDefaultAsync(x=>x.Id==request.InvoiceId,token);if(payment is null||invoice is null||payment.BookingId!=invoice.BookingId)return NotFound();var scope=await staffScope.GetAsync(User);if(scope is null||!scope.HasBranchAccess(payment.Booking!.BranchId))return Forbid();var used=await db.PaymentAllocations.Where(x=>x.PaymentId==paymentId).SumAsync(x=>(decimal?)x.Amount,token)??0;if(request.Amount<=0||used+request.Amount>payment.Amount||request.Amount>invoice.BalanceDue)return BadRequest();db.PaymentAllocations.Add(new PaymentAllocation{PaymentId=paymentId,InvoiceId=invoice.Id,Amount=request.Amount,AllocatedByUserId=scope.UserId});invoice.AmountPaid+=request.Amount;invoice.BalanceDue=Math.Max(0,invoice.Total-invoice.AmountPaid);invoice.Status=invoice.BalanceDue==0?InvoiceStatus.Paid:InvoiceStatus.PartiallyPaid;await db.SaveChangesAsync(token);return Ok(invoice);}
- [HttpPost("invoices/{id:guid}/credit-notes")]public async Task<ActionResult> Credit(Guid id,CreditNoteRequest request,CancellationToken token){var invoice=await db.RentalInvoices.Include(x=>x.Booking).FirstOrDefaultAsync(x=>x.Id==id,token);if(invoice is null)return NotFound();var scope=await staffScope.GetAsync(User);if(scope is null||!scope.HasBranchAccess(invoice.Booking!.BranchId))return Forbid();if(request.Total<=0||request.Total>invoice.Total)return BadRequest();var tax=request.Total*invoice.TaxAmount/Math.Max(invoice.Total,1);var item=new CreditNote{CreditNoteNumber=$"CN-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid():N}"[..25],InvoiceId=id,Reason=request.Reason.Trim(),Subtotal=request.Total-tax,TaxAmount=tax,Total=request.Total,IssuedByUserId=scope.UserId,Status=CreditNoteStatus.Applied};db.CreditNotes.Add(item);invoice.Total-=request.Total;invoice.BalanceDue=Math.Max(0,invoice.Total-invoice.AmountPaid);await db.SaveChangesAsync(token);return Ok(item);}
- [HttpGet("customers/{customerId:guid}/statement")]public async Task<ActionResult> Statement(Guid customerId,CancellationToken token){var scope=await staffScope.GetAsync(User);if(scope is null)return Forbid();var invoices=await db.RentalInvoices.AsNoTracking().Include(x=>x.Booking).Where(x=>x.Booking!.CustomerId==customerId&&(scope.IsAdministrator||x.Booking.BranchId==scope.BranchId)).OrderBy(x=>x.IssuedAt).ToListAsync(token);return Ok(new{customerId,generatedAt=DateTimeOffset.UtcNow,invoices,total=invoices.Sum(x=>x.Total),paid=invoices.Sum(x=>x.AmountPaid),outstanding=invoices.Sum(x=>x.BalanceDue)});}
+ [HttpPut("invoices/{id:guid}/lines")]
+ public async Task<ActionResult> Lines(Guid id, IReadOnlyList<InvoiceLineRequest> lines, CancellationToken token)
+ {
+  await using var transaction = await MaintenanceRules.BeginAsync(db, token);
+  var invoice = await db.RentalInvoices.Include(x => x.Booking).Include(x => x.Lines).FirstOrDefaultAsync(x => x.Id == id, token);
+  if (invoice is null) return NotFound();
+  var scope = await staffScope.GetAsync(User);
+  if (scope is null || !scope.HasBranchAccess(invoice.Booking!.BranchId)) return Forbid();
+  if (invoice.Status is InvoiceStatus.Paid or InvoiceStatus.Voided) return Conflict(new { message = "Paid or voided invoices cannot be edited." });
+  if (lines.Count == 0 || lines.Any(x => string.IsNullOrWhiteSpace(x.Description) || x.Quantity <= 0 || x.UnitPrice < 0 || x.TaxRate is < 0 or > 100))
+   return BadRequest(new { message = "Add invoice lines with descriptions, positive quantities, non-negative prices and valid VAT rates. Use credit notes for reductions." });
+  if (await db.CreditNotes.AnyAsync(x => x.InvoiceId == id && x.Status == CreditNoteStatus.Applied, token))
+   return Conflict(new { message = "Use a credit note to adjust an invoice that already has applied credits." });
+  var subtotal = lines.Sum(x => RentalFinancials.Money(x.Quantity * x.UnitPrice));
+  var tax = RentalFinancials.Money(lines.Where(x => x.IsTaxable).Sum(x => invoice.TaxInclusive
+   ? RentalFinancials.Money(x.Quantity * x.UnitPrice) * x.TaxRate / (100 + x.TaxRate)
+   : RentalFinancials.Money(x.Quantity * x.UnitPrice) * x.TaxRate / 100));
+  var total = invoice.TaxInclusive ? subtotal : subtotal + tax;
+  if (total < invoice.AmountPaid) return BadRequest(new { message = "The revised total cannot be below payments already applied. Resolve the refund or credit first." });
+  db.InvoiceLines.RemoveRange(invoice.Lines);
+  invoice.Lines = lines.Select(x => new InvoiceLine { Description = x.Description.Trim(), Quantity = x.Quantity, UnitPrice = x.UnitPrice, TaxRate = x.TaxRate, IsTaxable = x.IsTaxable }).ToList();
+  invoice.Subtotal = subtotal; invoice.TaxAmount = tax; invoice.Total = total;
+  invoice.LineItemsJson = System.Text.Json.JsonSerializer.Serialize(invoice.Lines.Select(x => new { x.Description, x.Quantity, x.UnitPrice, x.TaxRate, x.IsTaxable }));
+  invoice.BalanceDue = total - invoice.AmountPaid;
+  invoice.Status = invoice.BalanceDue == 0 ? InvoiceStatus.Paid : invoice.AmountPaid > 0 ? InvoiceStatus.PartiallyPaid : InvoiceStatus.Issued;
+  await db.SaveChangesAsync(token);
+  if (transaction is not null) await transaction.CommitAsync(token);
+  return Ok(InvoiceResponse(invoice));
+ }
+ [HttpPost("payments/{paymentId:guid}/allocate")]
+ public async Task<ActionResult> Allocate(Guid paymentId, AllocationRequest request, CancellationToken token)
+ {
+  await using var transaction = await MaintenanceRules.BeginAsync(db, token);
+  var payment = await db.RentalPayments.Include(x => x.Booking).FirstOrDefaultAsync(x => x.Id == paymentId, token);
+  var invoice = await db.RentalInvoices.FirstOrDefaultAsync(x => x.Id == request.InvoiceId, token);
+  if (payment is null || invoice is null || payment.BookingId != invoice.BookingId) return NotFound();
+  var scope = await staffScope.GetAsync(User);
+  if (scope is null || !scope.HasBranchAccess(payment.Booking!.BranchId)) return Forbid();
+  if (payment.Status != PaymentStatus.Recorded || payment.Type is not (PaymentType.RentalCharge or PaymentType.AdditionalCharge) || invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Voided)
+   return BadRequest(new { message = "Only recorded hire payments can be allocated to an issued invoice. Bonds and refunds are settled separately." });
+  var used = await db.PaymentAllocations.Where(x => x.PaymentId == paymentId).SumAsync(x => (decimal?)x.Amount, token) ?? 0;
+  var allocated = await db.PaymentAllocations.Where(x => x.InvoiceId == invoice.Id).SumAsync(x => (decimal?)x.Amount, token) ?? 0;
+  // Historic return flows included receipts in AmountPaid before allocation records existed.
+  var alreadyIncluded = Math.Max(0, invoice.AmountPaid - allocated - (payment.Booking.BondSettledAt.HasValue ? payment.Booking.BondDeductionAmount : 0));
+  var newCredit = Math.Max(0, request.Amount - alreadyIncluded);
+  if (request.Amount <= 0 || request.Amount != RentalFinancials.Money(request.Amount) || used + request.Amount > payment.Amount || newCredit > invoice.BalanceDue)
+   return BadRequest(new { message = "Allocate an amount within the unused receipt and outstanding invoice balance." });
+  db.PaymentAllocations.Add(new PaymentAllocation { PaymentId = paymentId, InvoiceId = invoice.Id, Amount = request.Amount, AllocatedByUserId = scope.UserId });
+  invoice.AmountPaid += newCredit; invoice.BalanceDue = Math.Max(0, invoice.Total - invoice.AmountPaid);
+  invoice.Status = invoice.BalanceDue == 0 ? InvoiceStatus.Paid : InvoiceStatus.PartiallyPaid;
+  await db.SaveChangesAsync(token);
+  if (transaction is not null) await transaction.CommitAsync(token);
+  return Ok(InvoiceResponse(invoice));
+ }
+ [HttpPost("invoices/{id:guid}/credit-notes")]
+ public async Task<ActionResult> Credit(Guid id, CreditNoteRequest request, CancellationToken token)
+ {
+  await using var transaction = await MaintenanceRules.BeginAsync(db, token);
+  var invoice = await db.RentalInvoices.Include(x => x.Booking).FirstOrDefaultAsync(x => x.Id == id, token);
+  if (invoice is null) return NotFound();
+  var scope = await staffScope.GetAsync(User);
+  if (scope is null || !scope.HasBranchAccess(invoice.Booking!.BranchId)) return Forbid();
+  if (invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Voided || string.IsNullOrWhiteSpace(request.Reason) || request.Total <= 0 || request.Total != RentalFinancials.Money(request.Total) || request.Total > invoice.BalanceDue)
+   return BadRequest(new { message = "Enter a reason and a credit within the unpaid issued invoice balance. Paid amounts require a controlled refund." });
+  var previousCredits = await db.CreditNotes.Where(x => x.InvoiceId == id && x.Status == CreditNoteStatus.Applied).SumAsync(x => (decimal?)x.Total, token) ?? 0;
+  var tax = RentalFinancials.Money(request.Total * invoice.TaxAmount / Math.Max(invoice.Total + previousCredits, .01m));
+  var item = new CreditNote { CreditNoteNumber = $"CN-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid():N}"[..25], InvoiceId = id, Reason = request.Reason.Trim(), Subtotal = request.Total - tax, TaxAmount = tax, Total = request.Total, IssuedByUserId = scope.UserId, Status = CreditNoteStatus.Applied };
+  db.CreditNotes.Add(item); invoice.Total -= request.Total; invoice.BalanceDue = Math.Max(0, invoice.Total - invoice.AmountPaid);
+  invoice.Status = invoice.BalanceDue == 0 ? InvoiceStatus.Paid : invoice.AmountPaid > 0 ? InvoiceStatus.PartiallyPaid : InvoiceStatus.Issued;
+  await db.SaveChangesAsync(token);
+  if (transaction is not null) await transaction.CommitAsync(token);
+  return Ok(new { item.Id, item.InvoiceId, item.CreditNoteNumber, item.Reason, item.Subtotal, item.TaxAmount, item.Total, item.Status });
+ }
+ private static object InvoiceResponse(RentalInvoice invoice) => new { invoice.Id, invoice.InvoiceNumber, invoice.BookingId, invoice.Subtotal, invoice.TaxAmount, invoice.TaxInclusive, invoice.Total, invoice.AmountPaid, invoice.BalanceDue, status = invoice.Status.ToString(), invoice.IssuedAt, lines = InvoiceDocumentLines.Read(invoice) };
+ [HttpGet("customers/{customerId:guid}/statement")]public async Task<ActionResult> Statement(Guid customerId,CancellationToken token){var scope=await staffScope.GetAsync(User);if(scope is null)return Forbid();var invoices=await db.RentalInvoices.AsNoTracking().Include(x=>x.Booking).Where(x=>x.Booking!.CustomerId==customerId&&(scope.IsAdministrator||x.Booking.BranchId==scope.BranchId)).OrderBy(x=>x.IssuedAt).ToListAsync(token);return Ok(new{customerId,generatedAt=DateTimeOffset.UtcNow,invoices=invoices.Select(InvoiceResponse),total=invoices.Where(x=>x.Status!=InvoiceStatus.Voided&&x.Status!=InvoiceStatus.Draft).Sum(x=>x.Total),paid=invoices.Where(x=>x.Status!=InvoiceStatus.Voided&&x.Status!=InvoiceStatus.Draft).Sum(x=>x.AmountPaid),outstanding=invoices.Where(x=>x.Status!=InvoiceStatus.Voided&&x.Status!=InvoiceStatus.Draft).Sum(x=>x.BalanceDue)});}
 }
 public sealed record InvoiceLineRequest(string Description,decimal Quantity,decimal UnitPrice,decimal TaxRate,bool IsTaxable);public sealed record AllocationRequest(Guid InvoiceId,decimal Amount);public sealed record CreditNoteRequest(string Reason,decimal Total);

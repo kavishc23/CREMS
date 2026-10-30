@@ -86,7 +86,18 @@ public sealed class CorporateOperationsController(ApplicationDbContext db, Curre
     }
 
     [HttpPost("dispatches")]
-    public async Task<ActionResult> CreateDispatch(DispatchRequest request, CancellationToken token) { var scope = await ScopeFor(request.BranchId); if (scope is null) return Forbid(); var job = new DispatchJob { DispatchNumber = Number("DSP"), BookingId = request.BookingId, BranchId = request.BranchId, Type = request.Type, ScheduledAt = request.ScheduledAt, Address = Clean(request.Address), AssignedDriver = Clean(request.AssignedDriver), TransportVehicle = Clean(request.TransportVehicle), DeliveryZoneId = request.DeliveryZoneId, DistanceKilometres = request.DistanceKilometres, InternalTransportCost = request.InternalTransportCost, FailedDeliveryCharge = request.FailedDeliveryCharge, DeliveryCharge = request.DeliveryCharge }; db.DispatchJobs.Add(job); await SaveAudit(scope, "Dispatch job created", job.Id, job.DispatchNumber, job.BranchId, token); return Ok(job); }
+    public async Task<ActionResult> CreateDispatch(DispatchRequest request, CancellationToken token)
+    {
+        var scope = await ScopeFor(request.BranchId); if (scope is null) return Forbid();
+        if (!await BookingScope(scope).AnyAsync(x => x.Id == request.BookingId && x.BranchId == request.BranchId && x.Status != BookingStatus.Cancelled && x.Status != BookingStatus.Expired, token))
+            return Validation("bookingId", "Select an accessible booking at the dispatch branch.");
+        if (request.ScheduledAt == default || new[] { request.DeliveryCharge, request.DistanceKilometres, request.InternalTransportCost, request.FailedDeliveryCharge }.Any(x => x < 0))
+            return Validation("dispatch", "Enter a scheduled time and non-negative distances and charges.");
+        if (request.DeliveryZoneId.HasValue && !await db.DeliveryZones.AnyAsync(x => x.Id == request.DeliveryZoneId && (!x.BranchId.HasValue || x.BranchId == request.BranchId), token))
+            return Validation("deliveryZoneId", "Select a delivery zone for this branch.");
+        var job = new DispatchJob { DispatchNumber = Number("DSP"), BookingId = request.BookingId, BranchId = request.BranchId, Type = request.Type, ScheduledAt = request.ScheduledAt, Address = Clean(request.Address), AssignedDriver = Clean(request.AssignedDriver), TransportVehicle = Clean(request.TransportVehicle), DeliveryZoneId = request.DeliveryZoneId, DistanceKilometres = request.DistanceKilometres, InternalTransportCost = request.InternalTransportCost, FailedDeliveryCharge = request.FailedDeliveryCharge, DeliveryCharge = request.DeliveryCharge };
+        db.DispatchJobs.Add(job); await SaveAudit(scope, "Dispatch job created", job.Id, job.DispatchNumber, job.BranchId, token); return Ok(job);
+    }
 
     [HttpPost("transfers")]
     public async Task<ActionResult> CreateTransfer(TransferRequest request, CancellationToken token)

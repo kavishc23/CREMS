@@ -8,7 +8,8 @@ type Notice = { id: string; title: string; message: string; createdAt: string; i
 type Inbox = { items: Notice[]; unreadCount: number }
 
 /** Customer-only recent updates. Staff filters, settings and composition stay in NotificationBell. */
-export function CustomerNotificationBell({ onOpenBookings: _onOpenBookings }: { onOpenBookings: () => void }) {
+export function CustomerNotificationBell(_props: { onOpenBookings: () => void }) {
+  void _props
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [inbox, setInbox] = useState<Inbox>({ items: [], unreadCount: 0 })
   const [loading, setLoading] = useState(false)

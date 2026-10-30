@@ -91,7 +91,7 @@ builder.Services.AddAuthentication().AddCookie(SystemAuthenticationSchemes.Custo
 
 builder.Services.AddApplicationAuthorization();
 
-builder.Services.AddControllers().AddJsonOptions(options =>
+builder.Services.AddControllers(options => options.Filters.Add<RequestEnumValidationFilter>()).AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi(ApiDocumentation.Configure);
 builder.Services.AddProblemDetails();
@@ -234,8 +234,8 @@ app.Use(async (context, next) =>
 });
 app.UseCors("Frontend");
 app.UseRequestTimeouts();
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 app.UseMiddleware<WindowSessionMiddleware>();
 

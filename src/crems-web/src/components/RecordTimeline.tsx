@@ -15,7 +15,6 @@ export function RecordTimeline({ entityType, recordId, label = 'Activity timelin
   useEffect(() => {
     if (!open) return
     const controller = new AbortController()
-    setLoading(true); setError('')
     void api.get<Timeline>(`/audit/timeline/${entityType}/${recordId}`, { signal: controller.signal })
       .then(response => setTimeline(response.data))
       .catch(() => { if (!controller.signal.aborted) setError('The activity timeline could not be loaded. Try again.') })
@@ -23,7 +22,7 @@ export function RecordTimeline({ entityType, recordId, label = 'Activity timelin
     return () => controller.abort()
   }, [open, entityType, recordId])
   return <>
-    <Button size="small" startIcon={<HistoryOutlined />} onClick={() => setOpen(true)}>{label}</Button>
+    <Button size="small" startIcon={<HistoryOutlined />} onClick={() => {setLoading(true);setError('');setOpen(true)}}>{label}</Button>
     <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm" aria-labelledby="record-timeline-title">
       <DialogTitle id="record-timeline-title">{timeline?.reference ?? 'Record'} · activity timeline</DialogTitle>
       <DialogContent dividers sx={{ maxHeight: '70vh' }}>

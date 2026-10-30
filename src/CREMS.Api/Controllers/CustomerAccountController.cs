@@ -232,11 +232,11 @@ public sealed class CustomerAccountController(
         var baseSubtotal = booking.Items.Sum(item =>
             HirePricing.Amount(item));
         var visibleCharges = booking.Charges.Select(x => new { x.Description, x.Category, x.Unit,
-            x.Quantity, x.UnitRate, Amount = x.Quantity * x.UnitRate, x.IsTaxable }).ToList();
-        var chargeTotal = visibleCharges.Sum(x => x.Amount);
+            x.Quantity, x.UnitRate, Amount = RentalFinancials.Money(x.Quantity * x.UnitRate), x.IsTaxable }).ToList();
+        var chargeTotal = visibleCharges.Sum(x => x.Amount) + RentalFinancials.Unitemised(booking);
         var subtotal = Math.Max(0, baseSubtotal - booking.DiscountAmount + chargeTotal);
         var taxable = Math.Max(0, booking.Items.Where(x=>x.HireIsTaxable).Sum(HirePricing.Amount) - booking.DiscountAmount + visibleCharges.Where(x => x.IsTaxable).Sum(x => x.Amount));
-        var tax = decimal.Round(taxable * booking.TaxRate / 100m, 2);
+        var tax = HirePricing.Tax(booking);
 
         return Ok(new
         {
@@ -268,10 +268,11 @@ public sealed class CustomerAccountController(
             Invoice = booking.Invoice is null ? null : new
             {
                 booking.Invoice.InvoiceNumber, booking.Invoice.Status, booking.Invoice.IssuedAt,
-                booking.Invoice.Subtotal, booking.Invoice.TaxAmount, booking.Invoice.Total,
+                booking.Invoice.Subtotal, booking.Invoice.TaxAmount, booking.Invoice.TaxInclusive, booking.Invoice.Total,
+                Adjustment = RentalFinancials.Money(booking.Invoice.Total - (booking.Invoice.TaxInclusive ? booking.Invoice.Subtotal : booking.Invoice.Subtotal + booking.Invoice.TaxAmount)),
                 booking.Invoice.AmountPaid, booking.Invoice.BalanceDue,
-                Lines = booking.Invoice.Lines.OrderBy(x => x.CreatedAt).Select(x => new
-                    { x.Description, x.Quantity, x.UnitPrice, x.TaxRate, x.IsTaxable })
+                Lines = InvoiceDocumentLines.Read(booking.Invoice).Select(x => new
+                    { x.Description, x.Quantity, UnitPrice = x.Rate, x.Amount, x.Unit, x.IsTaxable })
             },
             Payments = booking.Payments.OrderByDescending(x => x.CreatedAt).Select(x => new
                 { x.ReceiptNumber, x.Type, x.Method, x.Amount, x.Status, x.CreatedAt }),

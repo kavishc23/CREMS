@@ -83,7 +83,6 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
     public async Task<ActionResult> Update(Guid id, UpdateMaintenanceJobRequest request, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.FaultDescription) || string.IsNullOrWhiteSpace(request.ServiceType)) return BadRequest(new { message = "Enter the maintenance type and work required before saving." });
-        if (request.Status == MaintenanceStatus.InProgress && !request.AssignedPersonnelId.HasValue && !request.SupplierId.HasValue) return BadRequest(new { message = "Assign a technician or an external supplier before starting work." });
         await using var transaction = await MaintenanceRules.BeginAsync(db, cancellationToken);
         var job = await db.MaintenanceJobs.Include(item => item.Asset).FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (job is null) return NotFound();
@@ -95,6 +94,9 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
             && !(await authorization.AuthorizeAsync(User, SystemPermissions.MaintenanceComplete)).Succeeded) return Forbid();
         var referenceError = await ValidateReferences(job.AssetId, job.Id, request.SupplierId, request.ParentFailureJobId, cancellationToken);
         if (referenceError is not null) return referenceError;
+        if (request.Status == MaintenanceStatus.InProgress && job.Status != MaintenanceStatus.InProgress && !request.AssignedPersonnelId.HasValue && !request.SupplierId.HasValue
+            && string.IsNullOrWhiteSpace(request.AssignedTo) && string.IsNullOrWhiteSpace(request.Supplier))
+            return BadRequest(new { message = "Assign a technician or an external supplier before starting work." });
         if (job.Status == MaintenanceStatus.Completed && request.Status == MaintenanceStatus.Cancelled)
             return BadRequest(new { message = "Reopen completed work with a reason before cancelling it." });
         var reopening = job.Status is MaintenanceStatus.Completed or MaintenanceStatus.Cancelled && request.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled);

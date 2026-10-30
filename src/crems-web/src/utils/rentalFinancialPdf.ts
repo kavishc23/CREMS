@@ -2,7 +2,7 @@ export type RentalFinancialDocument = {
   kind: 'Invoice' | 'Quotation' | 'Receipt'
   reference: string
   details: [string, string][]
-  lines: { description: string; quantity: number; rate: number; unit?: string }[]
+  lines: { description: string; quantity: number; rate: number; unit?: string; amount?: number }[]
   totals: { label: string; amount: number; emphasis?: boolean }[]
   note?: string
 }
@@ -69,7 +69,7 @@ export async function buildRentalFinancialPdf(data: RentalFinancialDocument) {
   }
   tableHeader()
   for (const item of data.lines) {
-    const description = textLines(item.description, 101)
+    const description = textLines(`${item.description}${item.unit ? ` (${item.unit})` : ''}`, 89)
     let offset = 0
     do {
       if (y + 9 > bottom) { nextPage(); tableHeader() }
@@ -79,7 +79,7 @@ export async function buildRentalFinancialPdf(data: RentalFinancialDocument) {
       if (offset === 0) {
         pdf.text(item.quantity.toLocaleString('en-FJ'), 130, y + 3, { align: 'right' })
         pdf.text(item.rate.toFixed(2), 160, y + 3, { align: 'right' })
-        pdf.text((item.quantity * item.rate).toFixed(2), right - 3, y + 3, { align: 'right' })
+        pdf.text((item.amount ?? Math.round((item.quantity * item.rate + Number.EPSILON) * 100) / 100).toFixed(2), right - 3, y + 3, { align: 'right' })
       }
       y += take * 4.5 + 5; offset += take
     } while (offset < description.length)

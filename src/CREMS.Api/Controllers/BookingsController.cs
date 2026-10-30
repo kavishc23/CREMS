@@ -412,6 +412,8 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
 
+        if (request.Status is BookingStatus.ConvertedToRental or BookingStatus.Completed)
+            return BadRequest(new { message = "Use the guided pickup or return workflow to record inspections, signatures, payment and settlement before changing the hire state." });
         if (!BookingPolicy.IsValidTransition(booking.Status, request.Status))
         {
             ModelState.AddModelError(nameof(request.Status),

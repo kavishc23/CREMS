@@ -216,7 +216,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
     }
 
     private async Task<Booking?> LoadBooking(Guid id, CancellationToken cancellationToken) => await db.Bookings
-        .Include(item => item.Customer).Include(item => item.Branch).Include(item => item.Items).ThenInclude(item => item.Asset).ThenInclude(asset => asset!.Division).Include(item => item.Charges).Include(item => item.Inspections)
+        .Include(item => item.Customer).Include(item => item.Branch).Include(item => item.Items).ThenInclude(item => item.Asset).ThenInclude(asset => asset!.Division).Include(item => item.Charges).Include(item => item.Inspections).Include(item => item.Payments).Include(item => item.Invoice).ThenInclude(invoice => invoice!.Lines).AsSplitQuery()
         .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
 
     private static object BuildDraft(Booking booking)
@@ -237,14 +237,39 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             Pricing = DeserializeOrDefault(agreement.PricingSnapshotJson, current.Pricing),
             Terms = DeserializeOrDefault(agreement.TermsJson, current.Terms),
             agreement.CustomerSignatureName, agreement.CustomerSignatureDataUrl, agreement.CustomerSignedAt, agreement.ApprovedByName, agreement.ApprovedAt,
-            agreement.LastEmailedTo, agreement.LastEmailedAt };
+            agreement.LastEmailedTo, agreement.LastEmailedAt,
+            settlement = new {
+                stage = booking.Status == BookingStatus.Completed ? "Final return settlement" : "Current payment position",
+                invoiceNumber = booking.Invoice?.InvoiceNumber,
+                lines = booking.Invoice is not null && InvoiceDocumentLines.Read(booking.Invoice).Count > 0 ? InvoiceDocumentLines.Read(booking.Invoice) : RentalFinancials.Lines(booking),
+                subtotal = booking.Invoice?.Subtotal ?? RentalFinancials.Net(booking),
+                taxInclusive = booking.Invoice?.TaxInclusive ?? false,
+                adjustment = booking.Invoice is null ? 0 : RentalFinancials.Money(booking.Invoice.Total - (booking.Invoice.TaxInclusive ? booking.Invoice.Subtotal : booking.Invoice.Subtotal + booking.Invoice.TaxAmount)),
+                taxAmount = booking.Invoice?.TaxAmount ?? HirePricing.Tax(booking),
+                total = booking.Invoice?.Total ?? RentalFinancials.Total(booking),
+                paid = RentalFinancials.Paid(booking),
+                bondAppliedToInvoice = booking.BondDeductionAmount,
+                balanceDue = Math.Max(0, (booking.Invoice?.Total ?? RentalFinancials.Total(booking)) - RentalFinancials.Paid(booking)),
+                booking.BondAmountHeld, booking.BondDeductionAmount, booking.BondRefundAmount, booking.BondDeductionReason,
+                payments = booking.Payments.Where(x => x.Status == PaymentStatus.Recorded).Select(x => new { x.ReceiptNumber, type = x.Type.ToString(), method = x.Method.ToString(), x.Amount, x.CreatedAt })
+            } };
     }
 
     private void QueueAgreementEmail(RentalAgreement agreement, Booking booking)
     {
-        var customer = booking.Customer!; var data = BuildAgreementData(booking);
+        var customer = booking.Customer!; var current = BuildAgreementData(booking);
+        var data = current with {
+            Pricing = DeserializeOrDefault(agreement.PricingSnapshotJson, current.Pricing),
+            Customer = DeserializeOrDefault(agreement.CustomerSnapshotJson, current.Customer),
+            Asset = DeserializeOrDefault(agreement.AssetSnapshotJson, current.Asset),
+            Terms = DeserializeOrDefault(agreement.TermsJson, current.Terms)
+        };
+        var pricingLines = string.Join("", (data.Pricing.Lines ?? []).Select(line => $"<tr><td>{HtmlEncoder.Default.Encode(line.Description)} ({line.Quantity:N2} × FJD {line.Rate:N2})</td><td>FJD {line.Amount:N2}</td></tr>"));
+        var accountLines = booking.Invoice is not null ? InvoiceDocumentLines.Read(booking.Invoice) : RentalFinancials.Lines(booking);
+        var accountRows = string.Join("", accountLines.Select(line => $"<tr><td>{HtmlEncoder.Default.Encode(line.Description)}</td><td>FJD {line.Amount:N2}</td></tr>"));
+        var currentAccount = $"<h2>{(booking.Status == BookingStatus.Completed ? "Final return settlement" : "Current payment position")}</h2><p>The signed pickup schedule above is retained. The current account below includes recorded additional charges.</p><table>{accountRows}<tr><td>VAT</td><td>FJD {booking.Invoice?.TaxAmount ?? HirePricing.Tax(booking):N2}</td></tr><tr><td>Rental charge including VAT</td><td>FJD {booking.Invoice?.Total ?? RentalFinancials.Total(booking):N2}</td></tr><tr><td>Hire payments received</td><td>FJD {RentalFinancials.Paid(booking) - (booking.BondSettledAt.HasValue ? booking.BondDeductionAmount : 0):N2}</td></tr><tr><td>Bond applied to invoice</td><td>FJD {booking.BondDeductionAmount:N2}</td></tr><tr><td>Balance due</td><td>FJD {Math.Max(0, (booking.Invoice?.Total ?? RentalFinancials.Total(booking)) - RentalFinancials.Paid(booking)):N2}</td></tr><tr><td>Refundable bond collected</td><td>FJD {booking.BondAmountHeld:N2}</td></tr><tr><td>Bond refunded</td><td>FJD {booking.BondRefundAmount:N2}</td></tr></table>";
         var terms = string.Join("", data.Terms.Select(term => $"<h3 style=\"font-size:14px;margin:18px 0 5px\">{HtmlEncoder.Default.Encode(term.Title)}</h3><p style=\"font-size:13px;line-height:1.5;margin:0\">{HtmlEncoder.Default.Encode(term.Content)}</p>"));
-        var content = $"<p>Dear {HtmlEncoder.Default.Encode(customer.Name)},</p><p>This is your signed and agent-approved rental agreement. Keep this email with your rental records.</p><table role=\"presentation\" width=\"100%\" style=\"background:#f5f5f2;padding:14px\"><tr><td><strong>Agreement</strong></td><td>{agreement.AgreementNumber}</td></tr><tr><td><strong>Booking</strong></td><td>{booking.BookingNumber}</td></tr><tr><td><strong>Asset</strong></td><td>{HtmlEncoder.Default.Encode(data.Asset.Name)} ({HtmlEncoder.Default.Encode(data.Asset.AssetNumber)})</td></tr><tr><td><strong>Rental period</strong></td><td>{data.Rental.StartAt:dd MMM yyyy} – {data.Rental.EndAt:dd MMM yyyy}</td></tr><tr><td><strong>Total</strong></td><td>FJD {data.Pricing.Total:N2}</td></tr><tr><td><strong>Refundable bond</strong></td><td>FJD {data.Pricing.DepositRequired:N2}</td></tr></table><h2 style=\"font-size:18px\">Terms and conditions</h2>{terms}<h2 style=\"font-size:18px\">Acceptance record</h2><p>Signed by <strong>{HtmlEncoder.Default.Encode(agreement.CustomerSignatureName)}</strong> on {agreement.CustomerSignedAt:dd MMM yyyy 'at' HH:mm}. Approved by <strong>{HtmlEncoder.Default.Encode(agreement.ApprovedByName)}</strong>. Terms version: {agreement.TermsVersion}.</p><p>Contact {HtmlEncoder.Default.Encode(booking.Branch?.Name ?? "the issuing branch")} on {HtmlEncoder.Default.Encode(booking.Branch?.Phone ?? "the published branch number")} if any detail is incorrect.</p>";
+        var content = $"<p>Dear {HtmlEncoder.Default.Encode(customer.Name)},</p><p>This is your signed and agent-approved rental agreement. Keep this email with your rental records.</p><table role=\"presentation\" width=\"100%\" style=\"background:#f5f5f2;padding:14px\"><tr><td><strong>Agreement</strong></td><td>{agreement.AgreementNumber}</td></tr><tr><td><strong>Booking</strong></td><td>{booking.BookingNumber}</td></tr><tr><td><strong>Asset</strong></td><td>{HtmlEncoder.Default.Encode(data.Asset.Name)} ({HtmlEncoder.Default.Encode(data.Asset.AssetNumber)})</td></tr><tr><td><strong>Rental period</strong></td><td>{data.Rental.StartAt:dd MMM yyyy} – {data.Rental.EndAt:dd MMM yyyy}</td></tr>{pricingLines}<tr><td><strong>Base hire</strong></td><td>FJD {data.Pricing.Subtotal:N2}</td></tr><tr><td><strong>Services and surcharges</strong></td><td>FJD {data.Pricing.AdditionalCharges:N2}</td></tr><tr><td><strong>Discount</strong></td><td>FJD {data.Pricing.DiscountAmount:N2}</td></tr><tr><td><strong>VAT</strong></td><td>FJD {data.Pricing.TaxAmount:N2}</td></tr><tr><td><strong>Rental charge including VAT</strong></td><td>FJD {data.Pricing.Total:N2}</td></tr><tr><td><strong>Refundable bond</strong></td><td>FJD {data.Pricing.DepositRequired:N2}</td></tr></table>{currentAccount}<h2 style=\"font-size:18px\">Terms and conditions</h2>{terms}<h2 style=\"font-size:18px\">Acceptance record</h2><p>Signed by <strong>{HtmlEncoder.Default.Encode(agreement.CustomerSignatureName)}</strong> on {agreement.CustomerSignedAt:dd MMM yyyy 'at' HH:mm}. Approved by <strong>{HtmlEncoder.Default.Encode(agreement.ApprovedByName)}</strong>. Terms version: {agreement.TermsVersion}.</p><p>Contact {HtmlEncoder.Default.Encode(booking.Branch?.Name ?? "the issuing branch")} on {HtmlEncoder.Default.Encode(booking.Branch?.Phone ?? "the published branch number")} if any detail is incorrect.</p>";
         var email = emailQueue.Queue(db, customer.Email!, $"Signed rental agreement {agreement.AgreementNumber}", EmailTemplate.Branded($"Rental agreement {agreement.AgreementNumber}", content), $"Signed rental agreement {agreement.AgreementNumber} for booking {booking.BookingNumber}. Asset {data.Asset.Name}. Total FJD {data.Pricing.Total:N2}.", "RentalAgreement");
         agreement.LastEmailedTo = customer.Email!.Trim(); agreement.LastEmailedAt = DateTimeOffset.UtcNow; agreement.LastEmailId = email.Id;
     }
@@ -253,14 +278,14 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
     {
         var item = booking.Items.First();
         var days = Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays));
-        var subtotal = HirePricing.Amount(item);
-        var taxable = Math.Max(0, subtotal - booking.DiscountAmount + booking.AdditionalCharges);
+        var subtotal = booking.Items.Sum(HirePricing.Amount);
+        var taxable = RentalFinancials.Net(booking);
         var tax = HirePricing.Tax(booking);
         return new AgreementData(
             new CustomerAgreementSnapshot(booking.CustomerId, booking.Customer!.CustomerNumber, booking.Customer.Name, booking.Customer.Type.ToString(), booking.Customer.Email, booking.Customer.Phone, booking.Customer.Address, booking.Customer.IdentificationNumber),
             new AssetAgreementSnapshot(item.AssetId, item.Asset!.AssetNumber, item.Asset.Name, item.Asset.Type.ToString(), item.Asset.RegistrationNumber, item.Asset.SerialNumber),
             new RentalAgreementSnapshot(booking.Id, booking.BookingNumber, booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone, item.StartAt, item.EndAt, days),
-            new PricingAgreementSnapshot(item.DailyRate, subtotal, booking.DiscountAmount, booking.AdditionalCharges, booking.AdditionalChargesDescription, booking.TaxRate, tax, taxable + tax, booking.DepositRequired, item.HireUnit, HirePricing.Quantity(item)),
+            new PricingAgreementSnapshot(item.DailyRate, subtotal, booking.DiscountAmount, RentalFinancials.Services(booking) + RentalFinancials.Unitemised(booking), booking.AdditionalChargesDescription, booking.TaxRate, tax, taxable + tax, booking.DepositRequired, item.HireUnit, HirePricing.Quantity(item), RentalFinancials.Lines(booking)),
             string.IsNullOrWhiteSpace(item.Asset.Division?.DefaultRentalTerms)
                 ? DefaultTerms()
                 : [new AgreementTerm("Rental terms", item.Asset.Division.DefaultRentalTerms)]);
@@ -297,7 +322,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
     private sealed record CustomerAgreementSnapshot(Guid CustomerId, string CustomerNumber, string Name, string Type, string? Email, string? Phone, string? Address, string? IdentificationNumber);
     private sealed record AssetAgreementSnapshot(Guid AssetId, string AssetNumber, string Name, string Type, string? RegistrationNumber, string? SerialNumber);
     private sealed record RentalAgreementSnapshot(Guid Id, string BookingNumber, Guid BranchId, string BranchName, string? BranchAddress, string? BranchPhone, DateTimeOffset StartAt, DateTimeOffset EndAt, decimal Days);
-    private sealed record PricingAgreementSnapshot(decimal DailyRate, decimal Subtotal, decimal DiscountAmount, decimal AdditionalCharges, string? AdditionalChargesDescription, decimal TaxRate, decimal TaxAmount, decimal Total, decimal DepositRequired, ChargeUnit HireUnit, decimal HireQuantity);
+    private sealed record PricingAgreementSnapshot(decimal DailyRate, decimal Subtotal, decimal DiscountAmount, decimal AdditionalCharges, string? AdditionalChargesDescription, decimal TaxRate, decimal TaxAmount, decimal Total, decimal DepositRequired, ChargeUnit HireUnit, decimal HireQuantity, IReadOnlyList<FinancialLine>? Lines = null);
     private sealed record AgreementTerm(string Title, string Content);
 }
 

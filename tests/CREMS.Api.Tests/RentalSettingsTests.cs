@@ -66,7 +66,7 @@ public sealed class RentalSettingsTests
     {
         await using var db = Database();
         var result = Assert.IsType<OkObjectResult>(await Controller(db).Settings(TestContext.Current.CancellationToken));
-        Assert.Equal(7, JsonSerializer.SerializeToElement(result.Value).GetArrayLength());
+        Assert.Equal(RentalSettings.Definitions.Count, JsonSerializer.SerializeToElement(result.Value).GetArrayLength());
         Assert.IsType<NotFoundResult>(await Controller(db).SaveSetting("unknown", new SettingRequest("1"), TestContext.Current.CancellationToken));
         Assert.Equal("BK", await RentalSettings.Read(db, "rentals.bookingPrefix", TestContext.Current.CancellationToken));
         db.SystemSettings.Add(new SystemSetting { Key="security.maxFailedAttempts",Value="corrupt",Category="Security" });

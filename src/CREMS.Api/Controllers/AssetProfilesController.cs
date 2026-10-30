@@ -46,8 +46,21 @@ public sealed class AssetProfilesController(ApplicationDbContext db, CurrentStaf
         var transfers=await db.AssetTransfers.AsNoTracking().Where(x=>x.AssetId==assetId).OrderByDescending(x=>x.CreatedAt).Take(50).ToListAsync(token);
         var documents=await db.DocumentRecords.AsNoTracking().Where(x=>x.EntityType==nameof(Asset)&&x.EntityId==assetId).OrderByDescending(x=>x.CreatedAt).Take(historyLimit).ToListAsync(token);
         var audits=await db.AuditEvents.AsNoTracking().Where(x=>x.EntityType==nameof(Asset)&&x.EntityId==assetId).OrderByDescending(x=>x.OccurredAt).Take(historyLimit).ToListAsync(token);
-        var now=DateTimeOffset.UtcNow;var future=bookingItems.Where(x=>x.EndAt>now&&x.Booking!.Status is not BookingStatus.Cancelled and not BookingStatus.Expired).OrderBy(x=>x.StartAt).ToList();
-        var unavailableReason=asset.Status switch{AssetStatus.Maintenance=>"Under maintenance",AssetStatus.Rented=>"Currently on hire",AssetStatus.Reserved=>"Reserved for a customer",AssetStatus.Inspection=>"Awaiting inspection",AssetStatus.OutOfService=>"Out of service",AssetStatus.Retired=>"Retired",_=>future.FirstOrDefault() is { } b?$"Reserved from {b.StartAt:dd MMM yyyy}":null};
+        var now = DateTimeOffset.UtcNow;
+        // Availability must not be calculated from the truncated history list.
+        var liveItems = await db.BookingItems.AsNoTracking().Include(x => x.Booking)
+            .Where(x => x.AssetId == assetId && (x.Booking!.Status == BookingStatus.Confirmed && x.EndAt > now ||
+                x.Booking.Status == BookingStatus.ConvertedToRental ||
+                x.Booking.Status == BookingStatus.Completed && !x.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))
+            .OrderBy(x => x.StartAt).ToListAsync(token);
+        var future = liveItems.Where(x => x.EndAt > now).ToList();
+        var unreturned = liveItems.Any(x => x.Booking!.Status == BookingStatus.ConvertedToRental || x.Booking.Status == BookingStatus.Completed);
+        var maintenanceBlocked = await db.MaintenanceJobs.AnyAsync(x => x.AssetId == assetId &&
+            (x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled || x.ReleasedAt == null), token);
+        var transferBlocked = await db.AssetTransfers.AnyAsync(x => x.AssetId == assetId && (x.Status == TransferStatus.Approved || x.Status == TransferStatus.InTransit || x.Status == TransferStatus.Received), token);
+        var currentBooking = liveItems.Any(x => x.StartAt <= now && x.EndAt > now);
+        var isAvailable = asset.IsActive && asset.Status == AssetStatus.Available && !unreturned && !maintenanceBlocked && !transferBlocked && !currentBooking;
+        var unavailableReason=!asset.IsActive?"Asset is inactive":maintenanceBlocked?"Maintenance or safety release outstanding":transferBlocked?"Transfer or receiving inspection outstanding":unreturned?"Outstanding rental return":currentBooking?"Currently booked":asset.Status switch{AssetStatus.Maintenance=>"Under maintenance",AssetStatus.Rented=>"Currently on hire",AssetStatus.Reserved=>"Reserved for a customer",AssetStatus.Inspection=>"Awaiting inspection",AssetStatus.OutOfService=>"Out of service",AssetStatus.Retired=>"Retired",_=>null};
         var alternativeQuery=db.Assets.AsNoTracking().Where(x=>x.Id!=assetId&&x.IsActive&&x.Status==AssetStatus.Available&&x.BranchId==asset.BranchId&&(asset.AssetCategoryId==null?x.Type==asset.Type:x.AssetCategoryId==asset.AssetCategoryId));
         if(future.Count>0){var rangeStart=future.Min(x=>x.StartAt);var rangeEnd=future.Max(x=>x.EndAt);alternativeQuery=alternativeQuery.Where(x=>!db.BookingItems.Any(i=>i.AssetId==x.Id&&i.StartAt<rangeEnd&&rangeStart<i.EndAt&&i.Booking!.Status!=BookingStatus.Cancelled&&i.Booking.Status!=BookingStatus.Expired));}
         var alternatives=await alternativeQuery.Select(x=>new{x.Id,x.AssetNumber,x.Name,x.Status}).Take(8).ToListAsync(token);
@@ -76,7 +89,7 @@ public sealed class AssetProfilesController(ApplicationDbContext db, CurrentStaf
                 }
             })
         };
-        return Ok(new{asset=assetProfile,availability=new{isAvailable=asset.Status==AssetStatus.Available,unavailableReason,expectedAvailableAt=future.Select(x=>(DateTimeOffset?)x.EndAt).FirstOrDefault(),bookings=bookingItems.Select(x=>new{x.StartAt,x.EndAt,status=x.Booking!.Status,reference=x.Booking.BookingNumber}),maintenance=maintenance.Select(x=>new{x.ReportedAt,endAt=x.CompletedAt,status=x.Status,reference=x.JobNumber}),transfers},alternatives,inspections,rentalInspections,meters,maintenance = maintenance.Select(x => MaintenanceWorkspace.Record(x, canFinancial)),documents,lifecycle,audits});
+        return Ok(new{asset=assetProfile,availability=new{isAvailable,unavailableReason,expectedAvailableAt=future.Select(x=>(DateTimeOffset?)x.EndAt).FirstOrDefault(),bookings=bookingItems.Select(x=>new{x.StartAt,x.EndAt,status=x.Booking!.Status,reference=x.Booking.BookingNumber}),maintenance=maintenance.Select(x=>new{x.ReportedAt,endAt=x.CompletedAt,status=x.Status,reference=x.JobNumber}),transfers},alternatives,inspections,rentalInspections,meters,maintenance = maintenance.Select(x => MaintenanceWorkspace.Record(x, canFinancial)),documents,lifecycle,audits});
     }
 
     [HttpGet("inspections/{inspectionId:guid}")]

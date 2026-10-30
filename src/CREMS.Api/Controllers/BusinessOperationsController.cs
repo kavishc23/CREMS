@@ -82,6 +82,8 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     public async Task<ActionResult> RecordMeter(Guid assetId, MeterRequest request, CancellationToken token)
     {
         var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == assetId, token); if (asset is null) return NotFound(); var scope = await Scope(); if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
+        if (request.BookingId.HasValue && !await db.BookingItems.AnyAsync(x => x.BookingId == request.BookingId && x.AssetId == assetId, token)) return Validation("bookingId", "Select a booking allocated to this asset.");
+        if (request.RecordedAt > DateTimeOffset.UtcNow || request.IncludedUsage < 0 || request.ExcessRate < 0) return Validation("reading", "Meter dates cannot be in the future and usage/rates cannot be negative.");
         var previous = await db.AssetMeterReadings.Where(x => x.AssetId == assetId && x.Type == request.Type).OrderByDescending(x => x.RecordedAt).Select(x => (decimal?)x.Reading).FirstOrDefaultAsync(token) ?? asset.CurrentMeterReading;
         if (previous.HasValue && request.Reading < previous) return Validation(nameof(request.Reading), "A cumulative meter cannot be lower than its previous reading.");
         var reading = new AssetMeterReading { AssetId = assetId, BookingId = request.BookingId, Type = request.Type, Unit = request.Unit.Trim(), Reading = request.Reading, FuelPercent = request.FuelPercent, Source = request.Source, RecordedAt = request.RecordedAt ?? DateTimeOffset.UtcNow, RecordedByUserId = scope.UserId };
@@ -97,6 +99,7 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     {
         await using var transaction = await MaintenanceRules.BeginAsync(db, token);
         var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == assetId, token); if (asset is null) return NotFound(); var scope = await Scope(); if (scope is null || !scope.HasAssetAccess(asset.BranchId, asset.DivisionId)) return Forbid();
+        if (request.BookingId.HasValue && !await db.BookingItems.AnyAsync(x => x.BookingId == request.BookingId && x.AssetId == assetId, token)) return Validation("bookingId", "Select a booking allocated to this asset.");
         if (!AllowedLifecycleTransitions.TryGetValue(asset.Status, out var destinations) || !destinations.Contains(request.ToStatus)) return Validation(nameof(request.ToStatus), $"An asset cannot move directly from {asset.Status} to {request.ToStatus}.");
         if (request.Type is AssetLifecycleEventType.PreHireInspection or AssetLifecycleEventType.PostHireInspection && !request.BookingId.HasValue) return Validation(nameof(request.BookingId), "An inspection transition must be linked to a booking.");
         if (request.MeterReading.HasValue && asset.CurrentMeterReading.HasValue && request.MeterReading < asset.CurrentMeterReading) return Validation(nameof(request.MeterReading), "The meter reading cannot be lower than its previous reading.");
@@ -111,6 +114,8 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     public async Task<ActionResult> SavePersonnel(PersonnelRequest request, CancellationToken token)
     {
         var scope = await Scope(); if (scope is null || !scope.HasAssetAccess(request.BranchId, request.DivisionId)) return Forbid();
+        if (new[] { request.StandardCostRate, request.OvertimeCostRate, request.StandardChargeRate, request.OvertimeChargeRate }.Any(x => x < 0)) return Validation("rates", "Staff cost and charge rates cannot be negative.");
+        if (!await db.BranchDivisions.AnyAsync(x => x.BranchId == request.BranchId && x.DivisionId == request.DivisionId && x.IsActive, token)) return Validation("location", "Select a division operating at this branch.");
         var item = new Personnel { EmployeeNumber = request.EmployeeNumber.Trim().ToUpperInvariant(), FullName = request.FullName.Trim(), BranchId = request.BranchId, DivisionId = request.DivisionId, Type = request.Type, StandardCostRate = request.StandardCostRate, OvertimeCostRate = request.OvertimeCostRate, StandardChargeRate = request.StandardChargeRate, OvertimeChargeRate = request.OvertimeChargeRate };
         db.Personnel.Add(item); await db.SaveChangesAsync(token); return Ok(item);
     }
@@ -120,6 +125,7 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     public async Task<ActionResult> AddQualification(Guid personnelId, QualificationRequest request, CancellationToken token)
     {
         var person = await db.Personnel.FirstOrDefaultAsync(x => x.Id == personnelId, token); if (person is null) return NotFound(); var scope = await Scope(); if (scope is null || !scope.HasAssetAccess(person.BranchId, person.DivisionId)) return Forbid();
+        if (request.IssuedOn == default || request.ExpiresOn <= request.IssuedOn) return Validation("dates", "Certificate expiry must be after its issue date.");
         var item = new PersonnelQualification { PersonnelId = personnelId, Name = request.Name.Trim(), CertificateNumber = request.CertificateNumber.Trim(), IssuedOn = request.IssuedOn, ExpiresOn = request.ExpiresOn, SafetyInduction = request.SafetyInduction }; db.PersonnelQualifications.Add(item); await db.SaveChangesAsync(token); return Ok(item);
     }
 
@@ -128,9 +134,12 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     public async Task<ActionResult> AssignPersonnel(AssignmentRequest request, CancellationToken token)
     {
         var booking = await db.Bookings.FirstOrDefaultAsync(x => x.Id == request.BookingId, token); var person = await db.Personnel.Include(x => x.Qualifications).FirstOrDefaultAsync(x => x.Id == request.PersonnelId, token); if (booking is null || person is null) return NotFound(); var scope = await Scope(); if (scope is null || !scope.HasAssetAccess(booking.BranchId, person.DivisionId)) return Forbid();
+        if (!person.IsActive || person.Availability is PersonnelAvailability.Leave or PersonnelAvailability.Unavailable or PersonnelAvailability.Training || person.BranchId != booking.BranchId || booking.Status is BookingStatus.Completed or BookingStatus.Cancelled or BookingStatus.Expired)
+            return Validation("personnel", "Choose available staff at the booking branch for an open hire.");
+        if (request.CustomerHourlyRate < 0 || request.InternalHourlyCost < 0) return Validation("rates", "Hourly rates cannot be negative.");
         if (request.EndAt <= request.StartAt || await db.BookingPersonnelAssignments.AnyAsync(x => x.PersonnelId == request.PersonnelId && x.Status != AssignmentStatus.Cancelled && x.StartAt < request.EndAt && request.StartAt < x.EndAt, token)) return Validation("schedule", "The employee is already assigned or the period is invalid.");
         if (person.Qualifications.Any(x => x.ExpiresOn < DateOnly.FromDateTime(request.EndAt.Date))) return Validation("qualification", "One or more required qualifications expire before this assignment ends.");
-        var item = new BookingPersonnelAssignment { BookingId = request.BookingId, PersonnelId = request.PersonnelId, Role = request.Role.Trim(), StartAt = request.StartAt, EndAt = request.EndAt, CustomerHourlyRate = request.CustomerHourlyRate ?? person.StandardChargeRate, InternalHourlyCost = request.InternalHourlyCost ?? person.StandardCostRate, Status = AssignmentStatus.Confirmed }; db.BookingPersonnelAssignments.Add(item); person.Availability = PersonnelAvailability.Assigned; await db.SaveChangesAsync(token); return Ok(item);
+        var item = new BookingPersonnelAssignment { BookingId = request.BookingId, PersonnelId = request.PersonnelId, Role = request.Role.Trim(), StartAt = request.StartAt, EndAt = request.EndAt, CustomerHourlyRate = request.CustomerHourlyRate ?? person.StandardChargeRate, InternalHourlyCost = request.InternalHourlyCost ?? person.StandardCostRate, Status = AssignmentStatus.Confirmed }; db.BookingPersonnelAssignments.Add(item); person.Availability = PersonnelAvailability.Assigned; await db.SaveChangesAsync(token); return Ok(new { item.Id, item.BookingId, item.PersonnelId, item.Role, item.StartAt, item.EndAt, item.CustomerHourlyRate, item.InternalHourlyCost, item.Status });
     }
 
     [HttpPost("assignments/{assignmentId:guid}/timesheets")]
@@ -138,9 +147,13 @@ public sealed class BusinessOperationsController(ApplicationDbContext db, Curren
     public async Task<ActionResult> AddTimesheet(Guid assignmentId, TimesheetRequest request, CancellationToken token)
     {
         var assignment = await db.BookingPersonnelAssignments.Include(x => x.Personnel).FirstOrDefaultAsync(x => x.Id == assignmentId, token); if (assignment is null) return NotFound(); var scope = await Scope(); if (scope is null || !scope.HasAssetAccess(assignment.Personnel!.BranchId, assignment.Personnel.DivisionId)) return Forbid();
+        if (request.WorkDate == default || request.WorkDate > MaintenanceRules.LocalDate(DateTimeOffset.UtcNow) || request.WorkDate < MaintenanceRules.LocalDate(assignment.StartAt) || request.WorkDate > MaintenanceRules.LocalDate(assignment.EndAt) || request.RegularHours + request.OvertimeHours <= 0 || request.RegularHours + request.OvertimeHours > 24)
+            return Validation("hours", "Record positive hours within the assignment dates, no later than today and no more than 24 hours in total.");
+        if (await db.PersonnelTimesheets.AnyAsync(x => x.AssignmentId == assignmentId && x.WorkDate == request.WorkDate, token)) return Conflict(new { message = "A timesheet already exists for this assignment and date." });
+        if (await db.RentalInvoices.AnyAsync(x => x.BookingId == assignment.BookingId && x.Status != InvoiceStatus.Draft && x.Status != InvoiceStatus.Voided, token)) return Conflict(new { message = "This hire is already invoiced. Record any agreed adjustment through Finance." });
         var item = new PersonnelTimesheet { AssignmentId = assignmentId, WorkDate = request.WorkDate, RegularHours = request.RegularHours, OvertimeHours = request.OvertimeHours, Notes = Clean(request.Notes), ApprovedByUserId = scope.UserId, ApprovedAt = DateTimeOffset.UtcNow }; db.PersonnelTimesheets.Add(item);
         var revenue = request.RegularHours * assignment.CustomerHourlyRate + request.OvertimeHours * assignment.CustomerHourlyRate * 1.5m; var cost = request.RegularHours * assignment.InternalHourlyCost + request.OvertimeHours * assignment.InternalHourlyCost * 1.5m;
-        db.BookingCharges.Add(new BookingCharge { BookingId = assignment.BookingId, Description = $"{assignment.Role} – {request.WorkDate:yyyy-MM-dd}", Category = assignment.Personnel.Type == PersonnelType.Driver ? ChargeCategory.Driver : ChargeCategory.Operator, Unit = ChargeUnit.Hour, Quantity = request.RegularHours + request.OvertimeHours, UnitRate = revenue / Math.Max(1, request.RegularHours + request.OvertimeHours), UnitCost = cost / Math.Max(1, request.RegularHours + request.OvertimeHours) }); await db.SaveChangesAsync(token); return Ok(item);
+        db.BookingCharges.Add(new BookingCharge { BookingId = assignment.BookingId, Description = $"{assignment.Role} – {request.WorkDate:yyyy-MM-dd}", Category = assignment.Personnel.Type == PersonnelType.Driver ? ChargeCategory.Driver : ChargeCategory.Operator, Unit = ChargeUnit.Hour, Quantity = request.RegularHours + request.OvertimeHours, UnitRate = revenue / (request.RegularHours + request.OvertimeHours), UnitCost = cost / (request.RegularHours + request.OvertimeHours) }); await db.SaveChangesAsync(token); return Ok(new { item.Id, item.AssignmentId, item.WorkDate, item.RegularHours, item.OvertimeHours, item.Notes, item.ApprovedAt });
     }
 
     [HttpPost("suppliers")]
