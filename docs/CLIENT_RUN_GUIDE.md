@@ -1,209 +1,140 @@
-# CREMS — client installation and operating instructions
+# CREMS Client Installation and Testing Guide
 
-This guide explains how to install and run CREMS on a Windows laptop for local evaluation. Keep this document with the repository. No Azure account, domain name, tunnel, or cloud subscription is needed.
+This guide explains how to install and run the Carpenters Rental and Equipment Management System (CREMS) on a Windows laptop for client testing.
 
-## 1. What you are installing
+CREMS runs locally on the laptop. No Azure account, public domain or cloud subscription is required. Use fictional customer, booking, licence and payment information during testing.
 
-CREMS has three parts:
+## 1. Before you begin
 
-| Part | Purpose | Local address |
-| --- | --- | --- |
-| Web application | Customer and staff screens | http://localhost:5173 |
-| API | Sign-in, permissions and business operations | http://localhost:5080 |
-| SQL Server | Stores accounts, bookings and other records | Docker: localhost,1433; installed SQL Server: your configured instance |
+You need:
 
-Keep the startup terminal open while using CREMS. Closing the laptop, shutting it down, or stopping the application can interrupt access. `localhost` means this laptop; this setup does not publish CREMS to other computers.
+- A Windows 10 or Windows 11 laptop.
+- Internet access for the first installation.
+- Permission to install applications on the laptop.
+- Access to the CREMS GitHub repository.
+- Approximately 15 GB of free disk space when using Docker Desktop.
 
-SMTP is optional. You can install, start, and explore CREMS without configuring email. Features that send email—including email verification codes, password changes requiring OTP, and notifications—need a working email provider. Codes are not bypassed when email is disabled.
+Accept the GitHub collaborator invitation, open the CREMS repository and use the `main` branch. Either clone the repository with GitHub Desktop/Git or download and extract the source ZIP into a normal writable folder such as `C:\CREMS`.
 
-## 2. Install the prerequisites once
+Do not run CREMS from inside a ZIP file. The repository folder should contain `INSTALL_CREMS.bat`, `README.md`, `compose.yaml`, `src` and `scripts`.
 
-Use a supported Windows laptop with PowerShell, internet access, and enough free storage for development tools and database images. Have Windows administrator access available for installing prerequisites. The normal CREMS startup command does not require an elevated terminal.
+## 2. Choose a database option
 
-Install:
+The installer asks you to choose one database option.
 
-1. **.NET 10 SDK**, including its build tools. Installing only the runtime is insufficient.
-2. **Node.js 22 or newer**, including npm.
-3. One database option from the next section.
-4. Optionally **Git for Windows**, if receiving updates through Git. A source ZIP can also be used.
+### Option D - Docker Desktop
 
-Use the official download links in [Client handover](CLIENT_HANDOVER.md). Follow each installer's prompts, then close and reopen PowerShell so it can find the installed commands.
+Choose this option when the laptop does not already have an approved SQL Server installation. The installer can install Docker Desktop and use the supplied SQL Server container. Docker may require administrator approval, WSL 2 setup and a Windows restart.
 
-Verify installation:
+Docker is for local testing and is not required when an existing SQL Server is available.
 
-```powershell
-dotnet --version
-node --version
-npm.cmd --version
-```
+### Option E - Existing SQL Server
 
-The .NET version must match the repository's .NET 10 requirement. If any command is missing, reopen PowerShell or repair that tool's installation before continuing.
+Choose this option when the organization already has SQL Server or SQL Server Express. Ask IT for an approved connection string and ensure the account can create the CREMS database and apply migrations.
 
-## 3. Choose your database
-
-### Option A: Docker Desktop
-
-Use this option if you do not already have SQL Server configured. Install Docker Desktop, complete its WSL 2 setup if prompted, select Linux containers, and wait until its engine is running.
-
-Confirm Docker is available:
-
-```powershell
-docker info
-docker compose version
-```
-
-CREMS downloads the SQL Server image on first startup. This first download can take several minutes. The database is saved in a Docker volume and persists when the application stops. Port 1433 must be free.
-
-### Option B: Existing SQL Server — Docker not required
-
-Use this option if SQL Server is already installed locally or available on an approved server. Ask your IT contact for the server/instance and a connection string. Use a dedicated evaluation database. The startup account needs permission to create the database or apply its schema migrations.
-
-For a local SQL Server Express installation using your Windows account, a typical connection string is:
+A typical local SQL Server Express connection string using Windows authentication is:
 
 ```text
 Server=localhost\SQLEXPRESS;Database=Crems;Integrated Security=True;TrustServerCertificate=True
 ```
 
-The instance name may differ. Windows authentication uses the identity running PowerShell. SQL authentication instead requires the supplied database username and password. Do not paste the connection string into an email or support screenshot.
+The actual server and instance name may differ. Treat database connection strings as confidential.
 
-## 4. Obtain and open the repository
+## 3. Install CREMS
 
-Extract the repository ZIP into a normal writable folder, for example `C:\CREMS`. If using Git, clone the repository using the access provided by the supplier. Do not run from inside the ZIP archive.
+1. Open the extracted or cloned CREMS repository folder.
+2. Double-click `INSTALL_CREMS.bat`.
+3. Approve Windows installation prompts when requested.
+4. Choose `D` for Docker or `E` for an existing SQL Server.
+5. Enter the initial administrator email address.
+6. Enter a strong administrator password with at least 10 characters, uppercase and lowercase letters, a number and a symbol.
+7. If using Docker, enter a separate SQL Server password with at least 12 characters, uppercase and lowercase letters, a number and a symbol.
+8. If using an existing SQL Server, enter the connection string supplied by IT.
+9. Wait while the installer restores dependencies, compiles CREMS, initializes the database and checks the API.
 
-Open PowerShell and change to the repository root:
+The installer automatically checks for the .NET 10 SDK and Node.js 22 or newer. Missing versions are installed through Windows Package Manager. If Windows asks for a restart, restart the laptop and run `INSTALL_CREMS.bat` again. Completed installations will be reused.
 
-```powershell
-cd C:\CREMS
-dir
-```
+Private settings are saved in `.env.windows.json` in the repository root. This file is excluded from Git but contains plaintext credentials. Do not email it, upload it or include it in a shared ZIP.
 
-You should see `README.md`, `compose.yaml`, `scripts`, and `src`. If the ZIP created an extra parent folder, change into the folder containing those files.
+## 4. Open CREMS and sign in
 
-## 5. First-time setup and startup
+When startup is complete, open:
 
-Open Docker Desktop first if using Docker. From the repository root, run:
+- CREMS website: `http://localhost:5173`
+- API health check: `http://localhost:5080/api/health`
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1
-```
+Keep the installer terminal open while using CREMS. Closing the terminal stops the web application and API.
 
-The execution-policy option applies to this PowerShell process. If your organization blocks script execution through policy, ask IT to approve the script.
+Select staff sign-in and use the administrator email and password entered during setup. A new development database includes demonstration information for evaluation. Continue to use fictional information only.
 
-Answer the setup prompts:
+## 5. Start and stop CREMS later
 
-| Prompt | What to enter |
+For each later session:
+
+1. Open the repository folder.
+2. Double-click `INSTALL_CREMS.bat` again.
+3. Existing dependencies, private settings and database records will be reused.
+4. Open `http://localhost:5173` if the browser does not open automatically.
+
+To stop CREMS, return to the terminal and press `Ctrl+C`. If Docker is being used, its SQL Server container can remain running and the database records will be preserved.
+
+Do not run `docker compose down -v`; the `-v` option permanently removes the local database volume.
+
+## 6. Client testing and UAT
+
+Use the supplied User Acceptance Testing workbook to record the result of each test. Complete the tests using the final `main` branch.
+
+For each issue, record:
+
+- The test case or affected page.
+- The steps performed.
+- The expected result.
+- The actual result or visible message.
+- A screenshot where possible.
+
+Do not include real customer data, passwords, one-time codes, connection strings or confidential documents in screenshots.
+
+After completing the UAT, review the recorded results and sign the UAT sign-off section to confirm acceptance or identify any remaining agreed actions.
+
+## 7. Optional email configuration
+
+Email is not required for basic installation and general workflow testing. However, email verification, password-change OTP and notification delivery require a configured provider.
+
+Run CREMS normally without email unless email testing has been agreed. IT can configure an approved SMTP provider or Brevo API credentials later. Email passwords and API keys must be stored outside tracked configuration and must never be committed to Git.
+
+When email is enabled for testing, redirect messages to a controlled test mailbox and verify delivery before testing OTP workflows.
+
+## 8. Backup guidance
+
+Before updates or important testing, back up:
+
+- The CREMS SQL database.
+- Uploaded files under `src\CREMS.Api\App_Data`.
+- Private configuration and data-protection keys in secure storage.
+
+For an installed SQL Server, use SQL Server Management Studio and select the CREMS database, then **Tasks > Back Up**. For Docker, ask the project team or IT to create a SQL Server backup from the container.
+
+Store backups outside the repository and verify that the backup can be restored. Source code alone is not a backup of application records or uploaded files.
+
+## 9. Troubleshooting
+
+| Problem | Recommended action |
 | --- | --- |
-| Database | `docker` or `existing` |
-| Initial administrator email | An address controlled by the client's administrator |
-| Initial administrator password | At least 10 characters, including uppercase, lowercase, a number and a symbol |
-| New SQL Server password (Docker only) | At least 12 characters, including uppercase, lowercase, a number and a symbol |
-| Connection string (existing SQL Server only) | The connection string supplied or approved by IT |
+| WinGet is missing | Install or update **App Installer** from Microsoft Store, then rerun the installer. |
+| Windows requests a restart | Restart the laptop and run `INSTALL_CREMS.bat` again. |
+| Docker is not ready | Open Docker Desktop, complete WSL 2 or first-run setup and wait for the engine before retrying. |
+| SQL Server does not start | Confirm the SQL password meets the complexity requirements and port 1433 is free. |
+| Existing SQL connection fails | Ask IT to verify the server, authentication and database creation/migration permissions. |
+| Port 5080 or 5173 is occupied | Close any earlier CREMS terminal or stop the application using that port. |
+| Website says the API is unavailable | Review the terminal error and open `http://localhost:5080/api/health`. |
+| Administrator cannot sign in | Use the original setup email and password. Editing the settings file does not reset an existing account. |
+| Email OTP does not arrive | Confirm email has been intentionally configured and check the test mailbox and API output. |
+| Pickup or return is blocked | Read the CREMS message and resolve missing eligibility, payment, inspection, maintenance or safety requirements. |
 
-Passwords and the connection string are hidden while typing. Save the credentials securely. The script stores settings in `.env.windows.json` in the repository root. This is a private plaintext file excluded from Git. Do not send it with the source repository or include it in a shared ZIP. The Windows launcher uses this file; the `.env` template is used by the separate macOS/Linux launcher.
+If assistance is required, provide the visible error, action attempted and a screenshot with all confidential information removed.
 
-The launcher then:
+## 10. Important limitations
 
-1. Starts and waits for the Docker database, if selected.
-2. Restores API dependencies.
-3. Installs frontend dependencies when missing or when the dependency lock file changes.
-4. Compiles and starts the API. The API automatically applies database migrations.
-5. Waits for the API health endpoint, then starts the web application.
+This installer provides a local client testing environment. `localhost` means CREMS is available only on the laptop running it. The setup is not a production deployment and does not provide public internet access, automated enterprise backups, high availability or centralized monitoring.
 
-First startup needs internet access for packages and Docker images. Wait for the frontend to report its local address. Open **http://localhost:5173** in a browser.
-
-Development startup populates a new database with demonstration information. Use fictional customer details during evaluation. This setup is intended for evaluation; production installation requires a separate hosting and operational configuration.
-
-## 6. Sign in and explore
-
-Choose the staff sign-in option and use the initial administrator email and password entered during setup. Do not assume demonstration passwords are valid for your administrator account.
-
-The bootstrap super administrator can sign in without a login email code. Other accounts may require email MFA according to their role and account settings. Configure optional email before evaluating those accounts or password-change OTP flows.
-
-Suggested evaluation sequence:
-
-1. Review organization, divisions, branches and service settings.
-2. Review the asset register and the public rental catalogue.
-3. Submit a fictional customer booking request.
-4. Review the request, prepare pricing and follow its configured approval process.
-5. Confirm the booking and complete the required pickup checks.
-6. Complete a return, review charges, record settlement and inspect the invoice.
-7. Review maintenance, reports and staff permissions.
-
-Availability, customer eligibility, document checks, payments and safety release rules can block a workflow legitimately. Read the message and resolve the underlying requirement. Do not change the database directly to bypass a blocked step.
-
-## 7. Daily startup and shutdown
-
-For every later session, open Docker Desktop if applicable, open PowerShell in the repository root, and run the same startup command from section 5. Existing settings and database records are reused.
-
-Keep the terminal open. To stop CREMS, press **Ctrl+C** in that terminal and confirm termination if Windows asks. The launcher attempts to stop its API process. Close any remaining CREMS terminal before restarting.
-
-Docker SQL Server remains running. To stop it, open Docker Desktop and stop the project's SQL Server container. Stopping a container preserves its data. Do not delete the volume or use `docker compose down -v` during normal shutdown.
-
-Changing the bootstrap password in `.env.windows.json` does not reset an existing administrator's password. Use the application's password workflow with email configured, or contact the supplier for account recovery.
-
-## 8. Optional SMTP email
-
-Skip this section for basic local evaluation. Email is disabled by default by the Windows launcher. The `-EnableEmail` flag explicitly enables configured email for that run.
-
-Ask your email provider or IT administrator for the SMTP hostname, port, username, password/app password, approved sender address, and STARTTLS requirements. CREMS uses the .NET SMTP client with TLS controlled by `Email__UseSsl`; confirm your provider supports the chosen connection method.
-
-Open PowerShell in the repository root. Set the following for the current terminal, replacing example values with your provider's actual settings:
-
-```powershell
-$env:Email__PreferHttpApi = 'false'
-$env:Email__Host = 'smtp.example.com'
-$env:Email__Port = '587'
-$env:Email__UseSsl = 'true'
-$env:Email__Username = 'your-smtp-username'
-$env:Email__FromAddress = 'approved-sender@example.com'
-$env:Email__FromName = 'Carpenters Rentals'
-$env:Email__RedirectAllTo = 'your-test-mailbox@example.com'
-$smtpSecret = Read-Host 'SMTP password or app password' -AsSecureString
-$env:Email__Password = [System.Net.NetworkCredential]::new('', $smtpSecret).Password
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1 -EnableEmail
-```
-
-Use a mailbox you control for `Email__RedirectAllTo`: test messages and verification codes are redirected there. Do not use real customer addresses for evaluation. The email provider must approve the sender address. If your provider requires OAuth-only SMTP, consult IT about a supported relay or the application's Brevo HTTP delivery option.
-
-These environment settings last for that PowerShell session and are inherited by the launcher. They are not saved in `.env.windows.json`. Re-enter them after opening a new terminal, or have IT store and load them securely. Do not commit an email password. After stopping email-enabled CREMS, close that terminal to discard its process environment.
-
-Run the command without `-EnableEmail` to return to email-disabled evaluation. Enabling email does not guarantee delivery: verify receipt of a test message before using OTP or customer notifications.
-
-## 9. Back up before updates or important evaluation work
-
-Back up both the SQL database and uploaded documents/photos. Source code alone is not a backup of application records.
-
-- For installed SQL Server, use SQL Server Management Studio: database > Tasks > Back Up. Ask IT to verify the backup and restore procedure.
-- For Docker SQL Server, use the backup procedure in [Client handover](CLIENT_HANDOVER.md), or ask IT to connect a database management tool to `localhost,1433`.
-- Copy `src/CREMS.Api/App_Data` to secure backup storage after stopping the application. This contains uploaded application files.
-- Preserve API data-protection keys and private configuration with access restricted to authorized administrators. Default development key locations depend on the Windows account running the API.
-- Store backups outside the repository and verify they can be restored to a separate database.
-
-Do not replace `.env.windows.json`, delete database volumes, or overwrite uploaded files when receiving an update. Stop CREMS, take a backup, apply the supplied update, and run the launcher again. Migrations run automatically on startup; keep the backup until the update has been verified.
-
-## 10. Troubleshooting
-
-| Symptom | Action |
-| --- | --- |
-| `dotnet`, `node`, or `npm.cmd` missing | Install the prerequisite, then reopen PowerShell. |
-| `vite: command not found` | Run the launcher from the repository root so dependencies are installed. If dependencies were manually damaged, remove only `src/crems-web/node_modules/.crems-lock-hash`, then rerun the launcher. |
-| Script cannot be found | Check that the current folder contains `scripts/start-windows.ps1`. |
-| Docker cannot connect | Open Docker Desktop and wait for its Linux engine; check WSL setup. |
-| SQL Server does not become healthy | Check Docker logs. Confirm password complexity, available memory and port 1433. An existing database volume retains its original password even if settings are edited. |
-| SQL login or migration error | Confirm the instance, authentication credentials and migration permissions with IT. |
-| Port 5080 or 5173 occupied | Stop the earlier CREMS process or identify the conflicting application before starting again. |
-| Webpage says API unavailable | Check the API terminal. Open http://localhost:5080/api/health; after successful startup it should report healthy. This endpoint confirms API responsiveness, not every business workflow. |
-| Agreement or workflow endpoint missing | Stop and restart the API through the launcher after an update, then refresh the browser. |
-| Administrator sign-in fails | Use the email/password from the original setup. Editing bootstrap settings does not reset an existing account. |
-| Email code does not arrive | Confirm `-EnableEmail`, SMTP credentials, sender approval, redirect mailbox and spam folder. Review delivery errors in the API output. |
-| Session unavailable or signed out | Refresh and sign in through the web application. Opening a protected API URL directly does not reproduce the application's browser-window session headers. |
-| Asset cannot be picked up | Resolve open hire, transfer, maintenance or safety-release requirements shown by CREMS. |
-| Settings file is invalid | Correct `.env.windows.json` using a JSON-aware editor. Preserve the original privately before editing; backslashes and quotation marks need JSON escaping. |
-
-For support, provide the action attempted, the visible message and the relevant terminal error. Remove passwords, connection strings, OTP codes, private customer information and document images before sharing.
-
-## 11. What to retain and what to share
-
-Retain the repository source, private local settings, database backups and uploaded-file backups. When sharing source, use a Git checkout or source archive that excludes ignored files. Do not ZIP the entire working folder without reviewing it: ignored files can still contain credentials, customer uploads, build output and local dependencies.
-
-The supplied Windows launcher has been reviewed on macOS; execution on a Windows laptop still needs to be verified. The API and frontend compilation results do not replace that Windows installation check.
+Production hosting, security operations, backup scheduling and support arrangements should be agreed separately before using CREMS with live business or customer data.

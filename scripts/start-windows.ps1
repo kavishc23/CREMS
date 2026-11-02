@@ -1,4 +1,9 @@
-param([switch]$Setup, [switch]$EnableEmail)
+param(
+    [switch]$Setup,
+    [switch]$EnableEmail,
+    [ValidateSet('docker', 'existing')]
+    [string]$DatabaseMode
+)
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
@@ -11,6 +16,26 @@ function Read-Secret([string]$Prompt) {
     $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
     try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) }
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
+}
+function Wait-ForDocker {
+    & docker info --format '{{.OSType}}' *> $null
+    if ($LASTEXITCODE -eq 0) { return }
+
+    $desktopCandidates = @(
+        (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\Docker\Docker\Docker Desktop.exe')
+    )
+    $desktop = $desktopCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($desktop) {
+        Write-Host 'Starting Docker Desktop and waiting for its Linux engine...'
+        Start-Process $desktop
+        for ($attempt = 0; $attempt -lt 90; $attempt++) {
+            Start-Sleep -Seconds 2
+            & docker info --format '{{.OSType}}' *> $null
+            if ($LASTEXITCODE -eq 0) { return }
+        }
+    }
+    throw 'Docker Desktop is installed but its engine is not ready. Open Docker Desktop, complete any WSL 2 or first-run setup, then run CREMS again.'
 }
 
 $api = $null
@@ -27,7 +52,7 @@ try {
     if ($Setup -or -not (Test-Path $settingsFile)) {
         if (Test-Path $settingsFile) { throw 'Settings already exist. Edit .env.windows.json to change them; setup will not overwrite credentials.' }
         Write-Host 'First-time setup. Settings stay on this laptop; never share .env.windows.json.'
-        $mode = Read-Host 'Database: enter docker (Docker Desktop) or existing (installed SQL Server)'
+        $mode = if ($DatabaseMode) { $DatabaseMode } else { Read-Host 'Database: enter docker (Docker Desktop) or existing (installed SQL Server)' }
         if ($mode -notin @('docker', 'existing')) { throw 'Choose docker or existing.' }
         $settings = [ordered]@{ DatabaseMode = $mode; AdminEmail = (Read-Host 'Initial administrator email'); AdminPassword = (Read-Secret 'Initial administrator password (10+ characters, uppercase, lowercase, digit, symbol)'); AdminName = 'System Administrator' }
         if ($mode -eq 'docker') {
@@ -43,7 +68,7 @@ try {
     if ($settings.DatabaseMode -eq 'docker') {
         if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Install and open Docker Desktop, or configure an existing SQL Server.' }
         $env:CREMS_DB_PASSWORD = $settings.DatabasePassword
-        Run-Checked 'docker' @('info', '--format', '{{.OSType}}')
+        Wait-ForDocker
         Run-Checked 'docker' @('compose', 'up', '-d', 'sqlserver')
         $container = & docker compose ps -q sqlserver
         if (-not $container) { throw 'SQL Server container did not start.' }

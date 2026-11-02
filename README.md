@@ -32,7 +32,9 @@ docs/            Maintained setup, configuration, and operations guides
 Follow the detailed [Windows client run guide](docs/CLIENT_RUN_GUIDE.md) for first-time installation, everyday startup, optional SMTP, backups and troubleshooting.
 An offline [PDF copy](docs/CREMS_Client_Run_Guide.pdf) is included for client handover.
 
-Install the prerequisites in [Client handover](docs/CLIENT_HANDOVER.md), open PowerShell in this repository, and run:
+For the easiest first-time setup on Windows, double-click `INSTALL_CREMS.bat` in the repository root. It checks and installs the required .NET 10 SDK and Node.js LTS through WinGet, lets the client choose Docker or an existing SQL Server, restores dependencies, compiles the system, checks API readiness and starts CREMS.
+
+Alternatively, install the prerequisites in [Client handover](docs/CLIENT_HANDOVER.md), open PowerShell in this repository, and run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1
