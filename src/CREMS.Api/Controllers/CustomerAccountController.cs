@@ -334,7 +334,8 @@ public sealed class CustomerAccountController(
             Inspections = booking.Inspections.OrderBy(x => x.CompletedAt).Select(x => new
                 { x.Type, x.MeterReading, x.FuelLevelPercent, x.ConditionNotes, x.DamageNotes, x.CompletedAt }),
             Incidents = booking.Incidents.OrderByDescending(x => x.OccurredAt).Select(x => new
-                { x.IncidentNumber, x.Type, x.Status, x.OccurredAt, x.Description, x.Location, x.PoliceReference }),
+                { x.IncidentNumber, x.Type, x.Status, x.OccurredAt, x.Description, x.Location, x.PoliceReference,
+                    x.CustomerResolution, x.WarningIssued, x.ImmediateReturnRequested, x.FineAmount, x.BondDeductionAmount }),
             Readiness = new
             {
                 Identification = new { Complete = identificationVerified, Label = "Identification verified" },

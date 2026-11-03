@@ -18,6 +18,26 @@ namespace CREMS.Api.Tests;
 public sealed class ReturnChargesAndBondTests
 {
     [Fact]
+    public async Task Incident_termination_keeps_asset_on_hire_and_rejects_duplicate_financial_actions()
+    {
+        await using var db = CreateDb();
+        var (booking, context) = await Seed(db, BookingStatus.ConvertedToRental);
+        var incident = new RentalIncident { BookingId = booking.Id, IncidentNumber = "INC-1", Type = IncidentType.Damage, OccurredAt = DateTimeOffset.UtcNow.AddHours(-1), Description = "Rear lamp damaged during loading." };
+        db.RentalIncidents.Add(incident);
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var controller = new RentalLifecycleController(db, new CurrentStaffScope(db)) { ControllerContext = context };
+        var request = new IncidentResolutionRequest(IncidentStatus.Resolved, "Rear lamp inspection completed; return required.", "Return the vehicle safely to the branch. The damage deduction is $25.", 25, 10, true, true, true);
+        Assert.IsType<OkObjectResult>(await controller.ResolveIncident(booking.Id, incident.Id, request, TestContext.Current.CancellationToken));
+        Assert.Equal(BookingStatus.ConvertedToRental, booking.Status);
+        Assert.Equal(AssetStatus.Rented, booking.Items.Single().Asset!.Status);
+        Assert.True(incident.ImmediateReturnRequested);
+        Assert.IsType<ConflictObjectResult>(await controller.ResolveIncident(booking.Id, incident.Id, request, TestContext.Current.CancellationToken));
+        Assert.Equal(25, booking.BondDeductionAmount);
+        Assert.Equal(10, booking.AdditionalCharges);
+        Assert.Single(await db.BookingCharges.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task Monthly_property_return_preserves_agreed_rate_quantity_and_tax_exemption()
     {
         await using var db=CreateDb();

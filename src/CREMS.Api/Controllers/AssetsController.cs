@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations;
 using CREMS.Api.Data;
 using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
+using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
 using Microsoft.AspNetCore.Authorization;
@@ -40,7 +41,25 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         if (divisionId.HasValue) query = query.Where(asset => asset.DivisionId == divisionId);
         if (branchId.HasValue) query = query.Where(asset => asset.BranchId == branchId);
         if (!string.IsNullOrWhiteSpace(category)) query = query.Where(asset => asset.Category == category.Trim());
-        if (status.HasValue) query = query.Where(asset => asset.Status == status);
+        if (status.HasValue)
+        {
+            query = status.Value switch
+            {
+                AssetStatus.Available => query.Where(asset => asset.Status == AssetStatus.Available && asset.IsActive &&
+                    !db.BookingItems.Any(item => item.AssetId == asset.Id &&
+                        (item.Booking!.Status == BookingStatus.ConvertedToRental ||
+                         item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
+                    !db.MaintenanceJobs.Any(job => job.AssetId == asset.Id &&
+                        (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)) &&
+                    !db.AssetTransfers.Any(transfer => transfer.AssetId == asset.Id &&
+                        (transfer.Status == TransferStatus.Approved || transfer.Status == TransferStatus.InTransit || transfer.Status == TransferStatus.Received))),
+                AssetStatus.Rented => query.Where(asset => asset.Status == AssetStatus.Rented ||
+                    db.BookingItems.Any(item => item.AssetId == asset.Id &&
+                        (item.Booking!.Status == BookingStatus.ConvertedToRental ||
+                         item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))),
+                _ => query.Where(asset => asset.Status == status.Value)
+            };
+        }
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
@@ -63,7 +82,25 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             .Take(pageSize)
 
             .ToListAsync(cancellationToken);
-        return Ok(assets.Select(asset => ToResponse(asset, asset.Branch?.Name ?? string.Empty)).ToList());
+        var ids = assets.Select(asset => asset.Id).ToList();
+        var unreturned = (await db.BookingItems.AsNoTracking()
+            .Where(item => ids.Contains(item.AssetId) &&
+                (item.Booking!.Status == BookingStatus.ConvertedToRental ||
+                 item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))
+            .Select(item => item.AssetId).Distinct().ToListAsync(cancellationToken)).ToHashSet();
+        var maintenanceBlocked = (await db.MaintenanceJobs.AsNoTracking()
+            .Where(job => ids.Contains(job.AssetId) &&
+                (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null))
+            .Select(job => job.AssetId).Distinct().ToListAsync(cancellationToken)).ToHashSet();
+        var transferBlocked = (await db.AssetTransfers.AsNoTracking()
+            .Where(transfer => ids.Contains(transfer.AssetId) &&
+                (transfer.Status == TransferStatus.Approved || transfer.Status == TransferStatus.InTransit || transfer.Status == TransferStatus.Received))
+            .Select(transfer => transfer.AssetId).Distinct().ToListAsync(cancellationToken)).ToHashSet();
+        return Ok(assets.Select(asset =>
+        {
+            var (operationalStatus, unavailableReason) = OperationalState(asset, unreturned.Contains(asset.Id), maintenanceBlocked.Contains(asset.Id), transferBlocked.Contains(asset.Id));
+            return ToResponse(asset, asset.Branch?.Name ?? string.Empty, operationalStatus, unavailableReason);
+        }).ToList());
     }
 
     [HttpGet("summary")]
@@ -79,7 +116,9 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
                 (item.Booking!.Status == BookingStatus.ConvertedToRental ||
                  item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
             !db.MaintenanceJobs.Any(job => job.AssetId == asset.Id &&
-                (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)), cancellationToken);
+                (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)) &&
+            !db.AssetTransfers.Any(transfer => transfer.AssetId == asset.Id &&
+                (transfer.Status == TransferStatus.Approved || transfer.Status == TransferStatus.InTransit || transfer.Status == TransferStatus.Received)), cancellationToken);
         var physicallyOnHire = await query.CountAsync(asset => asset.Status == AssetStatus.Rented ||
             db.BookingItems.Any(item => item.AssetId == asset.Id &&
                 (item.Booking!.Status == BookingStatus.ConvertedToRental ||
@@ -414,13 +453,32 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         return true;
     }
 
-    private static AssetResponse ToResponse(Asset asset, string branchName) => new(
+    private static (AssetStatus Status, string? Reason) OperationalState(Asset asset, bool unreturned, bool maintenanceBlocked, bool transferBlocked)
+    {
+        if (!asset.IsActive) return (AssetStatus.OutOfService, "Asset is inactive");
+        if (maintenanceBlocked) return (AssetStatus.Maintenance, "Maintenance or safety release outstanding");
+        if (transferBlocked) return (AssetStatus.Inspection, "Transfer or receiving inspection outstanding");
+        if (unreturned) return (AssetStatus.Rented, "Outstanding rental return");
+        return (asset.Status, asset.Status switch
+        {
+            AssetStatus.Maintenance => "Under maintenance",
+            AssetStatus.Rented => "Currently on hire",
+            AssetStatus.Reserved => "Reserved for a customer",
+            AssetStatus.Inspection => "Awaiting inspection",
+            AssetStatus.OutOfService => "Out of service",
+            AssetStatus.Retired => "Retired",
+            _ => null
+        });
+    }
+
+    private static AssetResponse ToResponse(Asset asset, string branchName, AssetStatus? operationalStatus = null, string? unavailableReason = null) => new(
         asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status,
         asset.DivisionId, asset.Division?.Name,
         asset.BranchId, branchName, asset.RegistrationNumber, asset.SerialNumber,
         asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear, asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
         asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType, asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, AssetCategoryPolicy.Personnel(asset), asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride, asset.HireUnit, asset.UseServiceHireRate, PublicRentalRequestPolicy.Fulfilment(asset), asset.TurnaroundMinutes);
+        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, AssetCategoryPolicy.Personnel(asset), asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride, asset.HireUnit, asset.UseServiceHireRate, PublicRentalRequestPolicy.Fulfilment(asset), asset.TurnaroundMinutes,
+        operationalStatus ?? asset.Status, unavailableReason);
 }
 
 public sealed record SaveAssetRequest(
@@ -466,5 +524,6 @@ public sealed record AssetResponse(
     Guid BranchId, string BranchName, string? RegistrationNumber, string? SerialNumber,
     string? Category, string? Manufacturer, string? Model, int? ModelYear, string? VinOrChassisNumber, string? EngineNumber, string? MeterUnit, decimal? CurrentMeterReading,
     DateOnly? AcquisitionDate, decimal AcquisitionCost, decimal? CurrentBookValue, string? OwnershipType, string? InsurancePolicyNumber, DateOnly? InsuranceExpiry, DateOnly? WarrantyExpiry,
-    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, PersonnelRequirement PersonnelRequirement, bool RequiresDelivery, string? CurrentLocation, string PhotoUrlsJson, bool InheritBond, PersonnelRequirement? PersonnelOverride, ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, AssetFulfilmentMode FulfilmentMode = AssetFulfilmentMode.PickupOrDelivery, int TurnaroundMinutes = 60);
+    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, PersonnelRequirement PersonnelRequirement, bool RequiresDelivery, string? CurrentLocation, string PhotoUrlsJson, bool InheritBond, PersonnelRequirement? PersonnelOverride, ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, AssetFulfilmentMode FulfilmentMode = AssetFulfilmentMode.PickupOrDelivery, int TurnaroundMinutes = 60,
+    AssetStatus OperationalStatus = AssetStatus.Available, string? UnavailableReason = null);
 public sealed record SaveAssetCostRequest(Guid? BookingId, AssetCostCategory Category, [Required, MaxLength(300)] string Description, [Range(0.01, 100000000)] decimal Amount, DateOnly OccurredOn, string? Supplier, string? ReferenceNumber);

@@ -112,11 +112,15 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
         var booking = access.Booking!;
         var incident = await db.RentalIncidents.FirstOrDefaultAsync(x => x.Id == incidentId && x.BookingId == bookingId, cancellationToken);
         if (incident is null) return NotFound();
+        if (incident.Status is IncidentStatus.Resolved or IncidentStatus.Closed || incident.BondDeductionAmount > 0 || incident.FineAmount > 0)
+            return Conflict(new { message = "This incident has already been resolved. Its financial actions cannot be applied again." });
         if (request.BondDeductionAmount > 0 && request.BondDeductionAmount > Math.Max(0, booking.BondAmountHeld - booking.BondDeductionAmount))
             return Validation("bondDeductionAmount", "The bond deduction cannot exceed the remaining held bond.");
         if (request.FineAmount < 0) return Validation("fineAmount", "Fine amount cannot be negative.");
         if (string.IsNullOrWhiteSpace(request.StaffResolution) || request.StaffResolution.Trim().Length < 10)
             return Validation("staffResolution", "Enter a complete internal resolution note of at least 10 characters.");
+        if ((request.WarningIssued || request.ImmediateReturnRequested || request.CancelRental || request.FineAmount > 0 || request.BondDeductionAmount > 0) && string.IsNullOrWhiteSpace(request.CustomerResolution))
+            return Validation("customerResolution", "Explain the warning, return instruction or financial action to the customer.");
 
         incident.Status = request.Status;
         incident.StaffResolution = request.StaffResolution.Trim();
@@ -132,7 +136,7 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
         if (request.BondDeductionAmount > 0)
         {
             booking.BondDeductionAmount += request.BondDeductionAmount;
-            booking.BondDeductionReason = string.Join("\n", new[] { booking.BondDeductionReason, $"Incident {incident.IncidentNumber}: {request.StaffResolution.Trim()}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            booking.BondDeductionReason = string.Join("\n", new[] { booking.BondDeductionReason, $"Incident {incident.IncidentNumber}: {incident.CustomerResolution}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
             booking.BondStatus = BondStatus.Retained;
         }
         if (request.FineAmount > 0)
@@ -144,14 +148,15 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
         if (request.CancelRental)
         {
             if (booking.Status != BookingStatus.ConvertedToRental) return Validation("cancelRental", "Only an active converted rental can be cancelled.");
-            booking.Status = BookingStatus.Cancelled;
-            if (booking.RentalAgreement is not null) booking.RentalAgreement.Status = AgreementStatus.Cancelled;
+            // An asset already handed over must remain on hire until the return
+            // workflow records custody, inspection and financial settlement.
+            incident.ImmediateReturnRequested = true;
             foreach (var item in booking.Items)
             {
                 var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == item.AssetId, cancellationToken);
-                if (asset is not null) asset.Status = AssetStatus.Available;
+                if (asset is not null) asset.Status = AssetStatus.Rented;
             }
-            booking.Notes = string.Join("\n", new[] { booking.Notes, $"Active rental cancelled after incident {incident.IncidentNumber}: {request.StaffResolution.Trim()}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            booking.Notes = string.Join("\n", new[] { booking.Notes, $"Early termination requested after incident {incident.IncidentNumber}; immediate return and settlement required." }.Where(x => !string.IsNullOrWhiteSpace(x)));
         }
 
         var customerCase = await db.CustomerCases.FirstOrDefaultAsync(x => x.CustomerId == booking.CustomerId && x.Subject.Contains(incident.IncidentNumber), cancellationToken)

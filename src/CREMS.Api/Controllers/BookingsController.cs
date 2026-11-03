@@ -302,8 +302,10 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset)
             .FirstOrDefaultAsync(x => x.Id == bookingId, token);
         if (booking is null) return NotFound();
-        var customerCase = await db.CustomerCases.FirstOrDefaultAsync(x => x.Id == caseId && x.CustomerId == booking.CustomerId, token);
+        var customerCase = await db.CustomerCases.FirstOrDefaultAsync(x => x.Id == caseId && x.CustomerId == booking.CustomerId && x.Subject.Contains(booking.BookingNumber), token);
         if (customerCase is null) return NotFound();
+        if (customerCase.Subject.Contains("incident", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "Record findings and actions in Rental incidents. Incident reports are not approval requests." });
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (customerCase.Status is CaseStatus.Resolved or CaseStatus.Closed) return BadRequest(new { message = "This customer request has already been decided." });

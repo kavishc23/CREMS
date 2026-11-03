@@ -241,6 +241,9 @@ public sealed class CustomerJourneyRegressionTests
         f.Asset.Status = AssetStatus.Reserved;
         var booking = f.Booking(f.Customer.Id);
         booking.Status = BookingStatus.Confirmed;
+        var reservedDay = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30));
+        booking.Items.Single().StartAt = RentalAvailability.FijiTime(reservedDay, new TimeOnly(9, 0));
+        booking.Items.Single().EndAt = RentalAvailability.FijiTime(reservedDay.AddDays(2), new TimeOnly(9, 0));
         f.Db.Add(booking);
         await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
