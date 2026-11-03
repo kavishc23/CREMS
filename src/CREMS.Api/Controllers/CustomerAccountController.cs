@@ -758,7 +758,7 @@ public sealed class CustomerAccountController(
         if (booking is null) return NotFound();
         if (booking.Status != BookingStatus.ConvertedToRental) return BadRequest(new { message = "Incidents can only be reported for an active hire." });
         var incident = new RentalIncident { BookingId = booking.Id, IncidentNumber = Number("INC"), Type = request.Type, OccurredAt = request.OccurredAt, Description = request.Description.Trim(), Location = Clean(request.Location), PoliceReference = Clean(request.PoliceReference), EvidenceJson = "[]" };
-        db.RentalIncidents.Add(incident); db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Breakdown, Priority = CasePriority.Critical, Subject = $"Customer incident — {booking.BookingNumber}", Description = request.Description.Trim(), DueAt = DateTimeOffset.UtcNow.AddMinutes(30) });
+        db.RentalIncidents.Add(incident); db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Breakdown, Priority = CasePriority.Critical, Subject = $"Customer incident — {incident.IncidentNumber} — {booking.BookingNumber}", Description = request.Description.Trim(), DueAt = DateTimeOffset.UtcNow.AddMinutes(30) });
         await db.SaveChangesAsync(token); return Accepted(new { incident.IncidentNumber });
     }
 

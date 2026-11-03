@@ -57,6 +57,15 @@ public sealed class RentalIncident : Entity
     public decimal EstimatedCost { get; set; }
     public IncidentStatus Status { get; set; } = IncidentStatus.Open;
     public string? EvidenceJson { get; set; }
+    public string? StaffResolution { get; set; }
+    public string? CustomerResolution { get; set; }
+    public decimal BondDeductionAmount { get; set; }
+    public decimal FineAmount { get; set; }
+    public bool WarningIssued { get; set; }
+    public bool ImmediateReturnRequested { get; set; }
+    public Guid? ReviewedByUserId { get; set; }
+    public string? ReviewedByName { get; set; }
+    public DateTimeOffset? ReviewedAt { get; set; }
 }
 
 public sealed class RentalInvoice : Entity
