@@ -50,6 +50,11 @@ public sealed class AccountRecoveryController(ApplicationDbContext db, UserManag
         if (challenge is null || challenge.ExpiresAt < DateTimeOffset.UtcNow || challenge.FailedAttempts >= 5) return Invalid();
         var salt = Convert.FromBase64String(challenge.Salt); var supplied = Convert.FromHexString(Hash(request.Code.Trim(), salt)); var stored = Convert.FromHexString(challenge.CodeHash);
         if (!CryptographicOperations.FixedTimeEquals(supplied, stored)) { challenge.FailedAttempts++; await db.SaveChangesAsync(token); return Invalid(); }
+        if (await userManager.CheckPasswordAsync(user, request.NewPassword))
+        {
+            ModelState.AddModelError(nameof(request.NewPassword), "Your new password must be different from your current password.");
+            return ValidationProblem(ModelState);
+        }
         var resetToken = await userManager.GeneratePasswordResetTokenAsync(user); var result = await userManager.ResetPasswordAsync(user, resetToken, request.NewPassword);
         if (!result.Succeeded) { foreach (var error in result.Errors) ModelState.AddModelError(nameof(request.NewPassword), error.Description); return ValidationProblem(ModelState); }
         challenge.UsedAt = DateTimeOffset.UtcNow; user.MustChangePassword = false; user.PasswordChangedAt = DateTimeOffset.UtcNow; await userManager.UpdateSecurityStampAsync(user); await db.SaveChangesAsync(token);

@@ -56,8 +56,8 @@ public sealed class SessionController(
     [EnableRateLimiting("login")]
     public async Task<IActionResult> VerifyMfa(MfaVerifyRequest request)
     {
-        var challenge = await db.MfaChallenges.Include(x => x.User).FirstOrDefaultAsync(x => x.Id == request.ChallengeId);
-        if (challenge?.User is null || challenge.UsedAt != null || challenge.ExpiresAt <= DateTimeOffset.UtcNow || challenge.FailedAttempts >= 5) return Unauthorized();
+        var challenge = await db.MfaChallenges.Include(x => x.User).FirstOrDefaultAsync(x => x.Id == request.ChallengeId && x.Purpose == "Login");
+        if (challenge?.User is null || !challenge.User.IsActive || challenge.User.AccountStatus is AccountLifecycleStatus.Suspended or AccountLifecycleStatus.Deactivated || challenge.User.LockoutEnd > DateTimeOffset.UtcNow || challenge.UsedAt != null || challenge.ExpiresAt <= DateTimeOffset.UtcNow || challenge.FailedAttempts >= 5) return Unauthorized();
         if (!CryptographicOperations.FixedTimeEquals(Convert.FromHexString(challenge.CodeHash), Convert.FromHexString(Hash(request.Code.Trim(), Convert.FromBase64String(challenge.Salt)))))
         { challenge.FailedAttempts++; await Record(challenge.UserId, challenge.User.Email, SecurityEventType.MfaFailed, false, "Invalid MFA code", false); await db.SaveChangesAsync(); return Unauthorized(); }
         challenge.UsedAt = DateTimeOffset.UtcNow; await Record(challenge.UserId, challenge.User.Email, SecurityEventType.MfaSucceeded, true, "Login MFA passed", false); await db.SaveChangesAsync(); await CompleteSignIn(challenge.User); return NoContent();
@@ -68,8 +68,8 @@ public sealed class SessionController(
     [EnableRateLimiting("login")]
     public async Task<IActionResult> ResendMfa(Guid challengeId)
     {
-        var previous=await db.MfaChallenges.Include(x=>x.User).FirstOrDefaultAsync(x=>x.Id==challengeId);
-        if(previous?.User is null||previous.UsedAt.HasValue)return Accepted(new{message="If the challenge is valid, a new code has been sent."});
+        var previous=await db.MfaChallenges.Include(x=>x.User).FirstOrDefaultAsync(x=>x.Id==challengeId&&x.Purpose=="Login");
+        if(previous?.User is null||!previous.User.IsActive||previous.User.AccountStatus is AccountLifecycleStatus.Suspended or AccountLifecycleStatus.Deactivated||previous.ExpiresAt<=DateTimeOffset.UtcNow||previous.FailedAttempts>=5||previous.UsedAt.HasValue)return Accepted(new{message="If the challenge is valid, a new code has been sent."});
         if(previous.CreatedAt>DateTimeOffset.UtcNow.AddSeconds(-30))return StatusCode(StatusCodes.Status429TooManyRequests,new{message="Wait 30 seconds before requesting another code."});
         previous.UsedAt=DateTimeOffset.UtcNow;
         var challenge=await IssueMfa(previous.User);
@@ -97,6 +97,11 @@ public sealed class SessionController(
             user.LastLoginIp = HttpContext.Connection.RemoteIpAddress?.ToString();
             await userManager.UpdateAsync(user);
         }
+        var roleNames = roles.ToArray();
+        var grantedPermissions = await db.RolePermissions.AsNoTracking().Where(grant => roleNames.Contains(grant.RoleName)).Select(grant => grant.Permission).ToListAsync();
+        var overrides = await db.UserPermissionOverrides.AsNoTracking().Where(grant => grant.UserId == user.Id && (grant.ExpiresAt == null || grant.ExpiresAt > now)).ToListAsync();
+        var effectivePermissions = grantedPermissions.Where(permission => !overrides.Any(item => item.Permission == permission && !item.IsGranted))
+            .Concat(overrides.Where(item => item.IsGranted).Select(item => item.Permission)).Distinct().ToArray();
         return Ok(new SessionResponse(
             user.Id,
             user.Email ?? string.Empty,
@@ -106,7 +111,8 @@ public sealed class SessionController(
             branchName,
             divisionName,
             roles.ToArray(),
-            user.MustChangePassword));
+            user.MustChangePassword,
+            new[] { "dashboard" }.Concat(StaffRoleAccess.Modules.Where(module => grantedPermissions.Contains(StaffRoleAccess.Grant(module.Key))).SelectMany(module => module.Pages)).Distinct().ToArray(), effectivePermissions));
     }
 
     [HttpPost("change-password/request")]
@@ -218,7 +224,7 @@ public sealed class SessionController(
     }
     private async Task<MfaChallenge> IssueMfa(ApplicationUser user)
     {
-        var active=await db.MfaChallenges.Where(x=>x.UserId==user.Id&&x.UsedAt==null).ToListAsync();foreach(var old in active)old.UsedAt=DateTimeOffset.UtcNow;
+        var active=await db.MfaChallenges.Where(x=>x.UserId==user.Id&&x.Purpose=="Login"&&x.UsedAt==null).ToListAsync();foreach(var old in active)old.UsedAt=DateTimeOffset.UtcNow;
         var code=RandomNumberGenerator.GetInt32(0,1_000_000).ToString("D6",CultureInfo.InvariantCulture);var salt=RandomNumberGenerator.GetBytes(16);
         var challenge=new MfaChallenge{UserId=user.Id,CodeHash=Hash(code,salt),Salt=Convert.ToBase64String(salt),ExpiresAt=DateTimeOffset.UtcNow.AddMinutes(10)};
         db.MfaChallenges.Add(challenge);emailQueue.Queue(db,user.Email!,"Your CREMS verification code",EmailTemplate.Branded("Verify your CREMS sign-in",$"<p>Your verification code is:</p><p style=\"font-size:32px;font-weight:bold;letter-spacing:8px\">{code}</p><p>It expires in 10 minutes. If you did not attempt to sign in, contact your administrator.</p>"),$"Your CREMS verification code is {code}. It expires in 10 minutes.","Mfa");
@@ -252,7 +258,9 @@ public sealed record SessionResponse(
     string? BranchName,
     string? DivisionName,
     IReadOnlyCollection<string> Roles,
-    bool MustChangePassword);
+    bool MustChangePassword,
+    IReadOnlyCollection<string>? Pages = null,
+    IReadOnlyCollection<string>? Permissions = null);
 public sealed record ChangeOwnPasswordRequest(
     [Required] string CurrentPassword,
     [Required, MinLength(10)] string NewPassword);

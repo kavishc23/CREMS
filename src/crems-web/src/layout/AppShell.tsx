@@ -67,10 +67,10 @@ const navigation = [
   { label: 'Operations centre', id: 'operations', icon: <CorporateFareOutlined />, section: 'Management' },
   { label: 'Finance', id: 'finance', icon: <AccountBalanceWalletOutlined />, section: 'Management' },
   { label: 'Reports & performance', id: 'reports', icon: <AssessmentOutlined />, section: 'Management' },
-  { label: 'Staff & access', id: 'users', icon: <ManageAccountsOutlined />, section: 'Administration' },
-  { label: 'Customer accounts', id: 'customerAccounts', icon: <PeopleAltOutlined />, section: 'Administration' },
+  { label: 'Staff & Access', id: 'users', icon: <ManageAccountsOutlined />, section: 'Administration' },
+  { label: 'Customer Accounts', id: 'customerAccounts', icon: <PeopleAltOutlined />, section: 'Administration' },
   { label: 'Organization & settings', id: 'divisions', icon: <AccountTreeOutlined />, section: 'Administration' },
-  { label: 'System health & audit', id: 'systemHealth', icon: <MonitorHeartOutlined />, section: 'Administration' },
+  { label: 'System Health & Audit', id: 'systemHealth', icon: <MonitorHeartOutlined />, section: 'Administration' },
 ] satisfies { label: string; id: AppPage; icon: ReactNode; section?: string }[]
 const sections = ['Rental operations', 'Asset operations', 'Management', 'Administration']
 const sectionIcons: Record<string, ReactNode> = {
@@ -101,13 +101,14 @@ type AppShellProps = {
   userKey: string
   userName: string
   userRoles: string[]
+  userPages?: string[]
   divisionName: string | null
   branchName: string | null
   onLogout: () => Promise<void>
   children: ReactNode
 }
 
-export function AppShell({ activePage, onNavigate, userKey, userName, userRoles, divisionName, branchName, onLogout, children }: AppShellProps) {
+export function AppShell({ activePage, onNavigate, userKey, userName, userRoles, userPages, divisionName, branchName, onLogout, children }: AppShellProps) {
   const theme = useTheme()
   const desktop = useMediaQuery(theme.breakpoints.up('md'))
   const [open, setOpen] = useState(false)
@@ -130,6 +131,8 @@ export function AppShell({ activePage, onNavigate, userKey, userName, userRoles,
 
   useEffect(() => {
     if (!activeSection) return
+    // Synchronize the expanded navigation group with the active route.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setExpandedSections((current) => ({ ...current, [activeSection]: true }))
   }, [activeSection])
 
@@ -159,7 +162,7 @@ export function AppShell({ activePage, onNavigate, userKey, userName, userRoles,
       <List ref={navigationListRef} component="nav" aria-label="Staff workspaces" sx={{ px: { xs: 1.5, md: 1.25 }, pt: 1, pb: 2, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', '&::-webkit-scrollbar': { width: 5 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#716a52', borderRadius: 8 }, '&::-webkit-scrollbar-track': { bgcolor: 'transparent' } }}>
         {(!collapsed || !desktop) && <Box sx={{ mx: .75, mb: 1.25, p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.08)' }}><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: .8 }}>Working in</Typography><Typography variant="body2" fontWeight={750} noWrap>{divisionName || 'Carpenters Fiji Group'}</Typography><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.62)' }}>{branchName || 'All branches'}</Typography></Box>}
         {sections.map((section) => {
-          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id))
+          const items = navigation.filter((item) => item.section === section && canAccessPage(userRoles, item.id, userPages))
           if (!items.length) return null
           const visibleItems = section === 'Rental operations' ? items.filter((item) => item.id !== 'dashboard') : items
           const dashboard = section === 'Rental operations' ? items.find((item) => item.id === 'dashboard') : undefined
@@ -268,7 +271,7 @@ export function AppShell({ activePage, onNavigate, userKey, userName, userRoles,
           )}
           <Box><Typography variant="overline" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' }, lineHeight: 1.1 }}>{navigation.find(item=>item.id===activePage)?.section ?? 'Staff workspace'}</Typography><Typography variant="subtitle1" fontWeight={800} lineHeight={1.25}>{currentPageLabel}</Typography></Box>
           <Box sx={{ flexGrow: 1 }} />
-          <Suspense fallback={null}><NotificationBell key={userName} canSend={canAccessPage(userRoles, 'bookings')} /></Suspense>
+          <Suspense fallback={null}><NotificationBell key={userName} canSend={canAccessPage(userRoles, 'bookings', userPages)} /></Suspense>
           <Button size="small" color="inherit" startIcon={<HelpOutlineOutlined />} onClick={() => setHelpOpen(true)} sx={{ mr: 1, display: { xs: 'none', sm: 'inline-flex' } }}>Help</Button>
           <Tooltip title="Account settings"><IconButton aria-label="Open account settings" onClick={event => setAccountAnchor(event.currentTarget)} sx={{ display: { xs: 'inline-flex', sm: 'none' } }}><AccountCircleOutlined /></IconButton></Tooltip>
           <Button color="inherit" onClick={event => setAccountAnchor(event.currentTarget)} aria-haspopup="menu" aria-expanded={Boolean(accountAnchor)} sx={{ display: { xs: 'none', sm: 'inline-flex' }, gap: 1.5, px: 1.25, py: .5, borderRadius: 2, '&:hover': { bgcolor: 'action.hover' } }}>

@@ -38,9 +38,10 @@ public sealed class CustomerAccountController(
         if (await db.Customers.AnyAsync(x => x.Email == email, token))
             return Conflict(new { message = "A customer record already uses this email. Contact Carpenters to verify and activate online access." });
 
+        await using var transaction = await db.Database.BeginTransactionAsync(token);
         var customer = new Customer
         {
-            CustomerNumber = await NextCustomerNumber(token),
+            CustomerNumber = await RecordNumbers.NextAsync(db, "Customer", token),
             Type = CustomerType.Individual,
             Name = request.FullName.Trim(),
             Email = email,
@@ -55,7 +56,6 @@ public sealed class CustomerAccountController(
             UserName = email, Email = email, FullName = request.FullName.Trim(), Customer = customer,
             IsActive = true, EmailConfirmed = false,
         };
-        await using var transaction = await db.Database.BeginTransactionAsync(token);
         var result = await userManager.CreateAsync(user, request.Password);
         if (!result.Succeeded)
         {
@@ -74,19 +74,66 @@ public sealed class CustomerAccountController(
     [HttpPost("activate")]
     public async Task<ActionResult> Activate(ActivateCustomerAccountRequest request, CancellationToken token)
     {
-        var normalized = userManager.NormalizeEmail(request.Email.Trim());
+        var email = request.Email.Trim().ToLowerInvariant();
+        var normalized = userManager.NormalizeEmail(email);
         var user = await userManager.Users.FirstOrDefaultAsync(x => x.NormalizedEmail == normalized && x.CustomerId != null, token);
-        if (user is null || !user.IsActive || await userManager.HasPasswordAsync(user)) return InvalidActivation();
+        if (user is null)
+        {
+            // Older pending accounts may still contain the customer's previous email. Staff invitations are
+            // sent to the email on the customer record, so resolve that record before rejecting a valid code.
+            var customerId = await db.Customers.AsNoTracking()
+                .Where(x => x.Email != null && x.Email.ToLower() == email)
+                .Select(x => (Guid?)x.Id)
+                .FirstOrDefaultAsync(token);
+            if (customerId.HasValue)
+                user = await userManager.Users.FirstOrDefaultAsync(x => x.CustomerId == customerId, token);
+        }
+        if (user is null || !user.IsActive || user.EmailConfirmed) return InvalidActivation();
         var activation = await db.CustomerAccountActivations.Where(x => x.UserId == user.Id && x.UsedAt == null)
             .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
         if (activation is null || activation.ExpiresAt < DateTimeOffset.UtcNow || activation.FailedAttempts >= 5) return InvalidActivation();
         var salt = Convert.FromBase64String(activation.Salt);
         if (!CryptographicOperations.FixedTimeEquals(Convert.FromHexString(Hash(request.Code.Trim(), salt)), Convert.FromHexString(activation.CodeHash)))
         { activation.FailedAttempts++; await db.SaveChangesAsync(token); return InvalidActivation(); }
-        var password = await userManager.AddPasswordAsync(user, request.Password);
+
+        // A customer can have a password from an interrupted self-registration while still awaiting staff
+        // activation. A verified staff-issued code is allowed to establish the password chosen on this form.
+        var emailOwner = await userManager.FindByEmailAsync(email);
+        if (emailOwner is not null && emailOwner.Id != user.Id) return InvalidActivation();
+        if (!string.Equals(user.Email, email, StringComparison.OrdinalIgnoreCase))
+        {
+            var emailResult = await userManager.SetEmailAsync(user, email);
+            if (!emailResult.Succeeded) return IdentityValidation(nameof(request.Email), emailResult);
+        }
+        if (!string.Equals(user.UserName, email, StringComparison.OrdinalIgnoreCase))
+        {
+            var userNameResult = await userManager.SetUserNameAsync(user, email);
+            if (!userNameResult.Succeeded) return IdentityValidation(nameof(request.Email), userNameResult);
+        }
+
+        IdentityResult password;
+        if (await userManager.HasPasswordAsync(user))
+        {
+            var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
+            password = await userManager.ResetPasswordAsync(user, resetToken, request.Password);
+        }
+        else password = await userManager.AddPasswordAsync(user, request.Password);
         if (!password.Succeeded) { foreach (var error in password.Errors) ModelState.AddModelError(nameof(request.Password), error.Description); return ValidationProblem(ModelState); }
-        activation.UsedAt = DateTimeOffset.UtcNow; user.EmailConfirmed = true; await userManager.UpdateAsync(user); await db.SaveChangesAsync(token);
+        activation.UsedAt = DateTimeOffset.UtcNow;
+        user.EmailConfirmed = true;
+        user.AccountStatus = AccountLifecycleStatus.Active;
+        user.AccessFailedCount = 0;
+        user.LockoutEnd = null;
+        var update = await userManager.UpdateAsync(user);
+        if (!update.Succeeded) return IdentityValidation(string.Empty, update);
+        await db.SaveChangesAsync(token);
         await SignInCustomer(user); return NoContent();
+    }
+
+    private ActionResult IdentityValidation(string key, IdentityResult result)
+    {
+        foreach (var error in result.Errors) ModelState.AddModelError(key, error.Description);
+        return ValidationProblem(ModelState);
     }
 
     [HttpGet("session")]
@@ -232,11 +279,11 @@ public sealed class CustomerAccountController(
         var baseSubtotal = booking.Items.Sum(item =>
             HirePricing.Amount(item));
         var visibleCharges = booking.Charges.Select(x => new { x.Description, x.Category, x.Unit,
-            x.Quantity, x.UnitRate, Amount = x.Quantity * x.UnitRate, x.IsTaxable }).ToList();
-        var chargeTotal = visibleCharges.Sum(x => x.Amount);
+            x.Quantity, x.UnitRate, Amount = RentalFinancials.Money(x.Quantity * x.UnitRate), x.IsTaxable }).ToList();
+        var chargeTotal = visibleCharges.Sum(x => x.Amount) + RentalFinancials.Unitemised(booking);
         var subtotal = Math.Max(0, baseSubtotal - booking.DiscountAmount + chargeTotal);
         var taxable = Math.Max(0, booking.Items.Where(x=>x.HireIsTaxable).Sum(HirePricing.Amount) - booking.DiscountAmount + visibleCharges.Where(x => x.IsTaxable).Sum(x => x.Amount));
-        var tax = decimal.Round(taxable * booking.TaxRate / 100m, 2);
+        var tax = HirePricing.Tax(booking);
 
         return Ok(new
         {
@@ -268,10 +315,11 @@ public sealed class CustomerAccountController(
             Invoice = booking.Invoice is null ? null : new
             {
                 booking.Invoice.InvoiceNumber, booking.Invoice.Status, booking.Invoice.IssuedAt,
-                booking.Invoice.Subtotal, booking.Invoice.TaxAmount, booking.Invoice.Total,
+                booking.Invoice.Subtotal, booking.Invoice.TaxAmount, booking.Invoice.TaxInclusive, booking.Invoice.Total,
+                Adjustment = RentalFinancials.Money(booking.Invoice.Total - (booking.Invoice.TaxInclusive ? booking.Invoice.Subtotal : booking.Invoice.Subtotal + booking.Invoice.TaxAmount)),
                 booking.Invoice.AmountPaid, booking.Invoice.BalanceDue,
-                Lines = booking.Invoice.Lines.OrderBy(x => x.CreatedAt).Select(x => new
-                    { x.Description, x.Quantity, x.UnitPrice, x.TaxRate, x.IsTaxable })
+                Lines = InvoiceDocumentLines.Read(booking.Invoice).Select(x => new
+                    { x.Description, x.Quantity, UnitPrice = x.Rate, x.Amount, x.Unit, x.IsTaxable })
             },
             Payments = booking.Payments.OrderByDescending(x => x.CreatedAt).Select(x => new
                 { x.ReceiptNumber, x.Type, x.Method, x.Amount, x.Status, x.CreatedAt }),
@@ -594,7 +642,7 @@ public sealed class CustomerAccountController(
             return BadRequest(new { message = "Choose a valid future pickup and return date." });
         var assetIds = booking.Items.Select(x => x.AssetId).ToList();
         var conflict = await db.BookingItems.AsNoTracking().AnyAsync(x => x.BookingId != booking.Id &&
-            assetIds.Contains(x.AssetId) && x.StartAt < request.EndAt && x.EndAt > request.StartAt &&
+            assetIds.Contains(x.AssetId) && x.StartAt < request.EndAt.AddMinutes(x.Asset!.TurnaroundMinutes) && x.EndAt > request.StartAt.AddMinutes(-x.Asset.TurnaroundMinutes) &&
             (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
         if (conflict) return Conflict(new { message = "The rental is unavailable for those dates. Contact the branch for an alternative." });
         if (booking.Status == BookingStatus.Confirmed)
@@ -683,7 +731,7 @@ public sealed class CustomerAccountController(
         var currentEnd = booking.Items.Max(x => x.EndAt);
         if (request.RequestedEndAt <= currentEnd || request.RequestedEndAt > currentEnd.AddMonths(6)) return BadRequest(new { message = "Choose a later return date within six months of the current return date." });
         var assetIds = booking.Items.Select(x => x.AssetId).ToList();
-        var conflict = await db.BookingItems.AnyAsync(x => x.BookingId != booking.Id && assetIds.Contains(x.AssetId) && x.StartAt < request.RequestedEndAt && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
+        var conflict = await db.BookingItems.AnyAsync(x => x.BookingId != booking.Id && assetIds.Contains(x.AssetId) && x.StartAt < request.RequestedEndAt.AddMinutes(x.Asset!.TurnaroundMinutes) && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
         if (conflict) return Conflict(new { message = "The asset has another booking after your return date. Contact the branch for alternatives." });
         var subject = $"Extension request — {booking.BookingNumber}";
         if (await db.CustomerCases.AnyAsync(x => x.CustomerId == user.CustomerId && x.Subject == subject && x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed, token))
@@ -805,16 +853,6 @@ public sealed class CustomerAccountController(
     }
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    private async Task<string> NextCustomerNumber(CancellationToken token)
-    {
-        var numbers = await db.Customers.AsNoTracking().Select(customer => customer.CustomerNumber).ToListAsync(token);
-        var next = numbers.Select(number => number.StartsWith("CUS-", StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(number[4..], out var value) ? value : 0).DefaultIfEmpty().Max() + 1;
-        string candidate;
-        do candidate = $"CUS-{next++:D6}";
-        while (numbers.Contains(candidate, StringComparer.OrdinalIgnoreCase));
-        return candidate;
-    }
     private static bool HasValidSignature(string extension, byte[] bytes) => extension switch
     {
         ".pdf" => bytes.Length >= 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46,

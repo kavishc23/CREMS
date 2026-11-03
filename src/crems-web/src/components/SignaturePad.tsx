@@ -13,7 +13,7 @@ export function SignaturePad({ value, onChange }: { value: string; onChange: (va
     const context = canvas.getContext('2d'); if (!context) return
     context.scale(ratio, ratio); context.lineWidth = 2.2; context.lineCap = 'round'; context.strokeStyle = '#111'
     if (value) { const image = new Image(); image.onload = () => context.drawImage(image, 0, 0, width, height); image.src = value }
-  }, [])
+  }, [value])
 
   const point = (event: PointerEvent<HTMLCanvasElement>) => { const rect = event.currentTarget.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top } }
   const start = (event: PointerEvent<HTMLCanvasElement>) => { drawing.current = true; hasStroke.current = false; event.currentTarget.setPointerCapture(event.pointerId); const context = event.currentTarget.getContext('2d'); const p = point(event); context?.beginPath(); context?.moveTo(p.x, p.y) }

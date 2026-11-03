@@ -110,13 +110,13 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
     public async Task<ActionResult> Targets(CancellationToken token)
     {
         var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid();
-        var staff = db.Users.AsNoTracking().Where(x => x.IsActive && db.UserRoles.Any(r => r.UserId == x.Id && db.Roles.Any(role => role.Id == r.RoleId && SystemRoles.Staff.Contains(role.Name!))));
+        var staff = db.Users.AsNoTracking().Where(x => x.IsActive && db.UserRoles.Any(r => r.UserId == x.Id && db.Roles.Any(role => role.Id == r.RoleId && (SystemRoles.Staff.Contains(role.Name!) || db.RolePermissions.Any(grant => grant.RoleName == role.Name && grant.Permission.StartsWith("staff.module."))))));
         if (!scope.IsAdministrator) staff = staff.Where(x => x.BranchId.HasValue && scope.BranchIds.Contains(x.BranchId.Value) && x.DivisionId.HasValue && scope.DivisionIds.Contains(x.DivisionId.Value));
         return Ok(new {
             staff = await staff.OrderBy(x => x.FullName).Select(x => new { x.Id, x.FullName, x.BranchId, x.DivisionId }).ToListAsync(token),
             branches = await db.Branches.Where(x => x.IsActive && (scope.IsAdministrator || scope.BranchIds.Contains(x.Id))).Select(x => new { x.Id, x.Name }).ToListAsync(token),
             divisions = await db.Divisions.Where(x => x.IsActive && (scope.IsAdministrator || scope.DivisionIds.Contains(x.Id))).Select(x => new { x.Id, x.Name }).ToListAsync(token),
-            roles = scope.IsAdministrator ? SystemRoles.Staff : SystemRoles.BranchScoped, scope.IsAdministrator,
+            roles = (await StaffRoleAccess.RoleNamesAsync(db, token)).Where(role => scope.IsAdministrator || !SystemRoles.GroupWide.Contains(role)).ToArray(), scope.IsAdministrator,
             emailEnabled = emailOptions?.Value.Enabled == true,
         });
     }
@@ -125,9 +125,10 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
     public async Task<ActionResult> SendStaff(SendStaffNotification request, CancellationToken token)
     {
         var scope = await staffScope.GetAsync(User); if (scope is null) return Forbid();
+        var staffRoles = await StaffRoleAccess.RoleNamesAsync(db, token);
         if (request.RequestId == Guid.Empty || string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Message) ||
             request.Severity is not ("Info" or "Warning" or "Urgent") || request.ExpiresAt <= DateTimeOffset.UtcNow ||
-            request.RequiredRole != null && !SystemRoles.Staff.Contains(request.RequiredRole))
+            request.RequiredRole != null && !staffRoles.Contains(request.RequiredRole))
             return BadRequest(new { message = "Enter a title, message, valid priority and future expiry." });
         var recipientIds = (request.RecipientUserIds ?? []).Concat(request.RecipientUserId.HasValue ? [request.RecipientUserId.Value] : Array.Empty<Guid>()).Distinct().ToArray();
         if (recipientIds.Length > 0 && (request.RequiredRole != null || request.BranchId.HasValue || request.DivisionId.HasValue) && request.RecipientUserIds is { Length: > 0 })
@@ -135,7 +136,7 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
         if (recipientIds.Length == 0 && !request.BranchId.HasValue && !request.DivisionId.HasValue && request.RequiredRole == null)
             return BadRequest(new { message = "Choose a staff member, role, branch or division." });
         Guid? branch = request.BranchId, division = request.DivisionId;
-        var recipients = await db.Users.Where(x => recipientIds.Contains(x.Id) && x.IsActive && db.UserRoles.Any(r => r.UserId == x.Id && db.Roles.Any(role => role.Id == r.RoleId && SystemRoles.Staff.Contains(role.Name!)))).ToListAsync(token);
+        var recipients = await db.Users.Where(x => recipientIds.Contains(x.Id) && x.IsActive && db.UserRoles.Any(r => r.UserId == x.Id && db.Roles.Any(role => role.Id == r.RoleId && (SystemRoles.Staff.Contains(role.Name!) || db.RolePermissions.Any(grant => grant.RoleName == role.Name && grant.Permission.StartsWith("staff.module.")))))).ToListAsync(token);
         if (recipients.Count != recipientIds.Length) return BadRequest(new { message = "One or more selected staff members are unavailable." });
         if (!scope.IsAdministrator && recipients.Any(x => !x.BranchId.HasValue || !scope.HasAssetAccess(x.BranchId.Value, x.DivisionId))) return Forbid();
         if (recipientIds.Length == 0 && !scope.IsAdministrator && (!branch.HasValue || !scope.HasAssetAccess(branch.Value, division))) return Forbid();
@@ -184,7 +185,7 @@ public sealed class NotificationsController(ApplicationDbContext db, UserManager
         var ids = await customers.Select(c => c.Id).ToListAsync(token);
         if (!request.AllCustomers && ids.Count != selectedIds.Length) return BadRequest(new { message = "One or more selected customers are no longer accessible. Review your selection and try again." });
         if (ids.Count == 0 && staffIds.Length == 0) return NotFound(new { message = "No accessible customers match this selection." });
-        var recipients = await db.Users.Where(x => staffIds.Contains(x.Id) && x.IsActive && db.UserRoles.Any(r => r.UserId == x.Id && db.Roles.Any(role => role.Id == r.RoleId && SystemRoles.Staff.Contains(role.Name!)))).ToListAsync(token);
+        var recipients = await db.Users.Where(x => staffIds.Contains(x.Id) && x.IsActive && db.UserRoles.Any(r => r.UserId == x.Id && db.Roles.Any(role => role.Id == r.RoleId && (SystemRoles.Staff.Contains(role.Name!) || db.RolePermissions.Any(grant => grant.RoleName == role.Name && grant.Permission.StartsWith("staff.module.")))))).ToListAsync(token);
         if (recipients.Count != staffIds.Length) return BadRequest(new { message = "One or more selected staff members are unavailable." });
         if (!scope.IsAdministrator && recipients.Any(x => !x.BranchId.HasValue || !scope.HasAssetAccess(x.BranchId.Value, x.DivisionId))) return Forbid();
         var prefix = $"custom:{scope.UserId}:{request.RequestId}:";

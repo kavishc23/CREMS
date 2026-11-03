@@ -45,12 +45,12 @@ const pageRoles: Record<AppPage, readonly string[]> = {
   systemHealth: [roles.superAdministrator],
 }
 
-export function canAccessPage(userRoles: string[], page: AppPage) {
-  return pageRoles[page].some((role) => userRoles.includes(role))
+export function canAccessPage(userRoles: string[], page: AppPage, grantedPages: readonly string[] = []) {
+  return pageRoles[page].some((role) => userRoles.includes(role)) || grantedPages.includes(page)
 }
 
 export function getPrimaryRole(userRoles: string[]) {
-  return Object.values(roles).find((role) => userRoles.includes(role)) ?? 'User'
+  return Object.values(roles).find((role) => userRoles.includes(role)) ?? userRoles[0] ?? 'User'
 }
 
 export function formatRole(role: string) {

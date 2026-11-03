@@ -39,7 +39,9 @@ export function reportCsv(report: StaffReport): string {
   const cell = (input: unknown) => {
     const raw = value(input)
     // Spreadsheet applications interpret leading =, +, -, @ and control characters as formulas.
-    const safe = typeof input === 'string' && /^[\s\u0000-\u001f]*[=+\-@]/.test(raw) ? `'${raw}` : raw
+    let leading = raw
+    while (leading.length && (leading.charCodeAt(0) <= 31 || leading[0].trim() === '')) leading = leading.slice(1)
+    const safe = typeof input === 'string' && ['=', '+', '-', '@'].includes(leading[0]) ? `'${raw}` : raw
     return `"${safe.replace(/"/g, '""')}"`
   }
   const heading = ['Report', 'Section', 'Generated at (Fiji)', 'Coverage', 'Row number', ...columns.map(reportLabel)]

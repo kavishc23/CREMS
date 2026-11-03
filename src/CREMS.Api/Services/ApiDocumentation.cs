@@ -75,7 +75,9 @@ public static class ApiDocumentation
             var provider = context.ApplicationServices.GetRequiredService<IAuthorizationPolicyProvider>();
             var resolved = await AuthorizationPolicy.CombineAsync(provider, rules);
             var roleGroups = resolved?.Requirements.OfType<RolesAuthorizationRequirement>()
-                .Select(requirement => "(" + string.Join(" OR ", requirement.AllowedRoles) + ")").ToArray() ?? [];
+                .Select(requirement => "(" + string.Join(" OR ", requirement.AllowedRoles) + ")")
+                .Concat(resolved.Requirements.OfType<StaffPolicyRequirement>().Select(requirement =>
+                    "(" + string.Join(" OR ", requirement.BuiltInRoles) + " OR configured staff role with " + requirement.Policy + ")")).ToArray() ?? [];
             var permissionNames = resolved?.Requirements.OfType<PermissionRequirement>()
                 .Select(requirement => requirement.Permission).ToArray() ?? [];
             operation.Description = $"{operation.Description}\n\nRequires a {(customer ? "customer" : "staff")} login session. " +
@@ -162,7 +164,7 @@ public static class ApiDocumentation
         var tomorrow = DateTimeOffset.UtcNow.Date.AddDays(1);
         object? example = (path, method) switch
         {
-            ("api/customers", "POST") => new { customerNumber = "CUS-900001", name = "Demo Customer", email = "demo.customer@example.invalid", phone = "+679 9990000", address = "Demo job site, Suva", identificationNumber = (string?)null },
+            ("api/customers", "POST") => new { name = "Demo Customer", email = "demo.customer@example.invalid", phone = "+679 9990000", address = "Demo job site, Suva", identificationNumber = (string?)null },
             ("api/maintenance-jobs", "POST") => new { assetId = Guid.Empty, serviceType = "Preventive service", faultDescription = "Scheduled oil and filter change", assignedTo = "Demo technician", supplier = (string?)null, estimatedCost = 180, nextServiceDate = tomorrow.AddMonths(3).ToString("yyyy-MM-dd"), isPreventive = true, priority = "Normal" },
             ("api/bookings/{id}", "PUT") => new { branchId = Guid.Empty, customerId = Guid.Empty, assetId = Guid.Empty, startAt = tomorrow.ToString("yyyy-MM-dd") + "T08:00:00+12:00", endAt = tomorrow.AddDays(3).ToString("yyyy-MM-dd") + "T08:00:00+12:00", dailyRate = 120, notes = "Demo three-day hire", discountAmount = 0, taxRate = 12.5, depositRequired = 100, additionalCharges = 0, additionalChargesDescription = (string?)null },
             _ => null

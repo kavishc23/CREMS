@@ -18,11 +18,12 @@ public sealed class UsersController(UserManager<ApplicationUser> userManager, Ap
     public async Task<ActionResult<IReadOnlyList<UserResponse>>> GetAll(CancellationToken token)
     {
         var users = await userManager.Users.AsNoTracking().OrderBy(x => x.FullName).ThenBy(x => x.Email).ToListAsync(token);
+        var configuredRoles = await db.RolePermissions.AsNoTracking().Where(grant => grant.Permission.StartsWith("staff.module.")).Select(grant => grant.RoleName).Distinct().ToListAsync(token);
         var response = new List<UserResponse>(users.Count);
         foreach (var user in users)
         {
             var roles = await userManager.GetRolesAsync(user);
-            var staffRoles = roles.Where(SystemRoles.Staff.Contains).ToArray();
+            var staffRoles = roles.Where(role => SystemRoles.Staff.Contains(role) || configuredRoles.Contains(role)).ToArray();
             if (!roles.Contains(SystemRoles.Customer) && staffRoles.Length > 0) response.Add(ToResponse(user, staffRoles));
         }
         return Ok(response);
@@ -40,14 +41,14 @@ public sealed class UsersController(UserManager<ApplicationUser> userManager, Ap
     [HttpPost]
     public async Task<ActionResult<UserResponse>> Create(CreateUserRequest request)
     {
-        var role = ResolveRole(request.Role); if (role is null) return Invalid(nameof(request.Role), "Select a valid CREMS role.");
+        var role = await ResolveRole(request.Role); if (role is null) return Invalid(nameof(request.Role), "Select a valid CREMS role.");
         if (role == SystemRoles.SuperAdministrator && !User.IsInRole(SystemRoles.SuperAdministrator)) return Forbid();
         var requiresBranch = RequiresBranch(role);
         if (requiresBranch && !await IsValidDivision(request.DivisionId)) return Invalid(nameof(request.DivisionId), "Select an active division for this staff account.");
         if (requiresBranch && !await IsValidBranch(request.BranchId)) return Invalid(nameof(request.BranchId), "Select an active branch for this staff account.");
         if (requiresBranch && !await IsDivisionAtBranch(request.DivisionId, request.BranchId)) return Invalid(nameof(request.BranchId), "The selected branch is not enabled for this division.");
         var email = request.Email.Trim(); if (await userManager.FindByEmailAsync(email) is not null) return Invalid(nameof(request.Email), "An account with this email already exists.");
-        var user = new ApplicationUser { UserName = email, Email = email, EmailConfirmed = true, FullName = request.FullName.Trim(), DivisionId = requiresBranch ? request.DivisionId : null, BranchId = requiresBranch ? request.BranchId : null, IsActive = true, MustChangePassword = true, AdminNote = Clean(request.AdminNote) };
+        var user = new ApplicationUser { UserName = email, Email = email, EmailConfirmed = true, FullName = request.FullName.Trim(), DivisionId = requiresBranch ? request.DivisionId : null, BranchId = requiresBranch ? request.BranchId : null, IsActive = true, AccountStatus = AccountLifecycleStatus.Active, MustChangePassword = true, AdminNote = Clean(request.AdminNote) };
         var created = await userManager.CreateAsync(user, request.Password); if (!created.Succeeded) return IdentityErrors(created);
         var assigned = await userManager.AddToRoleAsync(user, role); if (!assigned.Succeeded) { await userManager.DeleteAsync(user); return IdentityErrors(assigned); }
         await Audit(user, "Staff account created", $"{user.Email} was created as {role}.");
@@ -60,7 +61,7 @@ public sealed class UsersController(UserManager<ApplicationUser> userManager, Ap
         if (!await HasRecentMfa(token)) return StatusCode(StatusCodes.Status403Forbidden, new { message = "Re-authenticate with MFA before changing roles or access." });
         var user = await userManager.FindByIdAsync(id.ToString()); if (user is null) return NotFound();
         if (!await CanManage(user)) return Forbid();
-        var role = ResolveRole(request.Role); if (role is null) return Invalid(nameof(request.Role), "Select a valid CREMS role.");
+        var role = await ResolveRole(request.Role); if (role is null) return Invalid(nameof(request.Role), "Select a valid CREMS role.");
         if (role == SystemRoles.SuperAdministrator && !User.IsInRole(SystemRoles.SuperAdministrator)) return Forbid();
         var requiresBranch = RequiresBranch(role); if (requiresBranch && !await IsValidBranch(request.BranchId)) return Invalid(nameof(request.BranchId), "Select an active branch for this staff account.");
         if (requiresBranch && !await IsValidDivision(request.DivisionId)) return Invalid(nameof(request.DivisionId), "Select an active division for this staff account.");
@@ -128,8 +129,8 @@ public sealed class UsersController(UserManager<ApplicationUser> userManager, Ap
     private async Task Audit(ApplicationUser user, string action, string summary, string? previous = null, string? next = null) { var scope = await staffScope.GetAsync(User); if (scope is null) return; AuditWriter.Record(db, scope, action, "ApplicationUser", user.Id, summary, user.BranchId, previous, next); await db.SaveChangesAsync(); }
     private ActionResult Invalid(string key, string message) { ModelState.AddModelError(key, message); return ValidationProblem(ModelState); }
     private ActionResult IdentityErrors(IdentityResult result) { foreach (var error in result.Errors) ModelState.AddModelError(string.Empty, error.Description); return ValidationProblem(ModelState); }
-    private static string? ResolveRole(string role) => SystemRoles.Staff.FirstOrDefault(x => string.Equals(x, role, StringComparison.OrdinalIgnoreCase));
-    private static bool RequiresBranch(string role) => SystemRoles.BranchScoped.Contains(role);
+    private async Task<string?> ResolveRole(string role) => await db.Roles.Where(item => item.NormalizedName == role.ToUpperInvariant() && item.Name != SystemRoles.Customer && (SystemRoles.Staff.Contains(item.Name!) || db.RolePermissions.Any(grant => grant.RoleName == item.Name && grant.Permission.StartsWith("staff.module.")))).Select(item => item.Name).FirstOrDefaultAsync();
+    private static bool RequiresBranch(string role) => !SystemRoles.GroupWide.Contains(role);
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string Reason(AdminReasonRequest request) => $"Reason: {Clean(request.Reason) ?? "Not supplied"}.";
     private static UserResponse ToResponse(ApplicationUser user, IEnumerable<string> roles) => new(user.Id, user.Email ?? "", user.FullName, user.DivisionId, user.BranchId, user.IsActive, roles.ToArray(), user.MustChangePassword, user.LastLoginAt, user.LastLoginIp, user.LastActivityAt, user.AccessFailedCount, user.LockoutEnd, user.AdminNote, user.SuspensionReason);

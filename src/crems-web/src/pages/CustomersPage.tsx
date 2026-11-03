@@ -30,25 +30,28 @@ type Customer = {
   hirePreferences: HirePreference[]
   hirePreference?: HirePreference | 'NoPreference'
   hasOnlineAccount: boolean; emailConfirmed: boolean
+  portalActive: boolean | null; portalLockoutEnd: string | null
   driverLicenceDocumentId: string | null; driverLicenceFileName: string | null
   licenceNumber: string | null; licenceClasses: string | null; licenceStatus: 'Required' | 'Verified'
 }
 
 function AdminActivityDialog({ activity, loading, error, tab, search, page, saving, onTab, onSearch, onLoad, onSecurity, onClose }: { activity: CustomerActivity | null; loading: boolean; error: string; tab: 'overview' | 'bookings' | 'quotations' | 'invoice'; search: string; page: number; saving: boolean; onTab: (value: 'overview' | 'bookings' | 'quotations' | 'invoice') => void; onSearch: (value: string) => void; onLoad: (page: number, search: string) => void; onSecurity: (path: string) => void; onClose: () => void }) {
   const total = activity ? activity.pagination[tab === 'invoice' ? 'invoices' : tab === 'overview' ? 'bookings' : tab] : 0
-  const [recordStatus, setRecordStatus] = useState('All')
-  useEffect(() => setRecordStatus('All'), [activity?.customer.id])
+  const [recordFilter, setRecordFilter] = useState({ customerId: '', status: 'All' })
+  const recordStatus = recordFilter.customerId === activity?.customer.id ? recordFilter.status : 'All'
+  const setRecordStatus = (status: string) => setRecordFilter({ customerId: activity?.customer.id ?? '', status })
   const statusMatches = (status: string) => recordStatus === 'All' || status === recordStatus
   const pageCount = Math.max(1, Math.ceil(total / (activity?.pagination.pageSize ?? 10)))
   return <Dialog open={Boolean(activity) || loading || Boolean(error)} onClose={() => !loading && onClose()} disableScrollLock fullWidth maxWidth="lg" PaperProps={{ sx: { height: { md: 'calc(100dvh - 20px)' }, maxHeight: 'calc(100dvh - 12px)', overflow: { xs: 'auto', md: 'hidden' }, borderRadius: 2.5 } }}>
     <DialogTitle sx={{ px: 3, py: 1.4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(110deg,#fff 65%,#fff8cc)' }}><Box><Typography variant="overline" fontWeight={900} color="text.secondary" lineHeight={1}>Customer record</Typography><Typography variant="h6" fontWeight={850}>Customer activity · {activity?.customer.name ?? 'Loading…'}</Typography></Box><IconButton aria-label="Close" onClick={onClose}><CloseOutlined /></IconButton></DialogTitle>
     {activity && <><Grid container spacing={1.2} sx={{ px: 2.5, py: 1.2 }}>{[{ label: 'Bookings', value: activity.summary.bookings, tone: '#e9f2ff' }, { label: 'Quotations', value: activity.summary.quotations, tone: '#fff4cf' }, { label: 'Invoice', value: activity.summary.invoices, tone: '#e5f5eb' }, { label: 'Outstanding', value: `$${activity.summary.outstanding.toFixed(2)}`, tone: '#fff0cf' }].map(item => <Grid key={item.label} size={{ xs: 6, md: 3 }}><Card variant="outlined" sx={{ height: '100%', borderColor: item.label === 'Outstanding' && activity.summary.outstanding > 0 ? 'warning.light' : 'divider' }}><CardContent sx={{ py: 1, px: 1.5, '&:last-child': { pb: 1 }, display: 'flex', alignItems: 'center', gap: 1.2 }}><Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: item.tone, display: 'grid', placeItems: 'center', fontWeight: 900 }}>{item.label === 'Outstanding' ? '!' : item.label[0]}</Box><Box><Typography fontWeight={850}>{item.value}</Typography><Typography variant="body2" color="text.secondary" fontWeight={750}>{item.label}</Typography></Box></CardContent></Card></Grid>)}</Grid><Tabs value={tab} onChange={(_, value) => onTab(value)} variant="scrollable" sx={{ minHeight: 43, px: 2.5, bgcolor: '#fafaf7', borderBottom: 1, borderColor: 'divider', '& .MuiTab-root': { minHeight: 43, py: .5, fontWeight: 800, fontSize: 15 } }}><Tab value="overview" label="Overview" /><Tab value="bookings" label={`Bookings ${activity.summary.bookings}`} /><Tab value="quotations" label={`Quotations ${activity.summary.quotations}`} /><Tab value="invoice" label={`Invoice ${activity.summary.invoices}`} /></Tabs></>}
-    <DialogContent sx={{ overflow: 'auto', px: 2.5, py: 1.5 }}>{loading ? <Box sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : error ? <Alert severity="error">{error}</Alert> : activity && <Stack spacing={1.25}>
+    <DialogContent sx={{ overflow: 'auto', px: 2.5, py: 1.5 }}>{loading ? <Box sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : !activity && error ? <Alert severity="error">{error}</Alert> : activity && <Stack spacing={1.25}>
+      {error && <Alert severity="error">{error}</Alert>}
       {tab === 'overview' && <Grid container spacing={2}>
         <Grid size={12}><RecordTimeline entityType="customer" recordId={activity.customer.id} label="Customer activity timeline"/></Grid>
         <Grid size={{ xs: 12, md: 6 }}><Card variant="outlined" sx={{ height: '100%', borderLeft: '5px solid #4b93df', bgcolor: '#f8fbff' }}><CardContent sx={{ p: 2.5 }}><Typography variant="overline" fontWeight={900} color="text.secondary">Portal access</Typography><Typography variant="h6" fontWeight={850}>Online account</Typography><Typography mt={1.5}><Box component="span" sx={{ color: activity.account?.emailConfirmed ? 'success.main' : 'warning.main', mr: 1 }}>●</Box>{activity.account ? activity.account.emailConfirmed ? 'Verified' : 'Activation pending' : 'No online account'}</Typography><Typography color="text.secondary" mt={1}>Last activity: {activity.account?.lastActivityAt ? new Date(activity.account.lastActivityAt).toLocaleString('en-FJ') : 'Never'}</Typography><Typography mt={1}>Rental preferences: {activity.customer.hirePreferences?.length ? activity.customer.hirePreferences.map(value => preferenceLabel[value]).join(', ') : 'All rentals'}</Typography></CardContent></Card></Grid>
         <Grid size={{ xs: 12, md: 6 }}><Card variant="outlined" sx={{ height: '100%', borderLeft: '5px solid #2ca56c', bgcolor: '#f7fcf9' }}><CardContent sx={{ p: 2.5 }}><Typography variant="overline" fontWeight={900} color="text.secondary">Identification</Typography><Typography variant="h6" fontWeight={850}>Driver licence</Typography><Typography mt={1.5} fontWeight={750}><Box component="span" sx={{ color: activity.licence ? 'success.main' : 'error.main', mr: 1 }}>●</Box>{activity.licence ? 'Licence verified' : 'Licence required'}</Typography><Typography mt={1}>{activity.licence ? `${activity.licence.licenceNumber} · Classes ${activity.licence.licenceClasses}` : 'No verified licence recorded.'}</Typography>{activity.licence && <Button variant="outlined" sx={{ mt: 1.5 }} onClick={() => void openProtectedFile(`/customers/${activity.customer.id}/licence/image`)}>View licence</Button>}</CardContent></Card></Grid>
-        {activity.account && <Grid size={12}><Card variant="outlined" sx={{ borderLeft: '5px solid #f1d400', bgcolor: '#fffef5' }}><CardContent sx={{ p: 2.5 }}><Typography variant="overline" fontWeight={900} color="text.secondary">Account management</Typography><Typography variant="h6" fontWeight={850}>Customer security controls</Typography><Typography color="text.secondary" my={1.5}>Manage portal access without changing the customer’s rental records.</Typography><Stack direction="row" gap={1} flexWrap="wrap"><Button variant="outlined" disabled={saving} onClick={() => onSecurity('reset-password')}>Reset password</Button><Button variant="outlined" disabled={saving} onClick={() => onSecurity('revoke-sessions')}>Revoke sessions</Button><Button variant="outlined" disabled={saving} onClick={() => onSecurity(activity.account?.lockoutEnd ? 'unlock' : 'lock')}>{activity.account.lockoutEnd ? 'Unlock portal' : 'Lock portal'}</Button><Button variant="outlined" color={activity.account.isActive ? 'error' : 'success'} disabled={saving} onClick={() => onSecurity(activity.account?.isActive ? 'disable' : 'enable')}>{activity.account.isActive ? 'Disable portal' : 'Enable portal'}</Button></Stack></CardContent></Card></Grid>}
+        {activity.account && <Grid size={12}><Card variant="outlined" sx={{ borderLeft: '5px solid #f1d400', bgcolor: '#fffef5' }}><CardContent sx={{ p: 2.5 }}><Typography variant="overline" fontWeight={900} color="text.secondary">Account management</Typography><Typography variant="h6" fontWeight={850}>Customer security controls</Typography><Typography color="text.secondary" my={1.5}>Manage portal access without changing the customer’s rental records.</Typography><Stack direction="row" gap={1} flexWrap="wrap"><Button variant="outlined" disabled={saving} onClick={() => onSecurity('reset-password')}>Reset password</Button><Button variant="outlined" disabled={saving} onClick={() => onSecurity('revoke-sessions')}>Revoke sessions</Button><Button variant="outlined" disabled={saving} onClick={() => onSecurity(activity.account?.lockoutEnd && new Date(activity.account.lockoutEnd) > new Date() ? 'unlock' : 'lock')}>{activity.account.lockoutEnd && new Date(activity.account.lockoutEnd) > new Date() ? 'Unlock portal' : 'Lock portal'}</Button><Button variant="outlined" color={activity.account.isActive ? 'error' : 'success'} disabled={saving} onClick={() => onSecurity(activity.account?.isActive ? 'disable' : 'enable')}>{activity.account.isActive ? 'Disable portal' : 'Enable portal'}</Button></Stack></CardContent></Card></Grid>}
       </Grid>}
       {tab !== 'overview' && <>{tab === 'invoice' && <Card variant="outlined" sx={{ borderColor: 'warning.light', bgcolor: '#fffaf0' }}><CardContent sx={{ py: 1.1, '&:last-child': { pb: 1.1 } }}><Typography variant="overline" fontWeight={900} color="text.secondary">Current balance</Typography><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography variant="h6" fontWeight={850}>${activity.summary.outstanding.toFixed(2)} outstanding</Typography>{activity.summary.outstanding > 0 && <Chip label="Payment due" color="warning" size="small" />}</Stack></CardContent></Card>}<Stack direction={{ xs: 'column', sm: 'row' }} gap={1} justifyContent="space-between"><TextField size="small" placeholder={`Search ${tab === 'invoice' ? 'invoice' : tab.slice(0, -1)} reference or branch`} value={search} onChange={event => onSearch(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') onLoad(1, search) }} sx={{ width: { xs: '100%', sm: 400 } }} /><FormControl size="small" sx={{ minWidth: 155 }}><InputLabel>Status</InputLabel><Select label="Status" value={recordStatus} onChange={event => setRecordStatus(event.target.value)}><MenuItem value="All">All statuses</MenuItem>{Array.from(new Set(tab === 'bookings' ? activity.bookings.map(item => item.status) : tab === 'quotations' ? activity.quotations.map(item => item.status) : activity.invoices.map(item => item.status))).map(value => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl></Stack><TableContainer component={Card} variant="outlined" sx={{ overflow: 'hidden', '& .MuiTableCell-root': { py: .8, px: 1.5, whiteSpace: 'nowrap' } }}><Table size="small"><TableHead><TableRow>{tab === 'bookings' ? <><TableCell>Booking reference</TableCell><TableCell>Branch</TableCell><TableCell>Status</TableCell><TableCell>Assets</TableCell><TableCell>Created</TableCell></> : tab === 'quotations' ? <><TableCell>Quotation reference</TableCell><TableCell>Branch</TableCell><TableCell>Status</TableCell><TableCell>Value</TableCell><TableCell>Created</TableCell></> : <><TableCell>Invoice</TableCell><TableCell>Status</TableCell><TableCell>Total</TableCell><TableCell>Outstanding</TableCell><TableCell>Issued</TableCell></>}</TableRow></TableHead><TableBody>{tab === 'bookings' && activity.bookings.filter(item => statusMatches(item.status)).map(item => <TableRow key={item.id}><TableCell>{item.bookingNumber}</TableCell><TableCell>{item.branchName}</TableCell><TableCell>{item.status}</TableCell><TableCell>{item.assetCount}</TableCell><TableCell>{new Date(item.createdAt).toLocaleDateString('en-FJ')}</TableCell></TableRow>)}{tab === 'quotations' && activity.quotations.filter(item => statusMatches(item.status)).map(item => <TableRow key={item.id}><TableCell>{item.quoteNumber}</TableCell><TableCell>{item.branchName}</TableCell><TableCell>{item.status}</TableCell><TableCell>FJD {item.total.toLocaleString('en-FJ')}</TableCell><TableCell>{new Date(item.createdAt).toLocaleDateString('en-FJ')}</TableCell></TableRow>)}{tab === 'invoice' && activity.invoices.filter(item => statusMatches(item.status)).map(item => <TableRow key={item.id}><TableCell>{item.invoiceNumber}</TableCell><TableCell>{item.status}</TableCell><TableCell>FJD {item.total.toLocaleString('en-FJ')}</TableCell><TableCell>FJD {item.balanceDue.toLocaleString('en-FJ')}</TableCell><TableCell>{new Date(item.issuedAt).toLocaleDateString('en-FJ')}</TableCell></TableRow>)}</TableBody></Table></TableContainer><Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end"><Button size="small" variant="outlined" disabled={page <= 1} onClick={() => onLoad(page - 1, search)}>Previous</Button><Typography variant="body2">Page {page} of {pageCount}</Typography><Button size="small" variant="outlined" disabled={page >= pageCount} onClick={() => onLoad(page + 1, search)}>Next</Button></Stack></>}
     </Stack>}</DialogContent>
@@ -71,9 +74,12 @@ type CustomerActivity = {
 }
 type HirePreference = 'Vehicles' | 'Equipment' | 'WasteAndSiteHire'
 const preferenceLabel: Record<HirePreference, string> = { Vehicles: 'Vehicles', Equipment: 'Equipment', WasteAndSiteHire: 'Waste & site hire' }
-function customerPreferences(customer: Pick<Customer, 'hirePreferences' | 'hirePreference'>): HirePreference[] {
-  if (Array.isArray(customer.hirePreferences)) return customer.hirePreferences
-  return customer.hirePreference && customer.hirePreference !== 'NoPreference' ? [customer.hirePreference] : []
+function accountStatuses(customer: Customer) {
+  const statuses: string[] = []
+  if (customer.isBlocked) statuses.push('Blocked')
+  if (customer.portalActive === false) statuses.push('Disabled')
+  if (customer.portalLockoutEnd && new Date(customer.portalLockoutEnd) > new Date()) statuses.push('Locked')
+  return statuses.length ? statuses : [customer.isActive ? 'Active' : 'Inactive']
 }
 const emptyForm: CustomerForm = {
   customerNumber: '', name: '', email: '', phone: '', address: '', identificationNumber: '',
@@ -87,7 +93,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form, setForm] = useState<CustomerForm>(emptyForm)
   const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') ?? '')
-  const [statusFilter, setStatusFilter] = useState<'All' | 'Verified' | 'Pending' | 'Blocked'>('All')
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Blocked' | 'Locked' | 'Disabled'>('All')
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const [summary, setSummary] = useState({ total: 0, verified: 0, licenceVerified: 0, pending: 0, blocked: 0 })
@@ -134,8 +140,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   ], [summary])
 
   function openCreate() {
-    const next = customers.map(customer => Number(customer.customerNumber.replace(/^CUS-/, '')) || 0).reduce((max, value) => Math.max(max, value), 0) + 1
-    setEditing(null); setForm({ ...emptyForm, customerNumber: `CUS-${String(next).padStart(6, '0')}` }); setError(''); setOpen(true)
+    setEditing(null); setForm(emptyForm); setError(''); setOpen(true)
   }
   function openEdit(customer: Customer) {
     setEditing(customer)
@@ -211,17 +216,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
     }
     finally { setActivityLoading(false) }
   }
-  async function customerSecurity(path: string) { if (!activity) return; setSaving(true); setError(''); try { await api.post(`/customers/${activity.customer.id}/security/${path}`); await viewActivity({ id: activity.customer.id } as Customer); setNotice('Customer portal security was updated.') } catch (reason) { setError(axios.isAxiosError(reason) ? reason.response?.data?.message ?? 'Unable to update customer security.' : 'Unable to update customer security.') } finally { setSaving(false) } }
-  async function uploadLicence(file?: File) {
-    if (!editing || !file) return
-    setSaving(true); setError('')
-    try {
-      const data = new FormData(); data.append('file', file)
-      await api.post(`/customers/${editing.id}/driver-licence`, data, { headers: { 'Content-Type': 'multipart/form-data' } })
-      await loadCustomers(); setNotice('Driver licence updated.'); setOpen(false)
-    } catch (reason) { setError(axios.isAxiosError(reason) ? reason.response?.data?.message ?? 'Unable to upload the driver licence.' : 'Unable to upload the driver licence.') }
-    finally { setSaving(false) }
-  }
+  async function customerSecurity(path: string) { if (!activity) return; setSaving(true); setError(''); try { await api.post(`/customers/${activity.customer.id}/security/${path}`); await Promise.all([viewActivity({ id: activity.customer.id } as Customer), loadCustomers()]); setNotice('Customer portal security was updated.') } catch (reason) { setActivityError(axios.isAxiosError(reason) ? reason.response?.data?.message ?? 'Unable to update customer security.' : 'Unable to update customer security.') } finally { setSaving(false) } }
   function viewLicence(customer: Customer) {
     const endpoint = customer.licenceStatus === 'Verified'
       ? `/customers/${customer.id}/licence/image`
@@ -232,7 +227,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
   }
 
   return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}>
-    <PageHeader icon={<PeopleAltOutlined />} title={administrationView ? 'Customer accounts' : 'Customers'} subtitle={administrationView ? 'Manage customer identities, portal access and account activity separately from staff.' : 'Maintain customer details and rental eligibility.'} actions={<Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add customer</Button>} />
+    <PageHeader icon={<PeopleAltOutlined />} title={administrationView ? 'Customer Accounts' : 'Customers'} subtitle={administrationView ? 'Manage customer identities, portal access and account activity separately from staff.' : 'Maintain customer details and rental eligibility.'} actions={<Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add customer</Button>} />
     {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
     <Grid container spacing={2} mb={2.5}>
@@ -243,27 +238,24 @@ export function CustomersPage({ administrationView = false }: { administrationVi
         <TextField size="small" placeholder="Search by name, customer number, email or phone" value={search}
           onChange={(event) => { setSearch(event.target.value); setPage(1) }} sx={{ flex: 1, minWidth: 260 }}
           InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} />
-        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Account status</InputLabel><Select label="Account status" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setPage(1) }}>{['All', 'Verified', 'Pending', 'Blocked'].map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl>
+        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel>Account status</InputLabel><Select label="Account status" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setPage(1) }}>{['All', 'Active', 'Blocked', 'Locked', 'Disabled'].map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</Select></FormControl>
       </Stack>
       {loading ? <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> :
-        <TableContainer><Table><TableHead><TableRow sx={{ bgcolor: '#f6f6f3' }}>
-          <TableCell>Customer</TableCell><TableCell>Contact</TableCell>
-          <TableCell>Identification</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell>
+        <TableContainer><Table sx={{ '& .MuiTableCell-root': { px: 1.5 }, '& th': { whiteSpace: 'nowrap' } }}><TableHead><TableRow sx={{ bgcolor: '#f6f6f3' }}>
+          <TableCell>Customer ID</TableCell><TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Contact</TableCell>
+          <TableCell>Account verification</TableCell><TableCell>Status &amp; actions</TableCell>
         </TableRow></TableHead><TableBody>
-          {visibleCustomers.length === 0 && <TableRow><TableCell colSpan={5} align="center" sx={{ py: 8, color: 'text.secondary' }}>No matching customers found.</TableCell></TableRow>}
+          {visibleCustomers.length === 0 && <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8, color: 'text.secondary' }}>No matching customers found.</TableCell></TableRow>}
           {pagedCustomers.map((customer) => <TableRow key={customer.id} hover>
-            <TableCell><Typography fontWeight={700}>{customer.name}</Typography><Typography variant="body2" color="text.secondary">{customer.customerNumber}</Typography></TableCell>
-            <TableCell><Typography variant="body2">{customer.email || '—'}</Typography><Typography variant="body2" color="text.secondary">{customer.phone || '—'}</Typography></TableCell>
-            <TableCell><Typography variant="body2">{customer.licenceNumber || '—'}</Typography><Typography variant="caption" display="block" color="text.secondary">Classes: {customer.licenceClasses || '—'}</Typography><Chip size="small" label={customer.licenceStatus === 'Verified' ? 'Licence verified' : 'Licence required'} color={customer.licenceStatus === 'Verified' ? 'success' : 'error'} variant="outlined" />{customer.licenceStatus === 'Verified' && <Button size="small" sx={{ ml: 1 }} onClick={() => void openProtectedFile(`/customers/${customer.id}/licence/image`)}>View licence</Button>}</TableCell>
-            <TableCell><Stack direction="row" gap={0.75} flexWrap="wrap">
-              <Chip size="small" label={customer.isActive ? 'Active' : 'Inactive'} color={customer.isActive ? 'success' : 'default'} variant="outlined" />
-              {customer.isBlocked && <Chip size="small" label="Blocked" color="error" variant="outlined" />}
-              <Chip size="small" label={customer.emailConfirmed ? 'Online verified' : customer.hasOnlineAccount ? 'Invite pending' : 'Offline only'} color={customer.emailConfirmed ? 'success' : 'default'} variant="outlined" />
-            </Stack></TableCell>
-            <TableCell align="right"><Tooltip title="View customer activity"><IconButton onClick={() => void viewActivity(customer)}><VisibilityOutlined /></IconButton></Tooltip><Tooltip title="Edit customer"><IconButton onClick={() => openEdit(customer)}><EditOutlined /></IconButton></Tooltip>
+            <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 700 }}>{customer.customerNumber}</TableCell>
+            <TableCell sx={{ fontWeight: 700, minWidth: 110 }}>{customer.name}</TableCell>
+            <TableCell sx={{ overflowWrap: 'anywhere', maxWidth: 240 }}>{customer.email || '—'}</TableCell>
+            <TableCell sx={{ whiteSpace: 'nowrap' }}>{customer.phone || '—'}</TableCell>
+            <TableCell><Stack spacing={.75} alignItems="flex-start"><Chip size="small" label={customer.emailConfirmed ? 'Email verified' : customer.hasOnlineAccount ? 'Email pending' : 'No portal account'} color={customer.emailConfirmed ? 'success' : 'default'} variant="outlined" /><Chip size="small" label={customer.licenceStatus === 'Verified' ? 'Licence verified' : 'Licence required'} color={customer.licenceStatus === 'Verified' ? 'success' : 'default'} variant="outlined" /></Stack></TableCell>
+            <TableCell sx={{ minWidth: 155 }}><Stack spacing={.75}><Stack direction="row" gap={.5} flexWrap="wrap">{accountStatuses(customer).map(status => <Chip key={status} size="small" label={status} color={status === 'Blocked' || status === 'Disabled' ? 'error' : status === 'Locked' ? 'warning' : status === 'Active' ? 'success' : 'default'} variant="outlined" />)}</Stack><Stack direction="row"><Tooltip title="View customer activity"><IconButton onClick={() => void viewActivity(customer)}><VisibilityOutlined /></IconButton></Tooltip><Tooltip title="Edit customer"><IconButton onClick={() => openEdit(customer)}><EditOutlined /></IconButton></Tooltip>
               {!customer.emailConfirmed && <Tooltip title={customer.hasOnlineAccount ? 'Send a new activation code' : 'Enable online access'}><span><IconButton color="primary" disabled={!customer.email || !customer.isActive || customer.isBlocked} onClick={() => setConfirmation({ kind: 'activation', customer })}><MarkEmailReadOutlined /></IconButton></span></Tooltip>}
               <Tooltip title={customer.isBlocked ? 'Restore rental access' : 'Block from rentals'}><IconButton color={customer.isBlocked ? 'success' : 'error'} onClick={() => setConfirmation({ kind: customer.isBlocked ? 'restore' : 'block', customer })}>{customer.isBlocked ? <CheckCircleOutline /> : <BlockOutlined />}</IconButton></Tooltip>
-            </TableCell>
+            </Stack></Stack></TableCell>
           </TableRow>)}
         </TableBody></Table></TableContainer>}
       {totalCount > 20 && <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}><Typography variant="body2" color="text.secondary">Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, totalCount)} of {totalCount}</Typography><Pagination count={customerPageCount} page={page} onChange={(_, value) => setPage(value)} size="small" /></Stack>}
@@ -271,7 +263,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
     <Dialog open={open} onClose={() => !saving && setOpen(false)} disableScrollLock fullWidth maxWidth="lg" PaperProps={{ sx: { borderRadius: 2.5 } }}>
       <Box component="form" onSubmit={save}><DialogTitle sx={{ px: 3.5, py: 2.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 26, fontWeight: 850 }}>{editing ? 'Edit customer' : 'Add customer'}<IconButton aria-label="Close" onClick={() => setOpen(false)}><CloseOutlined /></IconButton></DialogTitle><DialogContent dividers sx={{ px: 3.5, py: 2.5 }}>
         <Stack spacing={2.25} mt={1}>{error && <Alert severity="error">{error}</Alert>}
-          <TextField fullWidth required label="Customer number" helperText="CREMS uses one customer-number sequence." inputProps={{ maxLength: 50, pattern: 'CUS-[0-9]{6}' }} value={form.customerNumber} onChange={(e) => setForm({ ...form, customerNumber: e.target.value.toUpperCase() })} />
+          {editing && <TextField fullWidth label="Customer ID" value={form.customerNumber} InputProps={{ readOnly: true }} helperText="Assigned automatically by CREMS." />}
           <TextField required label="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField fullWidth type="email" label="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />

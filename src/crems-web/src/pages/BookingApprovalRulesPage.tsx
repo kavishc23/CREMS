@@ -226,7 +226,7 @@ export function BookingApprovalRulesPage() {
     }
   }
   useEffect(() => {
-    void load();
+    void Promise.resolve().then(load);
   }, []);
   function reset() {
     setEditing(null);
@@ -284,7 +284,7 @@ export function BookingApprovalRulesPage() {
         .map((x, n) => ({ ...x, sequence: n + 1 })),
     }));
   }
-  function usePreset(kind: "equipment" | "overtime" | "highValue") {
+  function applyPreset(kind: "equipment" | "overtime" | "highValue") {
     setEditing(null);
     setError("");
     setNotice("");
@@ -394,9 +394,8 @@ export function BookingApprovalRulesPage() {
         ...form,
         stages: form.stages.map((x, i) => ({ ...x, sequence: i + 1 })),
       };
-      editing
-        ? await api.put(`/approval-workflows/${editing}`, payload)
-        : await api.post("/approval-workflows", payload);
+      if (editing) await api.put(`/approval-workflows/${editing}`, payload);
+      else await api.post("/approval-workflows", payload);
       reset();
       setNotice("Approval rule saved.");
       await load();
@@ -416,9 +415,9 @@ export function BookingApprovalRulesPage() {
       if (editing === rule.id) reset();
       setNotice("Approval rule deleted.");
       await load();
-    } catch (reason: any) {
+    } catch (reason: unknown) {
       setError(
-        reason?.response?.data?.message ??
+        (reason as { response?: { data?: { message?: string } } })?.response?.data?.message ??
           "The approval rule could not be deleted.",
       );
     } finally {
@@ -505,21 +504,21 @@ export function BookingApprovalRulesPage() {
                   <Button
                     size="small"
                     variant="outlined"
-                    onClick={() => usePreset("equipment")}
+                    onClick={() => applyPreset("equipment")}
                   >
                     Equipment / personnel
                   </Button>
                   <Button
                     size="small"
                     variant="outlined"
-                    onClick={() => usePreset("overtime")}
+                    onClick={() => applyPreset("overtime")}
                   >
                     Staff overtime
                   </Button>
                   <Button
                     size="small"
                     variant="outlined"
-                    onClick={() => usePreset("highValue")}
+                    onClick={() => applyPreset("highValue")}
                   >
                     High value
                   </Button>

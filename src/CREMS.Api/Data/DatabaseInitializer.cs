@@ -1274,10 +1274,10 @@ public static class DatabaseInitializer
             .ToHashSet(StringComparer.Ordinal);
         foreach (var grant in grants)
             foreach (var permission in grant.Value)
-                if (existingKeys.Add($"{grant.Key}\n{permission}"))
+                if (!existingKeys.Contains($"{grant.Key}\nstaff.configured") && existingKeys.Add($"{grant.Key}\n{permission}"))
                     db.RolePermissions.Add(new RolePermission { RoleName = grant.Key, Permission = permission });
         var obsoleteBranchManagerGrant = existingPermissions
-            .Where(x => x.RoleName == SystemRoles.BranchManager && x.Permission == SystemPermissions.BranchesConfigure)
+            .Where(x => x.RoleName == SystemRoles.BranchManager && x.Permission == SystemPermissions.BranchesConfigure && !existingKeys.Contains($"{x.RoleName}\nstaff.configured"))
             .ToList();
         db.RolePermissions.RemoveRange(obsoleteBranchManagerGrant);
         await db.SaveChangesAsync(token);

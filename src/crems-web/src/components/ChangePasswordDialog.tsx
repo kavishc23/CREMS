@@ -1,11 +1,13 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import axios from 'axios'
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material'
 import { api } from '../api/client'
 
 type Props = { open: boolean; endpoint: string; requireOtp?: boolean; onClose: () => void; onChanged?: () => void }
 
-export function ChangePasswordDialog({ open, endpoint, requireOtp = false, onClose, onChanged }: Props) {
+export function ChangePasswordDialog(props: Props) { return props.open ? <ChangePasswordContent {...props}/> : null }
+
+function ChangePasswordContent({ open, endpoint, requireOtp = false, onClose, onChanged }: Props) {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -15,9 +17,6 @@ export function ChangePasswordDialog({ open, endpoint, requireOtp = false, onClo
   const [code, setCode] = useState('')
   const [maskedDestination, setMaskedDestination] = useState('your email address')
 
-  useEffect(() => {
-    if (open) { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setChallengeId(''); setCode(''); setError('') }
-  }, [open])
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setError('')

@@ -28,9 +28,9 @@ public static class PeriodProfitabilityReport
                 x.Items.Any(i => visible.Contains(i.AssetId)))
             .Select(x => x.Id).ToListAsync(token);
         var items = await db.BookingItems.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId))
-            .Select(x => new { x.BookingId, x.AssetId, x.StartAt, x.EndAt, x.DailyRate, x.HireQuantity }).ToListAsync(token);
+            .ToListAsync(token);
         var weights = items.GroupBy(x => x.BookingId).ToDictionary(g => g.Key, g => g.GroupBy(i => i.AssetId)
-            .ToDictionary(a => a.Key, a => a.Sum(i => Math.Max(0, i.DailyRate * (i.HireQuantity ?? Math.Max(1, (decimal)Math.Ceiling((i.EndAt - i.StartAt).TotalDays)))))));
+            .ToDictionary(a => a.Key, a => a.Sum(i => Math.Max(0, HirePricing.Amount(i)))));
         var invoices = await db.RentalInvoices.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId) &&
             x.Status != InvoiceStatus.Voided && x.Status != InvoiceStatus.Draft && x.IssuedAt >= start && x.IssuedAt < end)
             .Select(x => new { x.Id, x.BookingId, x.IssuedAt, x.Subtotal }).ToListAsync(token);
@@ -56,12 +56,15 @@ public static class PeriodProfitabilityReport
         var direct = await db.AssetCostEntries.AsNoTracking().Where(x => visible.Contains(x.AssetId) &&
             x.OccurredOn >= from && x.OccurredOn <= to).Select(x => new { x.AssetId, x.OccurredOn, x.Amount }).ToListAsync(token);
         entries.AddRange(direct.Select(x => new Entry(x.AssetId, x.OccurredOn, Direct: x.Amount)));
+        var staffedBookings = await db.PersonnelTimesheets.AsNoTracking().Where(x => x.Assignment != null && bookingIds.Contains(x.Assignment.BookingId))
+            .Select(x => x.Assignment!.BookingId).Distinct().ToListAsync(token);
         var charges = await db.BookingCharges.AsNoTracking().Where(x => bookingIds.Contains(x.BookingId) &&
             x.CreatedAt >= start && x.CreatedAt < end)
-            .Select(x => new { x.BookingId, x.AssetId, x.CreatedAt, x.Quantity, x.UnitCost }).ToListAsync(token);
+            .Select(x => new { x.BookingId, x.AssetId, x.CreatedAt, x.Quantity, x.UnitCost, x.Category }).ToListAsync(token);
         foreach (var charge in charges)
         {
-            var cost = charge.Quantity * charge.UnitCost;
+            var cost = staffedBookings.Contains(charge.BookingId) && charge.Category is Domain.Common.ChargeCategory.Operator or Domain.Common.ChargeCategory.Driver or Domain.Common.ChargeCategory.Labour
+                ? 0 : RentalFinancials.Money(charge.Quantity * charge.UnitCost);
             var allocation = charge.AssetId.HasValue
                 ? new Dictionary<Guid, decimal> { [charge.AssetId.Value] = cost }
                 : AllocateWeighted(cost, weights.GetValueOrDefault(charge.BookingId));

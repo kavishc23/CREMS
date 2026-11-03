@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, FormControlLabel, Grid, IconButton, MenuItem, Stack, Step, StepButton, Stepper, TextField, Typography } from '@mui/material'
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Grid, IconButton, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined'
+import { WorkspaceSections } from '../../components/WorkspaceSections'
 import { api } from '../../api/client'
 import { MaintenanceTaxFields } from '../MaintenanceTaxFields'
 import { calculateMaintenanceTax, parseTaxCategories, type TaxSettings } from '../maintenanceTax'
@@ -137,6 +138,9 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
   }
   async function save(event?: FormEvent, nextStatus = job?.status ?? 'Open') {
     event?.preventDefault()
+    if (!formElement.current?.reportValidity()) return
+    if (!form.serviceType.trim()) { setError('Enter the type of maintenance required.'); setTab('Details'); return }
+    if (nextStatus === 'InProgress' && !form.assignedPersonnelId && !form.supplierId) { setError('Assign a technician or an external supplier before starting work.'); setTab('Details'); setTransition(null); return }
     if (!form.assetId || !form.faultDescription.trim()) { setError('Select an asset and enter the repair type and work required.'); setTab('Details'); return }
     if (nextStatus === 'Completed' && (!form.completionNotes.trim() || (asset?.meterUnit && form.meterReading === ''))) { setError('Record the work performed and final meter reading before completing the work.'); setTab('Repair'); setTransition(null); return }
     if (['Cancelled', 'WaitingForParts'].includes(nextStatus) && nextStatus !== job?.status && !reason.trim()) return
@@ -172,7 +176,7 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
   }
   const wantsReason = transition === 'Cancelled' || transition === 'WaitingForParts' || Boolean(job && closed(job) && transition === 'InProgress')
   return <>
-    <Drawer anchor="right" open onClose={() => !busy && guard(onClose)} slotProps={{ paper: { sx: { width: { xs: '100%', lg: 820 }, maxWidth: '100%', bgcolor: 'background.default' } } }}>
+    <Dialog open onClose={() => !busy && guard(onClose)} fullWidth maxWidth="lg" slotProps={{ paper: { sx: { height: 'min(900px, 92dvh)', borderRadius: 3, overflow: 'hidden', bgcolor: 'background.default' } } }}>
       <Box role="dialog" aria-label={job ? `Maintenance ${job.jobNumber}` : 'Log maintenance job'} sx={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Box p={{ xs: 2, sm: 3 }} bgcolor="background.paper">
           <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={2}><Box><Typography variant="overline" color="text.secondary">{job ? 'Maintenance work' : 'New maintenance job'}</Typography><Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>{job?.assetNumber ?? 'Log maintenance job'}</Typography><Typography color="text.secondary">{job ? `${job.assetName} · ${job.branchName}` : 'Choose an asset and describe the work required.'}</Typography></Box><IconButton aria-label="Close maintenance workspace" disabled={busy} onClick={() => guard(onClose)}><CloseOutlined /></IconButton></Stack>
@@ -187,13 +191,7 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
           </Stack>
           {job && <Typography variant="caption" color="text.secondary">Current meter: {job.currentMeterReading ?? '—'} {job.meterUnit}</Typography>}
         </Box>
-        {job && <Box component="nav" aria-label="Maintenance progress" sx={{ px: { xs: 1, sm: 3 }, py: 2, bgcolor: 'background.paper', borderTop: 1, borderBottom: 1, borderColor: 'divider' }}>
-          <Stepper nonLinear alternativeLabel activeStep={workflowSteps.findIndex(step => step.key === tab)} sx={{ '& .MuiStepLabel-label': { fontSize: { xs: '0.75rem', sm: '0.875rem' } }, '& .MuiStepButton-root': { minHeight: 44 } }}>
-            {workflowSteps.map((step, index) => <Step key={step.key} completed={index < workflowSteps.findIndex(step => step.key === workflowTab(job))}>
-              <StepButton aria-current={tab === step.key ? 'step' : undefined} disabled={busy || loading || index === 1 && job.status === 'Open' || index === 2 && !closed(job) || index === 3 && !job.releasedAt} onClick={() => navigate(step.key)}>{step.title}</StepButton>
-            </Step>)}
-          </Stepper>
-        </Box>}
+        <Box sx={{display:'flex',flexDirection:{xs:'column',md:'row'},flex:1,minHeight:0}}>{job&&<WorkspaceSections labels={workflowSteps.map(step=>step.title)} active={workflowSteps.findIndex(step=>step.key===tab)} onChange={index=>navigate(workflowSteps[index].key)} disabled={workflowSteps.flatMap((_,index)=>busy||loading||index===1&&job.status==='Open'||index===2&&!closed(job)||index===3&&!job.releasedAt?[index]:[])}/>}
         <Box component="form" ref={formElement} onInvalidCapture={event => { const panel = (event.target as HTMLElement).closest('.MuiAccordion-root'); const toggle = panel?.querySelector<HTMLButtonElement>('button[aria-expanded="false"]'); toggle?.click() }} onSubmit={event => { if (['Safety', 'History'].includes(tab)) event.preventDefault(); else void save(event) }} sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <Box sx={{ flex: 1, overflowY: 'auto', px: { xs: 2, sm: 3 }, py: 3 }}>
             {error && <Alert severity="error" sx={{ mb: 2 }} role="alert">{error}{jobId && !dirty && <Button onClick={() => void loadDetail(jobId)}>Refresh record</Button>}</Alert>}
@@ -336,8 +334,8 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
             <Button variant="contained" disabled={busy || loading || !detail?.safetyChecks.length || checks.length !== detail.safetyChecks.length || Boolean(job.meterUnit && !safetyMeter)} onClick={() => { if (formElement.current?.reportValidity()) void release() }}>Confirm safety and return to service</Button>
           </Box>}
         </Box>
-      </Box>
-    </Drawer>
+      </Box></Box>
+    </Dialog>
     {inspectionId && <MaintenanceInspectionRecord key={inspectionId} id={inspectionId} onClose={() => setInspectionId(null)} />}
     <Dialog open={Boolean(auditRecord)} onClose={() => setAuditRecord(null)} fullWidth maxWidth="sm"><DialogTitle>Audit record</DialogTitle><DialogContent>{auditRecord && <Stack spacing={2}><Typography fontWeight={700}>{auditRecord.action}</Typography><Typography>{auditRecord.userName} · {date(auditRecord.occurredAt, true)}</Typography><Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{auditRecord.summary}</Typography><Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>Job: {job?.jobNumber}{auditRecord.id ? ` · Audit reference: ${auditRecord.id}` : ''}</Typography></Stack>}</DialogContent><DialogActions><Button onClick={() => setAuditRecord(null)}>Close audit record</Button></DialogActions></Dialog>
     {parts && job && <MaintenancePartsDialog job={job} onClose={() => setParts(false)} onChanged={async () => { await loadDetail(job.id); onSaved(`${job.jobNumber}: inventory and expenses updated.`) }} />}

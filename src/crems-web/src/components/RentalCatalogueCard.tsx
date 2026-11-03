@@ -6,13 +6,13 @@ import { hireQuantity, measuredUnit } from '../utils/hirePricing'
 
 type CatalogueAsset = {
   id: string; assetNumber: string; name: string; category: string | null; serviceName: string | null; type: string
-  status: string; isAvailable: boolean; branchName: string; dailyRate: number; hireUnit?: string; useServiceHireRate?: boolean
+  status: string; isAvailable: boolean; branchName: string; dailyRate: number; hireUnit?: string; useServiceHireRate?: boolean; nextAvailableAt?: string | null
   isBookableOnline?: boolean; requiresQuote: boolean; personnelRequirement: string; allowsQuoteRequests?: boolean
 }
 
-export function RentalCatalogueCard({ asset, photos, photoIndex, searched, startDate, endDate, onPhoto, onDetails, onChooseDates, onBook }: {
+export function RentalCatalogueCard({ asset, photos, photoIndex, searched, startDate, endDate, onPhoto, onDetails, onChooseDates, onChooseNext, onBook }: {
   asset: CatalogueAsset; photos: string[]; photoIndex: number; searched: boolean; startDate: string; endDate: string
-  onPhoto: (direction: number) => void; onDetails: () => void; onChooseDates: () => void; onBook: (quote: boolean) => void
+  onPhoto: (direction: number) => void; onDetails: () => void; onChooseDates: () => void; onChooseNext?: (next: string) => void; onBook: (quote: boolean) => void
 }) {
   const unit = asset.hireUnit ?? 'Day'
   const vehicle = ['Vehicle', 'PassengerVehicle', 'CommercialVehicle'].includes(asset.type)
@@ -23,6 +23,8 @@ export function RentalCatalogueCard({ asset, photos, photoIndex, searched, start
         <Typography fontWeight={800} lineHeight={1.35}>{asset.name}</Typography>
         <Typography variant="caption" color="text.secondary">{asset.category ?? asset.serviceName ?? asset.type} · {asset.assetNumber}</Typography>
         {searched && <Chip label={asset.isAvailable ? 'Available for dates' : 'Unavailable for dates'} color={asset.isAvailable ? 'success' : 'default'} size="small" sx={{ maxWidth: '100%', height: 'auto', minHeight: 24, '& .MuiChip-label': { whiteSpace: 'normal', py: .25 } }} />}
+        {searched && !asset.isAvailable && asset.nextAvailableAt && <Typography variant="caption">Next available: {new Date(asset.nextAvailableAt).toLocaleString('en-FJ', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Pacific/Fiji' })}</Typography>}
+        {searched && !asset.isAvailable && asset.nextAvailableAt && onChooseNext && <Button size="small" onClick={() => onChooseNext(asset.nextAvailableAt!)}>Search from this time</Button>}
       </Stack>
     </CardContent>
     <Box sx={{ height: 180, flexShrink: 0, position: 'relative', mx: 1.5, borderRadius: 2, bgcolor: '#f7f6ef' }}>

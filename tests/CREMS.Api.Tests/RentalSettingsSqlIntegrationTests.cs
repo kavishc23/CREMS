@@ -75,7 +75,7 @@ public sealed class RentalSettingsSqlIntegrationTests
             foreach(var (key,value) in changes)
                 Assert.Equal(HttpStatusCode.NoContent,(await client.PutAsJsonAsync("/api/administration/settings/"+key,new {value},token)).StatusCode);
             var saved=await client.GetFromJsonAsync<JsonElement>("/api/administration/settings",token);
-            Assert.Equal(7,saved.GetArrayLength());
+            Assert.Equal(RentalSettings.Definitions.Count,saved.GetArrayLength());
             foreach(var (key,value) in changes)
                 Assert.Equal(key.EndsWith("Prefix")?value.ToUpperInvariant():value,saved.EnumerateArray().Single(x=>x.GetProperty("key").GetString()==key).GetProperty("value").GetString());
             foreach(var (key,value) in new Dictionary<string,string>{["rentals.bookingPrefix"]="1BAD",["rentals.agreementPrefix"]="BAD PREFIX",["rentals.vatRate"]="101",["rentals.lateFeeMultiplier"]="-1",["security.lockoutMinutes"]="0",["security.maxFailedAttempts"]="1.5",["data.retentionYears"]="0"})

@@ -47,6 +47,7 @@ public sealed class Asset : Entity
     public bool InheritBond { get; set; }
     public PersonnelRequirement? PersonnelOverride { get; set; }
     public DateOnly? NextServiceDate { get; set; }
+    public int TurnaroundMinutes { get; set; } = 60;
     public bool IsActive { get; set; } = true;
 }
 

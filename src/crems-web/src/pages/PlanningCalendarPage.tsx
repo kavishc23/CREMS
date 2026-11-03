@@ -125,6 +125,7 @@ export function PlanningCalendarPage() {
     const from = addDays(rangeStartDate, -7)
     const to = addDays(rangeEndDate, 7)
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset request feedback when the external calendar range changes.
     setLoading(true); setError('')
     void api.get<Calendar>('/planning/calendar', {
       params: {

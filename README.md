@@ -27,6 +27,19 @@ docs/            Maintained setup, configuration, and operations guides
 
 ## Run locally
 
+### Windows client setup
+
+Follow the detailed [Windows client run guide](docs/CLIENT_RUN_GUIDE.md) for first-time installation, everyday startup, optional SMTP, backups and troubleshooting.
+An offline [PDF copy](docs/CREMS_Client_Run_Guide.pdf) is included for client handover.
+
+Install the prerequisites in [Client handover](docs/CLIENT_HANDOVER.md), open PowerShell in this repository, and run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1
+```
+
+The first run asks for database and administrator settings. Subsequent runs use the same command. Docker is optional when an existing SQL Server is available. This is a local evaluation setup; email is disabled by the Windows launcher.
+
 ### One-command startup
 
 Copy the environment template, fill in the required values, then start the complete local stack:

@@ -75,13 +75,23 @@ builder.Services.AddAuthentication().AddCookie(SystemAuthenticationSchemes.Custo
     options.Cookie.SameSite = SameSiteMode.Strict;
     options.ExpireTimeSpan = TimeSpan.FromMinutes(15);
     options.SlidingExpiration = true;
+    options.Events.OnValidatePrincipal = async context =>
+    {
+        var users = context.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = context.Principal is null ? null : await users.GetUserAsync(context.Principal);
+        var stampType = users.Options.ClaimsIdentity.SecurityStampClaimType;
+        if (user is null || !user.IsActive || user.AccountStatus is AccountLifecycleStatus.Suspended or AccountLifecycleStatus.Deactivated ||
+            user.LockoutEnabled && user.LockoutEnd > DateTimeOffset.UtcNow ||
+            user.SecurityStamp != context.Principal?.FindFirst(stampType)?.Value)
+            context.RejectPrincipal();
+    };
     options.Events.OnRedirectToLogin = context => { context.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; };
     options.Events.OnRedirectToAccessDenied = context => { context.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
 });
 
 builder.Services.AddApplicationAuthorization();
 
-builder.Services.AddControllers().AddJsonOptions(options =>
+builder.Services.AddControllers(options => options.Filters.Add<RequestEnumValidationFilter>()).AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi(ApiDocumentation.Configure);
 builder.Services.AddProblemDetails();
@@ -120,6 +130,14 @@ builder.Services.Configure<SecurityStampValidatorOptions>(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            message = "Too many requests were made. Wait a moment and try again."
+        }, cancellationToken: token);
+    };
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         RateLimitPartition.GetFixedWindowLimiter(
             context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -224,8 +242,8 @@ app.Use(async (context, next) =>
 });
 app.UseCors("Frontend");
 app.UseRequestTimeouts();
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 app.UseMiddleware<WindowSessionMiddleware>();
 

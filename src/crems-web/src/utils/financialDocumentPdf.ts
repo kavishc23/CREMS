@@ -1,5 +1,7 @@
 import { downloadRentalFinancialPdf } from './rentalFinancialPdf'
+import { api } from '../api/client'
 type InvoiceDocument = {
+  id?: string; subtotal?: number; taxAmount?: number; taxInclusive?: boolean; adjustment?: number; lines?: {description: string; quantity: number; rate: number; unit: string; amount: number; isTaxable: boolean}[]
   invoiceNumber: string; bookingNumber: string; customerName: string; branchName: string
   total: number; amountPaid: number; balanceDue: number; status: string; issuedAt: string
 }
@@ -23,39 +25,42 @@ async function documentShell(title: string, reference: string, lines: [string, s
   }
   const write = (label: string, value: string) => {
     const wrapped = pdf.splitTextToSize(value || '-', 108)
-    const height = Math.max(10, wrapped.length * 5 + 4)
+    const labelLines = pdf.splitTextToSize(label.toUpperCase(), 46) as string[]
+    const height = Math.max(10, wrapped.length * 5 + 4, labelLines.length * 4 + 4)
     if (y + height > 274) { pdf.addPage(); page() }
-    pdf.setTextColor(100); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8); pdf.text(label.toUpperCase(), margin, y)
+    pdf.setTextColor(100); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8); pdf.text(labelLines, margin, y)
     pdf.setTextColor(25); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10); pdf.text(wrapped, margin + 52, y)
     pdf.setDrawColor(225); pdf.line(margin, y + height - 2, margin + width, y + height - 2); y += height
   }
-  page(); pdf.setTextColor(25); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); pdf.text(reference, margin, y); y += 14
+  page(); pdf.setTextColor(25); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); const referenceLines = pdf.splitTextToSize(reference, width) as string[]; pdf.text(referenceLines, margin, y); y += referenceLines.length * 6 + 8
   lines.forEach(([label, value]) => write(label, value))
-  pdf.setFontSize(7.5); pdf.setTextColor(105); pdf.text(`Generated ${date(new Date().toISOString())} | CREMS staff record`, margin, 288)
+  for(let pageNumber=1;pageNumber<=pdf.getNumberOfPages();pageNumber++){pdf.setPage(pageNumber);pdf.setFontSize(7.5);pdf.setTextColor(105);pdf.text(`Generated ${date(new Date().toISOString())} | CREMS staff record | Page ${pageNumber} of ${pdf.getNumberOfPages()}`, margin, 288)}
   pdf.save(filename)
 }
 
-export function downloadInvoicePdf(invoice: InvoiceDocument) {
+export async function downloadInvoicePdf(record: InvoiceDocument) {
+  const invoice: InvoiceDocument = record.id ? (await api.get<InvoiceDocument>(`/finance/invoices/${record.id}/document`)).data : record
   return downloadRentalFinancialPdf({ kind: 'Invoice', reference: invoice.invoiceNumber,
     details: [['Booking', invoice.bookingNumber], ['Customer', invoice.customerName], ['Branch', invoice.branchName], ['Issued', date(invoice.issuedAt)], ['Status', invoice.status]],
-    lines: [{ description: 'Recorded rental invoice total (including VAT)', quantity: 1, rate: invoice.total }],
-    totals: [{ label: 'Invoice total', amount: invoice.total, emphasis: true }, { label: 'Payments received', amount: invoice.amountPaid }, { label: 'Balance due', amount: invoice.balanceDue, emphasis: true }],
-    note: 'Summary of the recorded invoice. Contact the issuing branch for the full itemised account and payment arrangements.' })
+    lines: invoice.lines?.length ? invoice.lines.map(line => ({ ...line, description: `${line.description}${line.isTaxable ? '' : ' (VAT exempt)'}` })) : [{ description: 'Legacy invoice total (itemisation unavailable)', quantity: 1, rate: invoice.total }],
+    totals: [...(invoice.subtotal != null ? [{ label: invoice.taxInclusive ? 'Subtotal including VAT' : 'Subtotal before VAT', amount: invoice.subtotal }, { label: invoice.taxInclusive ? 'VAT included above' : 'VAT', amount: invoice.taxAmount ?? 0 }] : []), ...(invoice.adjustment ? [{ label: 'Invoice adjustments / applied credits', amount: invoice.adjustment }] : []), { label: 'Invoice total', amount: invoice.total, emphasis: true }, { label: 'Payments and bond applied', amount: invoice.amountPaid }, { label: 'Balance due', amount: invoice.balanceDue, emphasis: true }],
+    note: 'Recorded invoice account. Refundable bonds are held separately and are not rental revenue. Voided invoices are not payable. Any invoice adjustment is shown separately from the original charge schedule.' })
 }
 
 export function downloadReceiptPdf(receipt: ReceiptDocument) {
   return documentShell('Payment receipt', receipt.receiptNumber, [
     ['Booking', receipt.bookingNumber], ['Customer', receipt.customerName], ['Branch', receipt.branchName], ['Recorded', date(receipt.createdAt)],
-    ['Payment type', receipt.type.replace(/([a-z])([A-Z])/g, '$1 $2')], ['Method', receipt.method.replace(/([a-z])([A-Z])/g, '$1 $2')], ['Amount received', money(receipt.amount)], ['Status', receipt.status],
+    ['Payment type', receipt.type.replace(/([a-z])([A-Z])/g, '$1 $2')], ['Method', receipt.method.replace(/([a-z])([A-Z])/g, '$1 $2')], [receipt.type === 'BondRefund' || receipt.type === 'Refund' ? 'Amount refunded' : 'Amount received', money(receipt.amount)], ['Status', receipt.status],
   ], `${receipt.receiptNumber}.pdf`)
 }
 
 export function downloadCustomerStatementPdf(customerName: string, invoices: InvoiceDocument[]) {
+  invoices = invoices.filter(item => item.status !== 'Voided' && item.status !== 'Draft')
   const total = invoices.reduce((sum, item) => sum + item.total, 0)
   const paid = invoices.reduce((sum, item) => sum + item.amountPaid, 0)
   const outstanding = invoices.reduce((sum, item) => sum + item.balanceDue, 0)
   return documentShell('Customer statement', customerName, [
-    ['Statement date', date(new Date().toISOString())], ['Invoices included', String(invoices.length)], ['Total invoiced', money(total)], ['Payments received', money(paid)], ['Balance outstanding', money(outstanding)],
+    ['Statement date', date(new Date().toISOString())], ['Invoices included', String(invoices.length)], ['Total invoiced', money(total)], ['Payments and bond applied', money(paid)], ['Balance outstanding', money(outstanding)],
     ...invoices.map(item => [`${item.invoiceNumber} · ${new Date(item.issuedAt).toLocaleDateString('en-FJ')}`, `${item.bookingNumber} | Total ${money(item.total)} | Balance ${money(item.balanceDue)}`] as [string, string]),
   ], `statement-${customerName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`)
 }

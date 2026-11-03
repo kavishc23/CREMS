@@ -21,12 +21,13 @@ export function DivisionBookingFlowPage(){
   useEffect(()=>{void api.get<DivisionOption[]>('/divisions').then(response=>{
     setDivisions(response.data);setDivisionId(current=>current||response.data.find(x=>x.isActive)?.id||response.data[0]?.id||'')
   }).catch(()=>setError('Divisions could not be loaded.'))},[])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronize the selected division and its server-backed configuration editor.
   useEffect(()=>{if(!divisionId){setPolicy(null);return}let active=true;setLoading(true);setError('');setSaved('')
     void api.get<Policy>(`/divisions/${divisionId}/booking-flow`).then(response=>{if(active)setPolicy(response.data)})
       .catch(()=>{if(active)setError('Booking flow could not be loaded for this division.')})
       .finally(()=>{if(active)setLoading(false)})
     return()=>{active=false}
-  },[divisionId])
+  },[divisionId,setSaved])
   const updateFlow=(change:Partial<Flow>)=>setPolicy(current=>current?{...current,flow:{...current.flow,...change}}:current)
   const selectedDivision=divisions.find(item=>item.id===divisionId)
   const onlineServices=selectedDivision?.services?.filter(item=>item.isActive&&(item.isBookableOnline||item.requiresQuote)).length??0
