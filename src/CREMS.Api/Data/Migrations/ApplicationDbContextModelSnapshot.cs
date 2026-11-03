@@ -4257,11 +4257,17 @@ namespace CREMS.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<decimal>("BondDeductionAmount")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<Guid>("BookingId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CustomerResolution")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -4273,6 +4279,12 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<string>("EvidenceJson")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("FineAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool>("ImmediateReturnRequested")
+                        .HasColumnType("bit");
 
                     b.Property<string>("IncidentNumber")
                         .IsRequired()
@@ -4291,6 +4303,18 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<string>("PoliceReference")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ReviewedByName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("ReviewedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("StaffResolution")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
@@ -4299,6 +4323,9 @@ namespace CREMS.Api.Data.Migrations
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("WarningIssued")
+                        .HasColumnType("bit");
 
                     b.HasKey("Id");
 

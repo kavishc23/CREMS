@@ -1,7 +1,9 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using CREMS.Api.Data;
+using CREMS.Api.Domain.Assets;
 using CREMS.Api.Domain.Common;
+using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
 using Microsoft.AspNetCore.Authorization;
@@ -102,6 +104,70 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
         await db.SaveChangesAsync(cancellationToken); return Ok(new { incident.Id, incident.BookingId, incident.IncidentNumber, incident.Type, incident.OccurredAt, incident.Description, incident.EstimatedCost, incident.Status });
     }
 
+    [HttpPost("incidents/{incidentId:guid}/resolution")]
+    public async Task<ActionResult> ResolveIncident(Guid bookingId, Guid incidentId, IncidentResolutionRequest request, CancellationToken cancellationToken)
+    {
+        await using var transaction = await CREMS.Api.Services.MaintenanceRules.BeginAsync(db, cancellationToken);
+        var access = await GetBooking(bookingId, cancellationToken); if (access.Result is not null) return access.Result;
+        var booking = access.Booking!;
+        var incident = await db.RentalIncidents.FirstOrDefaultAsync(x => x.Id == incidentId && x.BookingId == bookingId, cancellationToken);
+        if (incident is null) return NotFound();
+        if (request.BondDeductionAmount > 0 && request.BondDeductionAmount > Math.Max(0, booking.BondAmountHeld - booking.BondDeductionAmount))
+            return Validation("bondDeductionAmount", "The bond deduction cannot exceed the remaining held bond.");
+        if (request.FineAmount < 0) return Validation("fineAmount", "Fine amount cannot be negative.");
+        if (string.IsNullOrWhiteSpace(request.StaffResolution) || request.StaffResolution.Trim().Length < 10)
+            return Validation("staffResolution", "Enter a complete internal resolution note of at least 10 characters.");
+
+        incident.Status = request.Status;
+        incident.StaffResolution = request.StaffResolution.Trim();
+        incident.CustomerResolution = Clean(request.CustomerResolution) ?? $"The incident is being handled as {request.Status}. The branch will contact you if any action is required.";
+        incident.BondDeductionAmount = request.BondDeductionAmount;
+        incident.FineAmount = request.FineAmount;
+        incident.WarningIssued = request.WarningIssued;
+        incident.ImmediateReturnRequested = request.ImmediateReturnRequested;
+        incident.ReviewedByUserId = access.Scope!.UserId;
+        incident.ReviewedByName = access.Scope.UserName;
+        incident.ReviewedAt = DateTimeOffset.UtcNow;
+
+        if (request.BondDeductionAmount > 0)
+        {
+            booking.BondDeductionAmount += request.BondDeductionAmount;
+            booking.BondDeductionReason = string.Join("\n", new[] { booking.BondDeductionReason, $"Incident {incident.IncidentNumber}: {request.StaffResolution.Trim()}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            booking.BondStatus = BondStatus.Retained;
+        }
+        if (request.FineAmount > 0)
+        {
+            db.BookingCharges.Add(new BookingCharge { BookingId = bookingId, Description = $"Incident fine — {incident.IncidentNumber}", Category = ChargeCategory.Other, Quantity = 1, Unit = ChargeUnit.Unit, UnitRate = request.FineAmount, UnitCost = request.FineAmount, IsTaxable = false });
+            booking.AdditionalCharges += request.FineAmount;
+            booking.AdditionalChargesDescription = string.Join("\n", new[] { booking.AdditionalChargesDescription, $"Incident fine {incident.IncidentNumber}: FJD {request.FineAmount:0.00}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        }
+        if (request.CancelRental)
+        {
+            if (booking.Status != BookingStatus.ConvertedToRental) return Validation("cancelRental", "Only an active converted rental can be cancelled.");
+            booking.Status = BookingStatus.Cancelled;
+            if (booking.RentalAgreement is not null) booking.RentalAgreement.Status = AgreementStatus.Cancelled;
+            foreach (var item in booking.Items)
+            {
+                var asset = await db.Assets.FirstOrDefaultAsync(x => x.Id == item.AssetId, cancellationToken);
+                if (asset is not null) asset.Status = AssetStatus.Available;
+            }
+            booking.Notes = string.Join("\n", new[] { booking.Notes, $"Active rental cancelled after incident {incident.IncidentNumber}: {request.StaffResolution.Trim()}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        }
+
+        var customerCase = await db.CustomerCases.FirstOrDefaultAsync(x => x.CustomerId == booking.CustomerId && x.Subject.Contains(incident.IncidentNumber), cancellationToken)
+            ?? await db.CustomerCases.FirstOrDefaultAsync(x => x.CustomerId == booking.CustomerId && x.Subject.Contains(booking.BookingNumber) && x.Subject.StartsWith("Customer incident"), cancellationToken);
+        if (customerCase is not null)
+        {
+            customerCase.Status = CaseStatus.Resolved;
+            customerCase.Resolution = incident.CustomerResolution;
+        }
+
+        AuditWriter.Record(db, access.Scope, "Rental incident resolved", "Booking", bookingId, $"{incident.IncidentNumber}: {incident.Status}. {request.StaffResolution.Trim()}", booking.BranchId);
+        await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return Ok(new { incident.Id, incident.IncidentNumber, incident.Status, incident.CustomerResolution, incident.BondDeductionAmount, incident.FineAmount, incident.WarningIssued, incident.ImmediateReturnRequested, cancellationRequested = request.CancelRental });
+    }
+
     [HttpPost("notifications")]
     public async Task<ActionResult> QueueNotification(Guid bookingId, NotificationRequest request, CancellationToken cancellationToken)
     {
@@ -138,5 +204,6 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
 public sealed record DriverRequest([Required] string FullName, [Required] string LicenceNumber, string? LicenceClass, DateOnly LicenceExpiry, bool Verified);
 public sealed record PaymentRequest(PaymentType Type, PaymentMethod Method, [Range(0.01, 1000000)] decimal Amount, string? ReceiptNumber, string? Note);
 public sealed record IncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required] string Description, string? Location, string? PoliceReference, string? InsuranceClaimNumber, [Range(0, 1000000)] decimal EstimatedCost, IReadOnlyList<string>? EvidenceDataUrls);
+public sealed record IncidentResolutionRequest(IncidentStatus Status, [Required] string StaffResolution, string? CustomerResolution, [Range(0, 1000000)] decimal BondDeductionAmount, [Range(0, 1000000)] decimal FineAmount, bool WarningIssued, bool ImmediateReturnRequested, bool CancelRental);
 public sealed record NotificationRequest(NotificationChannel Channel, [Required] string Recipient, [Required] string Subject, [Required] string Message);
 public sealed record AddendumRequest([Required] string Reason, DateTimeOffset? NewEndAt, decimal? NewDailyRate, string? Note, [Required] string CustomerSignatureName);

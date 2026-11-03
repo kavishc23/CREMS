@@ -10,7 +10,9 @@ Use Windows 10/11 with PowerShell 5.1 or newer and an internet connection. Insta
 - [Node.js LTS](https://nodejs.org/) version 22 or newer.
 - Either [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL 2 and Linux containers enabled, or access to an installed Microsoft SQL Server. SQL Server Express is suitable for a small local evaluation. SQL Server Developer and the supplied Docker image are for development/testing, not a production licence.
 
-Clone the repository or extract its source ZIP, open PowerShell in the folder containing README.md, and run:
+Clone the repository or extract its source ZIP. For the simplest guided setup, double-click `INSTALL_CREMS.bat` in the folder containing `README.md`. It installs missing .NET and Node.js prerequisites through WinGet, offers Docker only as an optional database choice, restores dependencies, compiles CREMS and verifies that the API becomes healthy before starting the website.
+
+For a centrally managed or manual installation, open PowerShell in the folder containing README.md and run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1

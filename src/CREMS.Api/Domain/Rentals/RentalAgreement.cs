@@ -27,4 +27,4 @@ public sealed class RentalAgreement : Entity
     public ICollection<RentalAgreementAddendum> Addendums { get; set; } = [];
 }
 
-public enum AgreementStatus { Draft, ReadyForPickup, Signed, Active, Completed, Superseded }
+public enum AgreementStatus { Draft, ReadyForPickup, Signed, Active, Completed, Cancelled, Superseded }

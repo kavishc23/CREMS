@@ -52,9 +52,29 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         if (request.ReplacementAssetId is null)
         {
             booking.Status = BookingStatus.Cancelled;
-            booking.Notes = string.Join("\n", new[] { booking.Notes, $"Confirmed hire cancelled: {request.Reason.Trim()}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            foreach (var item in booking.Items.Where(x => x.AssetId != Guid.Empty))
+            {
+                var allocatedAsset = item.Asset;
+                if (allocatedAsset?.Status == AssetStatus.Reserved)
+                    allocatedAsset.Status = AssetStatus.Available;
+            }
+            var reason = request.Reason.Trim();
+            booking.Notes = string.Join("\n", new[] { booking.Notes, $"Confirmed hire cancelled: {reason}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            db.CustomerCases.Add(new CustomerCase
+            {
+                CaseNumber = $"CASE-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
+                CustomerId = booking.CustomerId,
+                BranchId = booking.BranchId,
+                Type = CaseType.General,
+                Status = CaseStatus.Closed,
+                Priority = CasePriority.High,
+                Subject = $"Booking cancelled — {booking.BookingNumber}",
+                Description = "The branch cancelled this confirmed booking due to an operational exception.",
+                Resolution = reason,
+                DueAt = DateTimeOffset.UtcNow
+            });
             AuditWriter.Record(db, scope, "Confirmed booking cancelled", nameof(Booking), id,
-                $"{booking.BookingNumber}: {request.Reason.Trim()}", booking.BranchId);
+                $"{booking.BookingNumber}: {reason}", booking.BranchId);
         }
         else
         {
@@ -72,12 +92,30 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                 .Select(x => new { x.StartAt, x.EndAt }).ToListAsync(token);
             if (reservations.Any(x => RentalAvailability.Conflicts(item.StartAt, item.EndAt, x.StartAt, x.EndAt, replacement.TurnaroundMinutes)))
                 return Conflict(new { message = "The replacement asset is booked during this hire or its turnaround period." });
-            var previous = item.Asset?.AssetNumber ?? item.AssetId.ToString();
+            var previousAsset = item.Asset;
+            var previous = previousAsset?.AssetNumber ?? item.AssetId.ToString();
             item.AssetId = replacement.Id;
             item.Asset = replacement;
-            booking.Notes = string.Join("\n", new[] { booking.Notes, $"Asset replaced: {previous} → {replacement.AssetNumber}. {request.Reason.Trim()}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            if (previousAsset?.Status == AssetStatus.Reserved)
+                previousAsset.Status = AssetStatus.Available;
+            replacement.Status = AssetStatus.Reserved;
+            var reason = request.Reason.Trim();
+            booking.Notes = string.Join("\n", new[] { booking.Notes, $"Asset replaced: {previous} → {replacement.AssetNumber}. {reason}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            db.CustomerCases.Add(new CustomerCase
+            {
+                CaseNumber = $"CASE-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
+                CustomerId = booking.CustomerId,
+                BranchId = booking.BranchId,
+                Type = CaseType.General,
+                Status = CaseStatus.Resolved,
+                Priority = CasePriority.High,
+                Subject = $"Booking asset replacement — {booking.BookingNumber}",
+                Description = $"The branch replaced the originally allocated asset ({previous}) with {replacement.AssetNumber}.",
+                Resolution = reason,
+                DueAt = DateTimeOffset.UtcNow
+            });
             AuditWriter.Record(db, scope, "Confirmed booking asset replaced", nameof(Booking), id,
-                $"{booking.BookingNumber}: {previous} → {replacement.AssetNumber}. {request.Reason.Trim()}", booking.BranchId);
+                $"{booking.BookingNumber}: {previous} → {replacement.AssetNumber}. {reason}", booking.BranchId);
         }
         booking.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(token);
