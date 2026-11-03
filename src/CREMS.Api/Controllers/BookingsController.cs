@@ -52,6 +52,12 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         if (request.ReplacementAssetId is null)
         {
             booking.Status = BookingStatus.Cancelled;
+            foreach (var item in booking.Items.Where(x => x.AssetId != Guid.Empty))
+            {
+                var allocatedAsset = item.Asset;
+                if (allocatedAsset?.Status == AssetStatus.Reserved)
+                    allocatedAsset.Status = AssetStatus.Available;
+            }
             booking.Notes = string.Join("\n", new[] { booking.Notes, $"Confirmed hire cancelled: {request.Reason.Trim()}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
             AuditWriter.Record(db, scope, "Confirmed booking cancelled", nameof(Booking), id,
                 $"{booking.BookingNumber}: {request.Reason.Trim()}", booking.BranchId);
@@ -72,9 +78,13 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                 .Select(x => new { x.StartAt, x.EndAt }).ToListAsync(token);
             if (reservations.Any(x => RentalAvailability.Conflicts(item.StartAt, item.EndAt, x.StartAt, x.EndAt, replacement.TurnaroundMinutes)))
                 return Conflict(new { message = "The replacement asset is booked during this hire or its turnaround period." });
-            var previous = item.Asset?.AssetNumber ?? item.AssetId.ToString();
+            var previousAsset = item.Asset;
+            var previous = previousAsset?.AssetNumber ?? item.AssetId.ToString();
             item.AssetId = replacement.Id;
             item.Asset = replacement;
+            if (previousAsset?.Status == AssetStatus.Reserved)
+                previousAsset.Status = AssetStatus.Available;
+            replacement.Status = AssetStatus.Reserved;
             booking.Notes = string.Join("\n", new[] { booking.Notes, $"Asset replaced: {previous} → {replacement.AssetNumber}. {request.Reason.Trim()}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
             AuditWriter.Record(db, scope, "Confirmed booking asset replaced", nameof(Booking), id,
                 $"{booking.BookingNumber}: {previous} → {replacement.AssetNumber}. {request.Reason.Trim()}", booking.BranchId);
