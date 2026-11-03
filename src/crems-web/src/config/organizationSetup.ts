@@ -47,7 +47,7 @@ export function templateService(index: number, suffix = ''): SetupService {
   const c = newCategory(t.code + suffix, t.label); c.category.defaultMeterType = t.meter || null; c.category.defaultAssetType = t.assetType
   c.attributes = t.fields.map((name, i) => ({ code: name.toUpperCase().replaceAll(' ', '_'), name, dataType: /area|rooms|quantity|capacity|height|output|weight|voltage/i.test(name) ? 'Number' : /date/i.test(name) ? 'Date' : 'Text', unit: null, isRequired: i === 0, isSearchable: true, isCustomerVisible: false, isReportable: true, displayOrder: i, optionsJson: '[]' }))
   c.templates = [newTemplate('PreHire', t.checks), newTemplate('PostHire', t.checks.map(check => 'Return: ' + check))]
-  result.categories = [c]; return result
+  result.categories = t.type === 'VehicleRental' ? ['SUV', 'Sedan', 'Hatchback', 'Minivan', 'Van', 'Pickup', 'Truck'].map(name => ({ ...structuredClone(c), category: { ...c.category, code: name.toUpperCase(), name, defaultAssetType: ['Van', 'Truck'].includes(name) ? 'CommercialVehicle' : 'PassengerVehicle' }, attributes: [...structuredClone(c.attributes), ...['Seats', 'Transmission', 'Fuel type'].map((field, i) => ({ code: field.toUpperCase().replaceAll(' ', '_'), name: field, dataType: field === 'Seats' ? 'Number' : 'Text', unit: null, isRequired: true, isSearchable: true, isCustomerVisible: true, isReportable: true, displayOrder: c.attributes.length + i, optionsJson: '[]' }))] })) : [c]; return result
 }
 
 // Flags are serialized by the API as enum names; older clients also used numbers.

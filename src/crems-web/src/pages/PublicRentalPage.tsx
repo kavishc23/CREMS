@@ -1,3 +1,5 @@
+import Popover from '@mui/material/Popover'
+import TuneOutlined from '@mui/icons-material/TuneOutlined'
 import { useSearchNavigationGuard } from '../components/useSearchNavigationGuard'
 import { matchesHomepagePreferences } from '../utils/customerPreferences'
 import { hireQuantity, measuredUnit } from '../utils/hirePricing'
@@ -162,12 +164,15 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [photoIndexes, setPhotoIndexes] = useState<Record<string, number>>({})
   const [galleryOffsets, setGalleryOffsets] = useState<Record<string, number>>({})
+  const [advancedFilterAnchor, setAdvancedFilterAnchor] = useState<HTMLElement | null>(null)
+  const advancedFiltersOpen = Boolean(advancedFilterAnchor)
+  const [resultPreferenceIds, setResultPreferenceIds] = useState<string[]>([])
   const [preferredCategoryIds, setPreferredCategoryIds] = useState<string[]>([])
   const [showModifySearch, setShowModifySearch] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [deliveryConfirmOpen, setDeliveryConfirmOpen] = useState(false)
   const [requestBaseline, setRequestBaseline] = useState('')
-  const searchNavigation = useSearchNavigationGuard(searched && !reference, () => { setSearched(false); setSearchDates(null); setAssets([]); setSelected(null); setDetailAsset(null); setStartDate(dateInputValue(0)); setEndDate(''); setError(''); setDivisionId(''); setBranchId(''); setCategory('All') })
+  const searchNavigation = useSearchNavigationGuard(searched && !reference, () => { setResultPreferenceIds([]); setAttributeFilters({}); setSearched(false); setSearchDates(null); setAssets([]); setSelected(null); setDetailAsset(null); setStartDate(dateInputValue(0)); setEndDate(''); setError(''); setDivisionId(''); setBranchId(''); setCategory('All') })
 
   useEffect(() => {
     if (!selected) return
@@ -211,10 +216,11 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
         branchId: branchId || undefined, startDate, endDate, pickupTime, returnTime,
       } })
       if (!window.history.state?.cremsSearchActive) { const url = new URL(window.location.href); url.searchParams.set('rentalResults', '1'); window.history.pushState({ ...window.history.state, cremsSearchActive: true }, '', url.pathname + url.search) }
+      if (!searched) { setResultPreferenceIds(preferredCategoryIds); const ids = [...new Set(response.data.filter(a => preferredCategoryIds.includes(a.assetCategoryId ?? '')).map(a => a.divisionId))]; if (ids.length === 1) setDivisionId(ids[0] ?? ''); }
       setAssets(response.data); setSearchDates({ startDate, endDate }); setGalleryOffsets({}); setSearched(true); setShowModifySearch(false)
     } catch (reason) { setError(apiErrorMessage(reason, 'We could not check availability. Please try again or contact a branch.')) }
     finally { setLoading(false) }
-  }, [branchId, differentReturnLocation, endDate, returnBranchId, startDate, pickupTime, returnTime])
+  }, [branchId, differentReturnLocation, endDate, returnBranchId, startDate, pickupTime, returnTime, searched, preferredCategoryIds])
 
   useEffect(() => {
     let active = true
@@ -244,22 +250,28 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     return () => { window.removeEventListener('focus', refresh); window.removeEventListener('crems:configuration-changed', refresh) }
   }, [searched, selected, checkAvailability])
 
+  const seatOptions = useMemo(() => [...new Set(catalogueAssets.filter(asset => (!divisionId || asset.divisionId === divisionId) && (category === 'All' || category === (asset.category || asset.serviceName || asset.type))).map(asset => assetAttribute(asset, 'SEATS')).filter(Boolean).map(Number))].sort((a, b) => a - b), [catalogueAssets, divisionId, category])
+  const transmissionOptions = useMemo(() => [...new Set(catalogueAssets.filter(asset => (!divisionId || asset.divisionId === divisionId) && (category === 'All' || category === (asset.category || asset.serviceName || asset.type))).map(asset => assetAttribute(asset, 'TRANSMISSION')).filter(Boolean))].sort(), [catalogueAssets, divisionId, category])
+  const [attributeFilters, setAttributeFilters] = useState<Record<string, string>>({})
+  const divisionFilterAssets = catalogueAssets.filter(asset => (!divisionId || asset.divisionId === divisionId) && (category === 'All' || category === (asset.category || asset.serviceName || asset.type)))
+  const attributeOptions = [...new Map(divisionFilterAssets.flatMap(asset => asset.attributes ?? []).filter(a => !['SEATS', 'TRANSMISSION'].includes(a.code)).map(a => [a.code, { code: a.code, name: a.name }])).values()].map(a => ({ ...a, values: [...new Set(divisionFilterAssets.flatMap(asset => (asset.attributes ?? []).filter(v => v.code === a.code).map(v => v.value)).filter(Boolean))].sort() })).filter(a => a.values.length > 1)
+  useEffect(() => { setAttributeFilters({}); setSeatFilter(''); setTransmissionFilter('') }, [divisionId, category])
   const displayedAssets = useMemo(() => (searched ? assets : catalogueAssets).filter((asset) => {
+    if (resultPreferenceIds.length && !resultPreferenceIds.includes(asset.assetCategoryId ?? '')) return false
+    if (Object.entries(attributeFilters).some(([code, value]) => value && assetAttribute(asset, code) !== value)) return false
     if (divisionId && asset.divisionId !== divisionId) return false
     if (branchId && asset.branchId !== branchId) return false
     if (type && asset.type !== type) return false
     if (availableOnly && searched && !asset.isAvailable) return false
-    if (seatFilter && Number(assetAttribute(asset, 'SEATS')) < Number(seatFilter)) return false
-    if (transmissionFilter && assetAttribute(asset, 'TRANSMISSION') !== transmissionFilter) return false
+    if (seatOptions.length > 0 && seatFilter && Number(assetAttribute(asset, 'SEATS')) < Number(seatFilter)) return false
+    if (transmissionOptions.length > 0 && transmissionFilter && assetAttribute(asset, 'TRANSMISSION') !== transmissionFilter) return false
     if (priceFilter === 'under-200' && asset.dailyRate >= 200) return false
     if (priceFilter === '200-500' && (asset.dailyRate < 200 || asset.dailyRate > 500)) return false
     if (priceFilter === 'over-500' && asset.dailyRate <= 500) return false
     if (category === 'All') return true
     return category === (asset.category || asset.serviceName || asset.type)
-  }), [assets, availableOnly, branchId, catalogueAssets, category, divisionId, priceFilter, searched, seatFilter, transmissionFilter, type])
+  }), [assets, availableOnly, branchId, catalogueAssets, category, divisionId, priceFilter, searched, seatFilter, transmissionFilter, type, seatOptions, transmissionOptions, attributeFilters, resultPreferenceIds])
   const categoryOptions = useMemo(() => [...new Set(catalogueAssets.filter(asset => !divisionId || asset.divisionId === divisionId).map(asset => asset.category || asset.serviceName || asset.type))].sort(), [catalogueAssets, divisionId])
-  const seatOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'SEATS')).filter(Boolean).map(Number))].sort((a, b) => a - b), [catalogueAssets])
-  const transmissionOptions = useMemo(() => [...new Set(catalogueAssets.map(asset => assetAttribute(asset, 'TRANSMISSION')).filter(Boolean))].sort(), [catalogueAssets])
   const sortedAssets = useMemo(() => [...displayedAssets].sort((left, right) => {
     if (sort === 'price-low') return left.dailyRate - right.dailyRate
     if (sort === 'price-high') return right.dailyRate - left.dailyRate
@@ -402,7 +414,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
         <TextField fullWidth type="time" label="Return time" InputLabelProps={{ shrink: true }} value={returnTime} onChange={event => setReturnTime(event.target.value)} />
       </Box>
       <FormControlLabel sx={{ m: 0 }} control={<Switch checked={differentReturnLocation} onChange={event => { setDifferentReturnLocation(event.target.checked); if (!event.target.checked) setReturnBranchId('') }} />} label={<Box><Typography variant="body2" fontWeight={700}>Return to a different location</Typography><Typography variant="caption" color="text.secondary">A one-way or transfer fee may apply.</Typography></Box>} />
-      <Button fullWidth size="large" variant="contained" startIcon={<SearchOutlined />} disabled={loading} onClick={() => void checkAvailability()} sx={{ minHeight: 58 }}>{compact ? 'Update results' : 'Show available rentals'}</Button>
+      <Button fullWidth size="large" variant="contained" startIcon={<SearchOutlined />} disabled={loading} onClick={() => void checkAvailability()} sx={{ minHeight: 58 }}>{compact ? 'Update results' : 'Search rentals'}</Button>
     </Stack>
   }
 
@@ -420,7 +432,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   }
 
   function resetToSearch() {
-    setSearched(false); setSearchDates(null); setStartDate(dateInputValue(0)); setEndDate(''); setShowModifySearch(false); setDivisionId(''); setBranchId(''); setType(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter(''); setAvailableOnly(false)
+    setResultPreferenceIds([]); setAttributeFilters({}); setSearched(false); setSearchDates(null); setStartDate(dateInputValue(0)); setEndDate(''); setShowModifySearch(false); setDivisionId(''); setBranchId(''); setType(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter(''); setAvailableOnly(false)
     window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0)
   }
 
@@ -457,25 +469,28 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       {error && !selected && <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => { publicCatalogueCache = null; setCatalogueRetry(value => value + 1) }}>Try again</Button>}>{error}</Alert>}
       {!searched && loading && <Box sx={{py:5,display:'grid',placeItems:'center'}}><CircularProgress aria-label="Loading available assets" /></Box>}
       {!searched && !loading && !error && sortedAssets.length === 0 && <Alert severity="info">There are no published assets available to browse at the moment. Contact a branch for assistance or check again shortly.</Alert>}
-      {searched && <Card variant="outlined" sx={{ mb: 3, bgcolor: 'white', borderRadius: 3 }}><CardContent sx={{ p: 2.5 }}><Stack direction="row" gap={1.25} alignItems="center" flexWrap="wrap" sx={{ '& > .MuiFormControl-root': { flex: '1 1 145px' } }}>
-        <FormControl size="small" sx={{ minWidth: 175 }}><InputLabel id="rental-division-label">Division</InputLabel><Select labelId="rental-division-label" MenuProps={{ disableScrollLock: true }} label="Division" value={divisionId} onChange={event => { setDivisionId(event.target.value); setType(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter(''); setGalleryOffsets({}) }}><MenuItem value="">All divisions</MenuItem>{divisions.map(division => <MenuItem key={division.id} value={division.id}>{division.name}</MenuItem>)}</Select></FormControl>
-        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel id="rental-rental-category-label">Rental category</InputLabel><Select labelId="rental-rental-category-label" MenuProps={{ disableScrollLock: true }} label="Rental category" value={category} onChange={event => setCategory(event.target.value)}>{['All', ...categoryOptions].map(item => <MenuItem key={item} value={item}>{item === 'All' ? 'All categories' : item}</MenuItem>)}</Select></FormControl>
+      {searched && <Card variant="outlined" sx={{ mb: 3, bgcolor: 'white', borderRadius: 1.5 }}><CardContent sx={{ p: {xs:2,md:2.5} }}><Stack direction="row" gap={1.25} alignItems="center" flexWrap="wrap" sx={{ '& > .MuiFormControl-root': { flex: '1 1 145px' } }}>
+        <FormControl size="small" sx={{ minWidth: 175 }}><InputLabel id="rental-division-label">Division</InputLabel><Select labelId="rental-division-label" MenuProps={{ disableScrollLock: true }} label="Division" value={divisionId} onChange={event => { setResultPreferenceIds([]); setDivisionId(event.target.value); setType(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter(''); setGalleryOffsets({}) }}><MenuItem value="">All divisions</MenuItem>{divisions.map(division => <MenuItem key={division.id} value={division.id}>{division.name}</MenuItem>)}</Select></FormControl>
+        <FormControl size="small" sx={{ minWidth: 170 }}><InputLabel id="rental-rental-category-label">Rental category</InputLabel><Select labelId="rental-rental-category-label" MenuProps={{ disableScrollLock: true }} label="Rental category" value={category} onChange={event => { setResultPreferenceIds([]); setCategory(event.target.value) }}>{['All', ...categoryOptions].map(item => <MenuItem key={item} value={item}>{item === 'All' ? 'All categories' : item}</MenuItem>)}</Select></FormControl>
+        <FormControl size="small" sx={{ minWidth: 180 }}><InputLabel id="rental-sort-by-label">Sort by</InputLabel><Select labelId="rental-sort-by-label" MenuProps={{ disableScrollLock: true }} label="Sort by" value={sort} onChange={event => setSort(event.target.value as CatalogueSort)}><MenuItem value="recommended">Recommended</MenuItem><MenuItem value="price-low">Price: low to high</MenuItem><MenuItem value="price-high">Price: high to low</MenuItem></Select></FormControl>
+        {(divisionId || category !== 'All' || seatFilter || transmissionFilter || priceFilter) && <Button size="small" onClick={() => { setResultPreferenceIds([]); setAttributeFilters({}); setDivisionId(''); setType(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter(''); setAvailableOnly(false) }}>Clear</Button>}
+        <Button startIcon={<TuneOutlined />} aria-expanded={advancedFiltersOpen} onClick={event=>setAdvancedFilterAnchor(event.currentTarget)} sx={{whiteSpace:'nowrap'}}>Advanced filters</Button>
+      </Stack><Popover open={advancedFiltersOpen} anchorEl={advancedFilterAnchor} onClose={()=>setAdvancedFilterAnchor(null)} anchorOrigin={{vertical:'bottom',horizontal:'right'}} transformOrigin={{vertical:'top',horizontal:'right'}} slotProps={{paper:{sx:{p:3,mt:1,width:{xs:'calc(100vw - 32px)',sm:620},maxHeight:'75vh',borderRadius:2}}}}><Box><Typography fontWeight={750} mb={2}>Refine your results</Typography><Stack direction="row" flexWrap="wrap" gap={2} sx={{'& > .MuiFormControl-root':{flex:'1 1 200px',maxWidth:{sm:320}}}}>        {resultPreferenceIds.length > 0 && <TextField select size="small" label="Preferred categories" SelectProps={{ multiple: true }} value={resultPreferenceIds} onChange={e=>setResultPreferenceIds(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value)} sx={{minWidth:220}}>{[...new Map(catalogueAssets.filter(a=>a.assetCategoryId).map(a=>[a.assetCategoryId!,a.category || a.type])).entries()].map(([id,name])=><MenuItem key={id} value={id}>{name}</MenuItem>)}</TextField>}
+        {attributeOptions.map(option => <TextField key={option.code} select size="small" label={option.name} value={attributeFilters[option.code] ?? ''} sx={{ minWidth: 150 }} onChange={event => setAttributeFilters(current => ({ ...current, [option.code]: event.target.value }))}><MenuItem value="">Any {option.name.toLowerCase()}</MenuItem>{option.values.map(value => <MenuItem key={value} value={value}>{value}</MenuItem>)}</TextField>)}
         {seatOptions.length > 0 && <FormControl size="small" sx={{ minWidth: 125 }}><InputLabel id="rental-seats-label">Seats</InputLabel><Select labelId="rental-seats-label" MenuProps={{ disableScrollLock: true }} label="Seats" value={seatFilter} onChange={event => setSeatFilter(event.target.value)}><MenuItem value="">Any seats</MenuItem>{seatOptions.map(seats => <MenuItem key={seats} value={String(seats)}>{seats}+ seats</MenuItem>)}</Select></FormControl>}
         {transmissionOptions.length > 0 && <FormControl size="small" sx={{ minWidth: 150 }}><InputLabel id="rental-transmission-label">Transmission</InputLabel><Select labelId="rental-transmission-label" MenuProps={{ disableScrollLock: true }} label="Transmission" value={transmissionFilter} onChange={event => setTransmissionFilter(event.target.value)}><MenuItem value="">Any</MenuItem>{transmissionOptions.map(option => <MenuItem key={option} value={option}>{option}</MenuItem>)}</Select></FormControl>}
-        <FormControl size="small" sx={{ minWidth: 145 }}><InputLabel id="rental-daily-price-label">Daily price</InputLabel><Select labelId="rental-daily-price-label" MenuProps={{ disableScrollLock: true }} label="Daily price" value={priceFilter} onChange={event => setPriceFilter(event.target.value)}><MenuItem value="">Any price</MenuItem><MenuItem value="under-200">Under FJD 200</MenuItem><MenuItem value="200-500">FJD 200–500</MenuItem><MenuItem value="over-500">Over FJD 500</MenuItem></Select></FormControl>
-        <FormControl size="small" sx={{ minWidth: 180 }}><InputLabel id="rental-sort-by-label">Sort by</InputLabel><Select labelId="rental-sort-by-label" MenuProps={{ disableScrollLock: true }} label="Sort by" value={sort} onChange={event => setSort(event.target.value as CatalogueSort)}><MenuItem value="recommended">Recommended</MenuItem><MenuItem value="price-low">Price: low to high</MenuItem><MenuItem value="price-high">Price: high to low</MenuItem></Select></FormControl>
-        {(divisionId || category !== 'All' || seatFilter || transmissionFilter || priceFilter) && <Button size="small" onClick={() => { setDivisionId(''); setType(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter(''); setAvailableOnly(false) }}>Clear</Button>}
-      </Stack></CardContent></Card>}
+        <FormControl size="small" sx={{ minWidth: 145 }}><InputLabel id="rental-daily-price-label">Hire rate</InputLabel><Select labelId="rental-daily-price-label" MenuProps={{ disableScrollLock: true }} label="Hire rate" value={priceFilter} onChange={event => setPriceFilter(event.target.value)}><MenuItem value="">Any price</MenuItem><MenuItem value="under-200">Under FJD 200</MenuItem><MenuItem value="200-500">FJD 200–500</MenuItem><MenuItem value="over-500">Over FJD 500</MenuItem></Select></FormControl>
+</Stack><Button sx={{mt:2}} onClick={()=>setAdvancedFilterAnchor(null)}>Show results</Button></Box></Popover></CardContent></Card>}
       {searched && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1.5} mb={3}><Box><Typography fontWeight={800}>{sortedAssets.length} {sortedAssets.length === 1 ? 'rental' : 'rentals'} found</Typography><Typography variant="body2" color="text.secondary">Live availability for your selected dates · Prices in FJD</Typography></Box><FormControlLabel control={<Switch checked={availableOnly} onChange={event => setAvailableOnly(event.target.checked)} />} label="Available only" /></Stack>}
       {searched && (loading ? <Box sx={{ py: 10, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : <>
-        {sortedAssets.length === 0 && <Card variant="outlined"><CardContent sx={{ textAlign: 'center', py: 8 }}><Typography variant="h6">No rentals match this search</Typography><Typography color="text.secondary">Try another category, branch or date range.</Typography><Button sx={{ mt: 2 }} onClick={() => { setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter('') }}>Clear filters</Button></CardContent></Card>}
+        {sortedAssets.length === 0 && <Card variant="outlined"><CardContent sx={{ textAlign: 'center', py: 8 }}><Typography variant="h6">No rentals match this search</Typography><Typography color="text.secondary">Try another category, branch or date range.</Typography><Button sx={{ mt: 2 }} onClick={() => { setResultPreferenceIds([]); setAttributeFilters({}); setDivisionId(''); setCategory('All'); setSeatFilter(''); setTransmissionFilter(''); setPriceFilter('') }}>Clear filters</Button></CardContent></Card>}
         {allDivisionGalleries.map(gallery => {
           const divisionAssets = sortedAssets.filter(gallery.matches)
           if (divisionAssets.length === 0) return null
-          if (divisionId) return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length} matching rental{divisionAssets.length === 1 ? '' : 's'}</Typography></Stack><Grid container spacing={2}>{divisionAssets.map(asset => <Grid key={asset.id} size={{ xs: 12, sm: 6, lg: 3 }}>{renderRentalCard(asset)}</Grid>)}</Grid></Box>
-          const offset = Math.min(galleryOffsets[gallery.key] ?? 0, Math.max(0, divisionAssets.length - 4))
-          const visibleAssets = divisionAssets.slice(offset, offset + 4)
-          return <Box key={gallery.key} sx={{ mb: 5 }}><Stack mb={2}><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length} matching rental{divisionAssets.length === 1 ? '' : 's'}</Typography></Stack><Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}><IconButton aria-label={`Previous ${gallery.title} results`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, divisionAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Box sx={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 2 }}>{visibleAssets.map(asset => <Box key={asset.id} sx={{ minWidth: 0 }}>{renderRentalCard(asset)}</Box>)}</Box><IconButton aria-label={`Next ${gallery.title} results`} disabled={offset >= Math.max(0, divisionAssets.length - 4)} onClick={() => moveGallery(gallery.key, divisionAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack></Box>
+        const offset = Math.min(galleryOffsets[gallery.key] ?? 0, Math.max(0, divisionAssets.length - 4))
+        const visibleAssets = divisionAssets.slice(offset, offset + 4)
+        if (divisionAssets.length === 0) return null
+        return <Box key={gallery.key} sx={{ mb: 5 }}><Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}><Box><Typography variant="h5" fontWeight={850} sx={{borderLeft:gallery.branding?.accentColor?'4px solid':undefined,borderColor:gallery.branding?.accentColor,pl:gallery.branding?.accentColor?1.5:undefined}}>{gallery.branding?.logoUrl && <Box component="img" src={gallery.branding.logoUrl} alt="" sx={{width:32,height:32,objectFit:'contain',mr:1,verticalAlign:'middle'}} />}{gallery.title}</Typography><Typography variant="body2" color="text.secondary">{divisionAssets.length ? `${divisionAssets.length} rental${divisionAssets.length === 1 ? '' : 's'} to explore` : 'Rental preview'}</Typography></Box></Stack>{visibleAssets.length ? <Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}><IconButton aria-label={`Previous ${gallery.title} results`} disabled={offset === 0} onClick={() => moveGallery(gallery.key, divisionAssets.length, -1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronLeftOutlined fontSize="large" /></IconButton><Box sx={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 2 }}>{visibleAssets.map(asset => <Box key={asset.id} sx={{ minWidth: 0 }}>{renderRentalCard(asset)}</Box>)}</Box><IconButton aria-label={`Next ${gallery.title} results`} disabled={offset >= Math.max(0, divisionAssets.length - 4)} onClick={() => moveGallery(gallery.key, divisionAssets.length, 1)} sx={{ width: 54, height: 54, flex: '0 0 auto', color: 'white', bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}><ChevronRightOutlined fontSize="large" /></IconButton></Stack> : <Card variant="outlined"><CardContent><Typography color="text.secondary">No rentals are currently listed for this division.</Typography></CardContent></Card>}</Box>
         })}
       </>)}
       {!searched && !loading && preferredCategoryIds.length > 0 && homepageAssets.length === 0 && <Alert severity="info" action={<Button onClick={() => searchNavigation.leave(() => onCustomerAccount('preferences'))}>Edit preferences</Button>}>No rentals are currently listed for your selected categories. You can still search all rentals above.</Alert>}
