@@ -18,6 +18,71 @@ namespace CREMS.Api.Controllers;
 [Authorize(Policy = SystemPolicies.ManageRentals)]
 public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
+    [HttpGet("{id:guid}/replacement-assets")]
+    public async Task<ActionResult> GetReplacementAssets(Guid id, CancellationToken token)
+    {
+        var booking = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset)
+            .FirstOrDefaultAsync(x => x.Id == id, token);
+        if (booking is null) return NotFound();
+        var item = booking.Items.SingleOrDefault();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || item?.Asset is null || !scope.HasAssetAccess(booking.BranchId, item.Asset.DivisionId)) return Forbid();
+        if (booking.Status != BookingStatus.Confirmed) return Conflict(new { message = "This hire is no longer confirmed." });
+        var candidates = await db.Assets.AsNoTracking().Where(x => x.Id != item.AssetId && x.IsActive &&
+            x.BranchId == booking.BranchId && x.ServiceOfferingId == item.Asset.ServiceOfferingId &&
+            x.AssetCategoryId == item.Asset.AssetCategoryId && (x.Status == AssetStatus.Available || x.Status == AssetStatus.Reserved))
+            .OrderBy(x => x.AssetNumber).Select(x => new { x.Id, x.AssetNumber, x.Name, x.DivisionId }).ToListAsync(token);
+        return Ok(candidates.Where(x => scope.HasAssetAccess(booking.BranchId, x.DivisionId)));
+    }
+
+    [HttpPost("{id:guid}/exception-resolution")]
+    public async Task<ActionResult> ResolveConfirmedException(Guid id, ResolveBookingExceptionRequest request, CancellationToken token)
+    {
+        var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset)
+            .Include(x => x.RentalAgreement).FirstOrDefaultAsync(x => x.Id == id, token);
+        if (booking is null) return NotFound();
+        var scope = await staffScope.GetAsync(User);
+        if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
+        if (booking.Status != BookingStatus.Confirmed || booking.RentalAgreement is not null)
+            return Conflict(new { message = "Only confirmed hires before the agreement is prepared can be changed here. Resolve signed or active hires through the rental workflow." });
+        if (request.ReplacementAssetId is null && booking.BondAmountHeld > 0)
+            return Conflict(new { message = "Refund the held bond through Finance before cancelling this confirmed hire." });
+        if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 10)
+            return BadRequest(new { message = "Record at least 10 characters explaining the exception and customer arrangement." });
+        if (request.ReplacementAssetId is null)
+        {
+            booking.Status = BookingStatus.Cancelled;
+            booking.Notes = string.Join("\n", new[] { booking.Notes, $"Confirmed hire cancelled: {request.Reason.Trim()}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            AuditWriter.Record(db, scope, "Confirmed booking cancelled", nameof(Booking), id,
+                $"{booking.BookingNumber}: {request.Reason.Trim()}", booking.BranchId);
+        }
+        else
+        {
+            if (booking.Items.Count != 1) return Conflict(new { message = "This replacement action requires a single asset booking." });
+            var item = booking.Items.Single();
+            var replacement = await db.Assets.FirstOrDefaultAsync(x => x.Id == request.ReplacementAssetId && x.IsActive && x.BranchId == booking.BranchId, token);
+            if (replacement is null || replacement.Status is not (AssetStatus.Available or AssetStatus.Reserved) ||
+                !scope.HasAssetAccess(replacement.BranchId, replacement.DivisionId) ||
+                replacement.ServiceOfferingId != item.Asset?.ServiceOfferingId || replacement.AssetCategoryId != item.Asset?.AssetCategoryId)
+                return BadRequest(new { message = "Choose an operational replacement from the same branch, service and category." });
+            var reservations = await db.BookingItems.AsNoTracking().Where(x => x.BookingId != id && x.AssetId == replacement.Id &&
+                x.StartAt < item.EndAt.AddMinutes(replacement.TurnaroundMinutes) && x.EndAt > item.StartAt.AddMinutes(-replacement.TurnaroundMinutes) &&
+                (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental ||
+                 x.Booking.Status == BookingStatus.Draft && x.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)))
+                .Select(x => new { x.StartAt, x.EndAt }).ToListAsync(token);
+            if (reservations.Any(x => RentalAvailability.Conflicts(item.StartAt, item.EndAt, x.StartAt, x.EndAt, replacement.TurnaroundMinutes)))
+                return Conflict(new { message = "The replacement asset is booked during this hire or its turnaround period." });
+            var previous = item.Asset?.AssetNumber ?? item.AssetId.ToString();
+            item.AssetId = replacement.Id;
+            item.Asset = replacement;
+            booking.Notes = string.Join("\n", new[] { booking.Notes, $"Asset replaced: {previous} → {replacement.AssetNumber}. {request.Reason.Trim()}" }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            AuditWriter.Record(db, scope, "Confirmed booking asset replaced", nameof(Booking), id,
+                $"{booking.BookingNumber}: {previous} → {replacement.AssetNumber}. {request.Reason.Trim()}", booking.BranchId);
+        }
+        booking.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(token);
+        return Ok(new { booking.Id, booking.Status, booking.Notes });
+    }
     [HttpGet("work-queue")]
     public async Task<ActionResult<BookingWorkQueueResponse>> GetWorkQueue(
         [FromQuery] string queue = "NewRequests", [FromQuery] string? search = null,
@@ -216,7 +281,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                 return BadRequest(new { message = "The requested return date is no longer valid." });
             var assetIds = booking.Items.Select(x => x.AssetId).ToList();
             var conflict = await db.BookingItems.AnyAsync(x => x.BookingId != booking.Id && assetIds.Contains(x.AssetId) &&
-                x.StartAt < requestedEnd && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
+                x.StartAt < requestedEnd.AddMinutes(x.Asset!.TurnaroundMinutes) && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
             if (conflict) return Conflict(new { message = "The extension conflicts with another confirmed rental." });
             foreach (var item in booking.Items) item.EndAt = requestedEnd;
             booking.Notes = $"{booking.Notes}\nExtension approved to {requestedEnd:u}.".Trim();
@@ -358,7 +423,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         if (asset.Status is AssetStatus.Maintenance or AssetStatus.Inspection or AssetStatus.OutOfService or AssetStatus.Retired || !asset.IsActive)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["asset"] = ["This asset is not operationally available."] }));
         var editConflict = await db.BookingItems.AsNoTracking().AnyAsync(other => other.BookingId != booking.Id &&
-            other.AssetId == asset.Id && other.StartAt < request.EndAt && other.EndAt > request.StartAt &&
+            other.AssetId == asset.Id && other.StartAt < request.EndAt.AddMinutes(asset.TurnaroundMinutes) && other.EndAt > request.StartAt.AddMinutes(-asset.TurnaroundMinutes) &&
             (other.Booking!.Status == BookingStatus.Confirmed || other.Booking.Status == BookingStatus.ConvertedToRental ||
              other.Booking.Status == BookingStatus.Draft && other.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)), cancellationToken);
         if (editConflict)
@@ -477,7 +542,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                 var conflict = await db.BookingItems.AsNoTracking().AnyAsync(other =>
                     other.BookingId != booking.Id &&
                     other.AssetId == item.AssetId &&
-                    other.StartAt < item.EndAt && other.EndAt > item.StartAt &&
+                    other.StartAt < item.EndAt.AddMinutes(item.Asset!.TurnaroundMinutes) && other.EndAt > item.StartAt.AddMinutes(-item.Asset.TurnaroundMinutes) &&
                     (other.Booking!.Status == BookingStatus.Confirmed || other.Booking.Status == BookingStatus.ConvertedToRental ||
                      other.Booking.Status == BookingStatus.Draft && other.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)),
                     cancellationToken);
@@ -566,6 +631,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
 }
 
 public sealed record SetBookingStatusRequest(BookingStatus Status, string? Note);
+public sealed record ResolveBookingExceptionRequest(Guid? ReplacementAssetId, string Reason);
 public sealed record UpdateBookingRequest(Guid BranchId, Guid CustomerId, Guid AssetId,
     DateTimeOffset StartAt, DateTimeOffset EndAt, decimal DailyRate, string? Notes,
     decimal DiscountAmount, decimal TaxRate, decimal DepositRequired, decimal AdditionalCharges,

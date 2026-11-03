@@ -44,11 +44,13 @@ type AssetDetails = {
   availabilityChecked: boolean
 }
 
-export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, open, onClose, onContinue, previewDetails, availabilityRequested = false }: {
+export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, pickupTime, returnTime, open, onClose, onContinue, previewDetails, availabilityRequested = false }: {
   asset: AssetSummary | null
   imageUrls: string[]
   startDate: string
   endDate: string
+  pickupTime?: string
+  returnTime?: string
   open: boolean
   onClose: () => void
   onContinue: (asset: AssetSummary) => void
@@ -73,7 +75,7 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
       setLoading(false)
       return () => { active = false }
     }
-    void api.get<AssetDetails>(`/public/assets/${asset.id}`, { params: availabilityRequested && startDate && endDate ? { startDate, endDate } : undefined })
+    void api.get<AssetDetails>(`/public/assets/${asset.id}`, { params: availabilityRequested && startDate && endDate ? { startDate, endDate, pickupTime, returnTime } : undefined })
       .then(response => { if (active) setDetails(response.data) })
       .catch((reason) => {
         if (!active) return
@@ -82,7 +84,7 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [asset, availabilityRequested, endDate, open, previewDetails, startDate])
+  }, [asset, availabilityRequested, endDate, open, previewDetails, startDate, pickupTime, returnTime])
 
   const unit=details?.hireRate?.unit??details?.hireUnit??'Day'
   const rate=details?.hireRate?.rate??details?.dailyRate??0

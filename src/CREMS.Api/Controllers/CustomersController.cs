@@ -177,21 +177,43 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
             !await db.Bookings.AnyAsync(x => x.CustomerId == id && x.BranchId == scope.BranchId, token))) return Forbid();
         if (!customer.IsActive || customer.IsBlocked) return BadRequest(new { message = "Restore the customer before enabling online access." });
         if (string.IsNullOrWhiteSpace(customer.Email)) return BadRequest(new { message = "Record a valid customer email first." });
+        var email = customer.Email.Trim().ToLowerInvariant();
 
         var user = await userManager.Users.FirstOrDefaultAsync(x => x.CustomerId == id, token);
         if (user?.EmailConfirmed == true) return Conflict(new { message = "This customer already has active online access." });
-        var emailOwner = await userManager.FindByEmailAsync(customer.Email);
+        var emailOwner = await userManager.FindByEmailAsync(email);
         if (emailOwner is not null && emailOwner.CustomerId != id)
             return Conflict(new { message = "That email is already assigned to another CREMS account." });
         if (user is null)
         {
-            user = new ApplicationUser { UserName = customer.Email, Email = customer.Email, FullName = customer.Name,
-                CustomerId = customer.Id, IsActive = true, EmailConfirmed = false };
+            user = new ApplicationUser { UserName = email, Email = email, FullName = customer.Name,
+                CustomerId = customer.Id, IsActive = true, EmailConfirmed = false,
+                AccountStatus = AccountLifecycleStatus.ActivationPending, InvitedAt = DateTimeOffset.UtcNow };
             var create = await userManager.CreateAsync(user);
             if (!create.Succeeded) return BadRequest(new { message = string.Join(" ", create.Errors.Select(x => x.Description)) });
             var role = await userManager.AddToRoleAsync(user, SystemRoles.Customer);
             if (!role.Succeeded) throw new InvalidOperationException("Unable to assign the customer portal role.");
         }
+        else
+        {
+            if (!string.Equals(user.Email, email, StringComparison.OrdinalIgnoreCase))
+            {
+                var updateEmail = await userManager.SetEmailAsync(user, email);
+                if (!updateEmail.Succeeded) return BadRequest(new { message = string.Join(" ", updateEmail.Errors.Select(x => x.Description)) });
+            }
+            if (!string.Equals(user.UserName, email, StringComparison.OrdinalIgnoreCase))
+            {
+                var updateUserName = await userManager.SetUserNameAsync(user, email);
+                if (!updateUserName.Succeeded) return BadRequest(new { message = string.Join(" ", updateUserName.Errors.Select(x => x.Description)) });
+            }
+            user.FullName = customer.Name;
+            user.IsActive = true;
+            user.AccountStatus = AccountLifecycleStatus.ActivationPending;
+            user.InvitedAt = DateTimeOffset.UtcNow;
+            var updateUser = await userManager.UpdateAsync(user);
+            if (!updateUser.Succeeded) return BadRequest(new { message = string.Join(" ", updateUser.Errors.Select(x => x.Description)) });
+        }
+        customer.Email = email;
 
         var previous = await db.CustomerAccountActivations.Where(x => x.UserId == user.Id && x.UsedAt == null).ToListAsync(token);
         foreach (var item in previous) item.UsedAt = DateTimeOffset.UtcNow;
@@ -200,8 +222,8 @@ public sealed class CustomersController(ApplicationDbContext db, CurrentStaffSco
         db.CustomerAccountActivations.Add(new CustomerAccountActivation { UserId = user.Id,
             Salt = Convert.ToBase64String(salt), CodeHash = Hash(code, salt), ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10),
             InvitedByUserId = scope.UserId });
-        var html = EmailTemplate.Branded("Activate your Carpenters customer account", $"<p>Carpenters has enabled online access for customer <strong>{System.Net.WebUtility.HtmlEncode(customer.CustomerNumber)}</strong>.</p><p>Your activation code is:</p><p style=\"font-size:32px;letter-spacing:8px;font-weight:bold;background:#f5f5f2;padding:18px;text-align:center\">{code}</p><p>Use this code with {System.Net.WebUtility.HtmlEncode(customer.Email)} on the customer sign-in page. It expires in 10 minutes.</p>");
-        emailQueue.Queue(db, customer.Email, "Activate your Carpenters customer account", html,
+        var html = EmailTemplate.Branded("Activate your Carpenters customer account", $"<p>Carpenters has enabled online access for customer <strong>{System.Net.WebUtility.HtmlEncode(customer.CustomerNumber)}</strong>.</p><p>Your activation code is:</p><p style=\"font-size:32px;letter-spacing:8px;font-weight:bold;background:#f5f5f2;padding:18px;text-align:center\">{code}</p><p>Use this code with {System.Net.WebUtility.HtmlEncode(email)} on the customer sign-in page. It expires in 10 minutes.</p>");
+        emailQueue.Queue(db, email, "Activate your Carpenters customer account", html,
             $"Your Carpenters customer account activation code is {code}. It expires in 10 minutes.", "CustomerActivation");
         AuditWriter.Record(db, scope, "Customer online access invited", "Customer", customer.Id,
             $"An online account activation was sent for {customer.CustomerNumber}.", scope.BranchId);

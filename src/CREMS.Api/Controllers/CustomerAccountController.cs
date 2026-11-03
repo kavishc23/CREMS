@@ -74,19 +74,66 @@ public sealed class CustomerAccountController(
     [HttpPost("activate")]
     public async Task<ActionResult> Activate(ActivateCustomerAccountRequest request, CancellationToken token)
     {
-        var normalized = userManager.NormalizeEmail(request.Email.Trim());
+        var email = request.Email.Trim().ToLowerInvariant();
+        var normalized = userManager.NormalizeEmail(email);
         var user = await userManager.Users.FirstOrDefaultAsync(x => x.NormalizedEmail == normalized && x.CustomerId != null, token);
-        if (user is null || !user.IsActive || await userManager.HasPasswordAsync(user)) return InvalidActivation();
+        if (user is null)
+        {
+            // Older pending accounts may still contain the customer's previous email. Staff invitations are
+            // sent to the email on the customer record, so resolve that record before rejecting a valid code.
+            var customerId = await db.Customers.AsNoTracking()
+                .Where(x => x.Email != null && x.Email.ToLower() == email)
+                .Select(x => (Guid?)x.Id)
+                .FirstOrDefaultAsync(token);
+            if (customerId.HasValue)
+                user = await userManager.Users.FirstOrDefaultAsync(x => x.CustomerId == customerId, token);
+        }
+        if (user is null || !user.IsActive || user.EmailConfirmed) return InvalidActivation();
         var activation = await db.CustomerAccountActivations.Where(x => x.UserId == user.Id && x.UsedAt == null)
             .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
         if (activation is null || activation.ExpiresAt < DateTimeOffset.UtcNow || activation.FailedAttempts >= 5) return InvalidActivation();
         var salt = Convert.FromBase64String(activation.Salt);
         if (!CryptographicOperations.FixedTimeEquals(Convert.FromHexString(Hash(request.Code.Trim(), salt)), Convert.FromHexString(activation.CodeHash)))
         { activation.FailedAttempts++; await db.SaveChangesAsync(token); return InvalidActivation(); }
-        var password = await userManager.AddPasswordAsync(user, request.Password);
+
+        // A customer can have a password from an interrupted self-registration while still awaiting staff
+        // activation. A verified staff-issued code is allowed to establish the password chosen on this form.
+        var emailOwner = await userManager.FindByEmailAsync(email);
+        if (emailOwner is not null && emailOwner.Id != user.Id) return InvalidActivation();
+        if (!string.Equals(user.Email, email, StringComparison.OrdinalIgnoreCase))
+        {
+            var emailResult = await userManager.SetEmailAsync(user, email);
+            if (!emailResult.Succeeded) return IdentityValidation(nameof(request.Email), emailResult);
+        }
+        if (!string.Equals(user.UserName, email, StringComparison.OrdinalIgnoreCase))
+        {
+            var userNameResult = await userManager.SetUserNameAsync(user, email);
+            if (!userNameResult.Succeeded) return IdentityValidation(nameof(request.Email), userNameResult);
+        }
+
+        IdentityResult password;
+        if (await userManager.HasPasswordAsync(user))
+        {
+            var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
+            password = await userManager.ResetPasswordAsync(user, resetToken, request.Password);
+        }
+        else password = await userManager.AddPasswordAsync(user, request.Password);
         if (!password.Succeeded) { foreach (var error in password.Errors) ModelState.AddModelError(nameof(request.Password), error.Description); return ValidationProblem(ModelState); }
-        activation.UsedAt = DateTimeOffset.UtcNow; user.EmailConfirmed = true; await userManager.UpdateAsync(user); await db.SaveChangesAsync(token);
+        activation.UsedAt = DateTimeOffset.UtcNow;
+        user.EmailConfirmed = true;
+        user.AccountStatus = AccountLifecycleStatus.Active;
+        user.AccessFailedCount = 0;
+        user.LockoutEnd = null;
+        var update = await userManager.UpdateAsync(user);
+        if (!update.Succeeded) return IdentityValidation(string.Empty, update);
+        await db.SaveChangesAsync(token);
         await SignInCustomer(user); return NoContent();
+    }
+
+    private ActionResult IdentityValidation(string key, IdentityResult result)
+    {
+        foreach (var error in result.Errors) ModelState.AddModelError(key, error.Description);
+        return ValidationProblem(ModelState);
     }
 
     [HttpGet("session")]
@@ -595,7 +642,7 @@ public sealed class CustomerAccountController(
             return BadRequest(new { message = "Choose a valid future pickup and return date." });
         var assetIds = booking.Items.Select(x => x.AssetId).ToList();
         var conflict = await db.BookingItems.AsNoTracking().AnyAsync(x => x.BookingId != booking.Id &&
-            assetIds.Contains(x.AssetId) && x.StartAt < request.EndAt && x.EndAt > request.StartAt &&
+            assetIds.Contains(x.AssetId) && x.StartAt < request.EndAt.AddMinutes(x.Asset!.TurnaroundMinutes) && x.EndAt > request.StartAt.AddMinutes(-x.Asset.TurnaroundMinutes) &&
             (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
         if (conflict) return Conflict(new { message = "The rental is unavailable for those dates. Contact the branch for an alternative." });
         if (booking.Status == BookingStatus.Confirmed)
@@ -684,7 +731,7 @@ public sealed class CustomerAccountController(
         var currentEnd = booking.Items.Max(x => x.EndAt);
         if (request.RequestedEndAt <= currentEnd || request.RequestedEndAt > currentEnd.AddMonths(6)) return BadRequest(new { message = "Choose a later return date within six months of the current return date." });
         var assetIds = booking.Items.Select(x => x.AssetId).ToList();
-        var conflict = await db.BookingItems.AnyAsync(x => x.BookingId != booking.Id && assetIds.Contains(x.AssetId) && x.StartAt < request.RequestedEndAt && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
+        var conflict = await db.BookingItems.AnyAsync(x => x.BookingId != booking.Id && assetIds.Contains(x.AssetId) && x.StartAt < request.RequestedEndAt.AddMinutes(x.Asset!.TurnaroundMinutes) && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
         if (conflict) return Conflict(new { message = "The asset has another booking after your return date. Contact the branch for alternatives." });
         var subject = $"Extension request — {booking.BookingNumber}";
         if (await db.CustomerCases.AnyAsync(x => x.CustomerId == user.CustomerId && x.Subject == subject && x.Status != CaseStatus.Resolved && x.Status != CaseStatus.Closed, token))
