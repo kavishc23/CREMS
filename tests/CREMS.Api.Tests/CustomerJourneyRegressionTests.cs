@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using CREMS.Api.Controllers;
 using CREMS.Api.Data;
@@ -71,6 +73,40 @@ public sealed class CustomerJourneyRegressionTests
         Assert.Null(await f.Users.FindByEmailAsync("new@example.test"));
         Assert.False(await f.Db.Customers.AnyAsync(x => x.Email == "new@example.test", TestContext.Current.CancellationToken));
         Assert.Equal(0, f.Context.Response.Headers.SetCookie.Count);
+    }
+
+    [Fact]
+    public async Task Staff_activation_accepts_valid_code_for_pending_account_with_existing_password_and_updated_email()
+    {
+        await using var f = await Fixture.Create();
+        const string code = "093565";
+        const string newPassword = "Activated456!";
+        const string invitedEmail = "updated@example.test";
+        var salt = RandomNumberGenerator.GetBytes(16);
+
+        f.Customer.Email = invitedEmail;
+        f.User.EmailConfirmed = false;
+        f.User.AccountStatus = AccountLifecycleStatus.ActivationPending;
+        f.Db.CustomerAccountActivations.Add(new CustomerAccountActivation
+        {
+            UserId = f.User.Id,
+            Salt = Convert.ToBase64String(salt),
+            CodeHash = Convert.ToHexString(Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(code), salt,
+                100_000, HashAlgorithmName.SHA256, 32)),
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10),
+            InvitedByUserId = Guid.NewGuid(),
+        });
+        await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.IsType<NoContentResult>(await f.Account.Activate(
+            new(invitedEmail, code, newPassword), TestContext.Current.CancellationToken));
+
+        Assert.True(f.User.EmailConfirmed);
+        Assert.Equal(AccountLifecycleStatus.Active, f.User.AccountStatus);
+        Assert.Equal(invitedEmail, f.User.Email);
+        Assert.Equal(invitedEmail, f.User.UserName);
+        Assert.True(await f.Users.CheckPasswordAsync(f.User, newPassword));
+        Assert.NotNull((await f.Db.CustomerAccountActivations.SingleAsync(TestContext.Current.CancellationToken)).UsedAt);
     }
 
     [Theory]
@@ -217,6 +253,29 @@ public sealed class CustomerJourneyRegressionTests
         var reservedResult = await f.Public.GetAssets(null, null, null, reservedDate, reservedDate.AddDays(1), TestContext.Current.CancellationToken);
         var reservedAssets = Assert.IsAssignableFrom<IReadOnlyList<PublicAssetResponse>>(Assert.IsType<OkObjectResult>(reservedResult.Result).Value);
         Assert.False(Assert.Single(reservedAssets).IsAvailable);
+    }
+
+    [Fact]
+    public async Task Confirmed_return_at_nine_offers_ten_am_after_one_hour_turnaround()
+    {
+        await using var f = await Fixture.Create();
+        f.Asset.Status = AssetStatus.Reserved;
+        f.Asset.TurnaroundMinutes = 60;
+        var day = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(35));
+        var booking = f.Booking(f.Customer.Id);
+        booking.Status = BookingStatus.Confirmed;
+        booking.Items.Single().StartAt = RentalAvailability.FijiTime(day.AddDays(-2), new TimeOnly(9, 0));
+        booking.Items.Single().EndAt = RentalAvailability.FijiTime(day, new TimeOnly(9, 0));
+        f.Db.Add(booking);
+        await f.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var early = await f.Public.GetAssets(null, null, null, day, day.AddDays(1), TestContext.Current.CancellationToken, new TimeOnly(8, 0), new TimeOnly(8, 0));
+        var unavailable = Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<PublicAssetResponse>>(Assert.IsType<OkObjectResult>(early.Result).Value));
+        Assert.False(unavailable.IsAvailable);
+        Assert.Equal(RentalAvailability.FijiTime(day, new TimeOnly(10, 0)), unavailable.NextAvailableAt);
+
+        var later = await f.Public.GetAssets(null, null, null, day, day.AddDays(1), TestContext.Current.CancellationToken, new TimeOnly(10, 0), new TimeOnly(10, 0));
+        Assert.True(Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<PublicAssetResponse>>(Assert.IsType<OkObjectResult>(later.Result).Value)).IsAvailable);
     }
 
     [Fact]

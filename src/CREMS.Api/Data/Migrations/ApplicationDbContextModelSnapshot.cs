@@ -147,6 +147,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<int>("TurnaroundMinutes")
+                        .HasColumnType("int");
+
                     b.Property<int>("Type")
                         .HasColumnType("int");
 

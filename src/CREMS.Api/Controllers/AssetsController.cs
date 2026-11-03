@@ -103,6 +103,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         SaveAssetRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.TurnaroundMinutes is < 0 or > 1440) return BadRequest(new { message = "Turnaround must be between 0 and 1440 minutes." });
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(request.BranchId, request.DivisionId)) return Forbid();
         var assetNumber = request.AssetNumber.Trim().ToUpperInvariant();
@@ -141,6 +142,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             DailyRate = request.DailyRate, HireUnit = request.HireUnit, UseServiceHireRate = request.UseServiceHireRate,
             DefaultBondAmount = request.DefaultBondAmount, InheritBond = request.InheritBond, PersonnelOverride = request.PersonnelOverride ?? request.PersonnelRequirement,
             NextServiceDate = request.NextServiceDate,
+            TurnaroundMinutes = request.TurnaroundMinutes,
             CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name,
             PhotoUrlsJson = request.PhotoUrlsJson ?? "[]",
             IsActive = true,
@@ -171,6 +173,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         SaveAssetRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.TurnaroundMinutes is < 0 or > 1440) return BadRequest(new { message = "Turnaround must be between 0 and 1440 minutes." });
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(request.BranchId, request.DivisionId)) return Forbid();
         var asset = await db.Assets.FindAsync([id], cancellationToken);
@@ -220,6 +223,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.InheritBond = request.InheritBond; asset.PersonnelOverride = request.PersonnelOverride;
         asset.UpdatedAt = DateTimeOffset.UtcNow;
         asset.NextServiceDate = request.NextServiceDate;
+        asset.TurnaroundMinutes = request.TurnaroundMinutes;
         var attributeError = await ConfiguredAssetFields.Apply(db, asset, request.CategoryAttributes, cancellationToken);
         if (attributeError is not null) return BadRequest(new { message = attributeError });
         asset.CurrentLocation = Normalize(request.CurrentLocation) ?? branch.Name;
@@ -416,7 +420,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.BranchId, branchName, asset.RegistrationNumber, asset.SerialNumber,
         asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear, asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
         asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType, asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
-        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, AssetCategoryPolicy.Personnel(asset), asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride, asset.HireUnit, asset.UseServiceHireRate, PublicRentalRequestPolicy.Fulfilment(asset));
+        asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, AssetCategoryPolicy.Personnel(asset), asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride, asset.HireUnit, asset.UseServiceHireRate, PublicRentalRequestPolicy.Fulfilment(asset), asset.TurnaroundMinutes);
 }
 
 public sealed record SaveAssetRequest(
@@ -453,7 +457,7 @@ public sealed record SaveAssetRequest(
     PersonnelRequirement? PersonnelRequirement = null,
     bool RequiresDelivery = false, bool InheritBond = false,
     [EnumDataType(typeof(PersonnelRequirement))] PersonnelRequirement? PersonnelOverride = null,
-    [EnumDataType(typeof(ChargeUnit))] ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, IReadOnlyDictionary<string, string>? CategoryAttributes = null, [EnumDataType(typeof(AssetFulfilmentMode))] AssetFulfilmentMode? FulfilmentMode = null);
+    [EnumDataType(typeof(ChargeUnit))] ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, IReadOnlyDictionary<string, string>? CategoryAttributes = null, [EnumDataType(typeof(AssetFulfilmentMode))] AssetFulfilmentMode? FulfilmentMode = null, [Range(0, 1440)] int TurnaroundMinutes = 60);
 
 public sealed record SetAssetStatusRequest(AssetStatus Status, bool IsActive);
 public sealed record AssetResponse(
@@ -462,5 +466,5 @@ public sealed record AssetResponse(
     Guid BranchId, string BranchName, string? RegistrationNumber, string? SerialNumber,
     string? Category, string? Manufacturer, string? Model, int? ModelYear, string? VinOrChassisNumber, string? EngineNumber, string? MeterUnit, decimal? CurrentMeterReading,
     DateOnly? AcquisitionDate, decimal AcquisitionCost, decimal? CurrentBookValue, string? OwnershipType, string? InsurancePolicyNumber, DateOnly? InsuranceExpiry, DateOnly? WarrantyExpiry,
-    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, PersonnelRequirement PersonnelRequirement, bool RequiresDelivery, string? CurrentLocation, string PhotoUrlsJson, bool InheritBond, PersonnelRequirement? PersonnelOverride, ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, AssetFulfilmentMode FulfilmentMode = AssetFulfilmentMode.PickupOrDelivery);
+    decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, PersonnelRequirement PersonnelRequirement, bool RequiresDelivery, string? CurrentLocation, string PhotoUrlsJson, bool InheritBond, PersonnelRequirement? PersonnelOverride, ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, AssetFulfilmentMode FulfilmentMode = AssetFulfilmentMode.PickupOrDelivery, int TurnaroundMinutes = 60);
 public sealed record SaveAssetCostRequest(Guid? BookingId, AssetCostCategory Category, [Required, MaxLength(300)] string Description, [Range(0.01, 100000000)] decimal Amount, DateOnly OccurredOn, string? Supplier, string? ReferenceNumber);

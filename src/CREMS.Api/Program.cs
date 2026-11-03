@@ -130,6 +130,14 @@ builder.Services.Configure<SecurityStampValidatorOptions>(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            message = "Too many requests were made. Wait a moment and try again."
+        }, cancellationToken: token);
+    };
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         RateLimitPartition.GetFixedWindowLimiter(
             context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",

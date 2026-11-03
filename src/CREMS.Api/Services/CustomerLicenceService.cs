@@ -156,11 +156,30 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
     {
         var readings = new List<string>();
         var centreClassReadings = new List<string>();
+        var labelledClassReadings = new List<string>();
         readings.Add(ReadWithMacOsTesseract(content));
 
         using var source = SkiaSharp.SKBitmap.Decode(content);
         if (source is not null)
         {
+            // The Fiji class value sits immediately below its printed label. Keep
+            // this region away from birth-date and conditions digits on the right.
+            var labelRegion = new SkiaSharp.SKRectI(source.Width * 24 / 100, source.Height * 38 / 100,
+                source.Width * 68 / 100, source.Height * 54 / 100);
+            using (var labelCrop = new SkiaSharp.SKBitmap(labelRegion.Width, labelRegion.Height))
+            {
+                if (source.ExtractSubset(labelCrop, labelRegion))
+                {
+                    using var labelEnlarged = Resize(labelCrop, 1600);
+                    foreach (var variant in new[] { labelCrop, labelEnlarged })
+                    {
+                        var labelText = ReadWithMacOsTesseract(variant, 6);
+                        var value = Regex.Match(labelText,
+                            @"(?im)(?:full[ \t]+)?licen[cs]e[ \t]+class(?:es)?[ \t]*[:#-]?[ \t]*\r?\n[ \t]*([1-9](?:[ \t]*,[ \t]*[1-9])*)(?!\d)").Groups[1].Value;
+                        if (!string.IsNullOrWhiteSpace(value)) labelledClassReadings.Add(Regex.Replace(value, @"\s+", ""));
+                    }
+                }
+            }
             using var enlarged = Resize(source, Math.Max(source.Width, 1600));
             using var enhanced = Grayscale(enlarged, 1.55f);
             readings.Add(ReadWithMacOsTesseract(enhanced));
@@ -186,6 +205,7 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
                 using var classEnlarged = Resize(classCrop, Math.Max(classCrop.Width, 1600));
                 using var strongerClassContrast = Grayscale(classEnlarged, 1.35f);
                 centreClassReadings.Add(ReadWithMacOsTesseract(strongerClassContrast, 6));
+                centreClassReadings.Add(ReadWithMacOsTesseract(classEnlarged, 11));
             }
         }
 
@@ -194,6 +214,9 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
         var centreText = string.Join(passBreak, centreClassReadings.Where(value => !string.IsNullOrWhiteSpace(value)));
         if (!string.IsNullOrWhiteSpace(centreText))
             text += $"\n[[CREMS_CENTRE_BEGIN]]\n{centreText}\n[[CREMS_CENTRE_END]]";
+        var labelledClass = FijiLicenceClassReader.Consensus(labelledClassReadings);
+        if (!string.IsNullOrWhiteSpace(labelledClass))
+            text += $"\n[[CREMS_LABEL_VALUE_BEGIN]]\n{labelledClass}\n[[CREMS_LABEL_VALUE_END]]";
         if (string.IsNullOrWhiteSpace(text))
             throw new LicenceException("ocr_no_text", "No readable licence details were found. Try a clearer image.");
         return text;
@@ -212,38 +235,32 @@ public sealed class HttpLicenceOcrProvider(IHttpClientFactory clients, IConfigur
         var executable = File.Exists("/opt/homebrew/bin/tesseract")
             ? "/opt/homebrew/bin/tesseract"
             : File.Exists("/usr/local/bin/tesseract") ? "/usr/local/bin/tesseract" : "tesseract";
-        var inputPath = Path.Combine(Path.GetTempPath(), $"crems-licence-{Guid.NewGuid():N}.png");
-        try
+        var startInfo = new ProcessStartInfo
         {
-            File.WriteAllBytes(inputPath, content);
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = executable,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            startInfo.ArgumentList.Add(inputPath);
-            startInfo.ArgumentList.Add("stdout");
-            startInfo.ArgumentList.Add("-l");
-            startInfo.ArgumentList.Add("eng");
-            startInfo.ArgumentList.Add("--psm");
-            startInfo.ArgumentList.Add(pageSegMode.ToString());
+            FileName = executable,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        startInfo.ArgumentList.Add("stdin");
+        startInfo.ArgumentList.Add("stdout");
+        startInfo.ArgumentList.Add("-l");
+        startInfo.ArgumentList.Add("eng");
+        startInfo.ArgumentList.Add("--psm");
+        startInfo.ArgumentList.Add(pageSegMode.ToString());
 
-            using var process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException("Tesseract could not be started.");
-            var output = process.StandardOutput.ReadToEnd();
-            var error = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-            if (process.ExitCode != 0)
-                throw new InvalidOperationException($"Tesseract exited with code {process.ExitCode}: {error}");
-            return output;
-        }
-        finally
-        {
-            if (File.Exists(inputPath)) File.Delete(inputPath);
-        }
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Tesseract could not be started.");
+        process.StandardInput.BaseStream.Write(content);
+        process.StandardInput.Close();
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException($"Tesseract exited with code {process.ExitCode}: {error}");
+        return output;
     }
 
     private static string Read(TesseractOCR.Engine engine, SkiaSharp.SKBitmap bitmap, TesseractOCR.Enums.PageSegMode? pageSegMode = null)

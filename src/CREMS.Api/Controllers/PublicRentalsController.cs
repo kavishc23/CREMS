@@ -112,7 +112,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         [FromQuery] AssetType? type,
         [FromQuery] DateOnly? startDate,
         [FromQuery] DateOnly? endDate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery] TimeOnly? pickupTime = null,
+        [FromQuery] TimeOnly? returnTime = null)
     {
         // The unfiltered catalogue is safe to reuse briefly. Date-filtered
         // availability must remain fresh because bookings can change it.
@@ -120,7 +122,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             Response.Headers.CacheControl = "public, max-age=30, stale-while-revalidate=60";
 
         if (startDate.HasValue != endDate.HasValue ||
-            startDate.HasValue && endDate <= startDate)
+            startDate.HasValue && RentalAvailability.FijiTime(endDate!.Value, returnTime ?? new TimeOnly(9, 0)) <= RentalAvailability.FijiTime(startDate.Value, pickupTime ?? new TimeOnly(9, 0)))
         {
             ModelState.AddModelError(nameof(endDate), "Choose a return date after the pickup date.");
             return ValidationProblem(ModelState);
@@ -134,7 +136,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 (asset.ServiceOffering == null || asset.ServiceOffering.IsActive && (asset.ServiceOffering.IsBookableOnline || asset.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == asset.BranchId && s.DivisionId == asset.DivisionId && s.ServiceOfferingId == asset.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
                 db.BranchDivisions.Any(b => b.BranchId == asset.BranchId && b.DivisionId == asset.DivisionId && b.IsActive && b.AcceptsBookings) &&
                 !db.BookingItems.Any(item => item.AssetId == asset.Id &&
-                    (item.Booking!.Status == BookingStatus.ConvertedToRental ||
+                    (item.Booking!.Status == BookingStatus.ConvertedToRental && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return) ||
                      item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
                 !db.MaintenanceJobs.Any(job => job.AssetId == asset.Id &&
                     (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)) &&
@@ -146,24 +148,28 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         if (type.HasValue) query = query.Where(asset => asset.Type == type);
 
         HashSet<Guid> unavailableAssetIds = [];
+        Dictionary<Guid, DateTimeOffset> nextAvailable = [];
         if (startDate.HasValue && endDate.HasValue)
         {
-            var start = new DateTimeOffset(startDate.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-            var end = new DateTimeOffset(endDate.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-            unavailableAssetIds = (await db.BookingItems.AsNoTracking()
-                .Where(item => item.StartAt < end && item.EndAt > start &&
+            var start = RentalAvailability.FijiTime(startDate.Value, pickupTime ?? new TimeOnly(9, 0));
+            var end = RentalAvailability.FijiTime(endDate.Value, returnTime ?? new TimeOnly(9, 0));
+            var reservations = await db.BookingItems.AsNoTracking()
+                .Where(item => item.StartAt < end.AddDays(1) && item.EndAt > start.AddDays(-1) &&
                     (item.Booking!.Status == BookingStatus.Confirmed ||
                      item.Booking.Status == BookingStatus.ConvertedToRental ||
                      item.Booking.Status == BookingStatus.Draft && item.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)))
-                .Select(item => item.AssetId)
-                .Distinct()
-                .ToListAsync(cancellationToken)).ToHashSet();
+                .Select(item => new { item.AssetId, item.StartAt, item.EndAt })
+                .ToListAsync(cancellationToken);
+            var buffers = await db.Assets.AsNoTracking().Select(x => new { x.Id, x.TurnaroundMinutes }).ToDictionaryAsync(x => x.Id, x => x.TurnaroundMinutes, cancellationToken);
+            unavailableAssetIds = reservations.Where(x => RentalAvailability.Conflicts(start, end, x.StartAt, x.EndAt, buffers.GetValueOrDefault(x.AssetId, 60))).Select(x => x.AssetId).ToHashSet();
+            nextAvailable = reservations.GroupBy(x => x.AssetId).ToDictionary(x => x.Key, x =>
+                RentalAvailability.EarliestStart(start, end - start, x.Select(item => (item.StartAt, item.EndAt)), buffers.GetValueOrDefault(x.Key, 60)));
         }
 
         var assets = await query.OrderBy(asset => asset.Type).ThenBy(asset => asset.Name)
             .Select(asset => new
             {
-                asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status,
+                asset.Id, asset.AssetNumber, asset.Name, asset.Type, asset.Status, asset.TurnaroundMinutes,
                 asset.BranchId, BranchName = asset.Branch!.Name, asset.DailyRate, asset.HireUnit, asset.UseServiceHireRate,
                 asset.RegistrationNumber, asset.SerialNumber, asset.DivisionId,
                 DivisionName = asset.Division != null ? asset.Division.Name : null,
@@ -198,7 +204,8 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             startDate.HasValue
                 ? (asset.Status == AssetStatus.Available || asset.Status == AssetStatus.Reserved) && !unavailableAssetIds.Contains(asset.Id)
                 : asset.Status == AssetStatus.Available, asset.InheritBond ? asset.DivisionBondAmount : asset.DefaultBondAmount,
-            DivisionBookingFlow.Parse(asset.BookingConfigurationJson).QuoteMode, asset.HireUnit, asset.UseServiceHireRate, asset.ServiceOfferingId, asset.IsBookableOnline, asset.AllowsQuoteRequests, asset.AssetCategoryId, asset.FulfilmentMode)).ToList());
+            DivisionBookingFlow.Parse(asset.BookingConfigurationJson).QuoteMode, asset.HireUnit, asset.UseServiceHireRate, asset.ServiceOfferingId, asset.IsBookableOnline, asset.AllowsQuoteRequests, asset.AssetCategoryId, asset.FulfilmentMode, asset.TurnaroundMinutes,
+            unavailableAssetIds.Contains(asset.Id) && nextAvailable.TryGetValue(asset.Id, out var next) ? next : null)).ToList());
     }
 
     [HttpGet("assets/{assetId:guid}")]
@@ -207,9 +214,11 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         Guid assetId,
         [FromQuery] DateOnly? startDate,
         [FromQuery] DateOnly? endDate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery] TimeOnly? pickupTime = null,
+        [FromQuery] TimeOnly? returnTime = null)
     {
-        if (startDate.HasValue != endDate.HasValue || startDate.HasValue && endDate <= startDate)
+        if (startDate.HasValue != endDate.HasValue || startDate.HasValue && RentalAvailability.FijiTime(endDate!.Value, returnTime ?? new TimeOnly(9, 0)) <= RentalAvailability.FijiTime(startDate.Value, pickupTime ?? new TimeOnly(9, 0)))
         {
             ModelState.AddModelError(nameof(endDate), "Choose a return date after the pickup date.");
             return ValidationProblem(ModelState);
@@ -228,7 +237,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 (x.ServiceOffering == null || x.ServiceOffering.IsActive && (x.ServiceOffering.IsBookableOnline || x.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == x.BranchId && s.DivisionId == x.DivisionId && s.ServiceOfferingId == x.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
                 db.BranchDivisions.Any(b => b.BranchId == x.BranchId && b.DivisionId == x.DivisionId && b.IsActive && b.AcceptsBookings) &&
                 !db.BookingItems.Any(item => item.AssetId == x.Id &&
-                    (item.Booking!.Status == BookingStatus.ConvertedToRental ||
+                    (item.Booking!.Status == BookingStatus.ConvertedToRental && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return) ||
                      item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
                 !db.MaintenanceJobs.Any(job => job.AssetId == x.Id &&
                     (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)) &&
@@ -239,14 +248,16 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var isAvailable = asset.Status == AssetStatus.Available;
         if (startDate.HasValue && endDate.HasValue)
         {
-            var start = new DateTimeOffset(startDate.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-            var end = new DateTimeOffset(endDate.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-            isAvailable = (asset.Status == AssetStatus.Available || asset.Status == AssetStatus.Reserved) && !await db.BookingItems.AsNoTracking().AnyAsync(item => item.AssetId == asset.Id &&
-                item.StartAt < end && item.EndAt > start &&
+            var start = RentalAvailability.FijiTime(startDate.Value, pickupTime ?? new TimeOnly(9, 0));
+            var end = RentalAvailability.FijiTime(endDate.Value, returnTime ?? new TimeOnly(9, 0));
+            var reservations = await db.BookingItems.AsNoTracking().Where(item => item.AssetId == asset.Id &&
+                item.StartAt < end.AddDays(1) && item.EndAt > start.AddDays(-1) &&
                 (item.Booking!.Status == BookingStatus.Confirmed ||
                  item.Booking.Status == BookingStatus.ConvertedToRental ||
-                 item.Booking.Status == BookingStatus.Draft && item.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)),
-                cancellationToken);
+                 item.Booking.Status == BookingStatus.Draft && item.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)))
+                .Select(item => new { item.StartAt, item.EndAt }).ToListAsync(cancellationToken);
+            isAvailable = (asset.Status == AssetStatus.Available || asset.Status == AssetStatus.Reserved) &&
+                !reservations.Any(item => RentalAvailability.Conflicts(start, end, item.StartAt, item.EndAt, asset.TurnaroundMinutes));
         }
 
         var customerAttributes = asset.AttributeValues
@@ -298,12 +309,14 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         PublicBookingRequest request,
         CancellationToken cancellationToken)
     {
-        if (request.EndDate <= request.StartDate)
+        var start = RentalAvailability.FijiTime(request.StartDate, request.PickupTime ?? new TimeOnly(9, 0));
+        var end = RentalAvailability.FijiTime(request.EndDate, request.ReturnTime ?? new TimeOnly(9, 0));
+        if (end <= start)
         {
             ModelState.AddModelError(nameof(request.EndDate), "Choose a return date after the pickup date.");
             return ValidationProblem(ModelState);
         }
-        if (request.StartDate < DateOnly.FromDateTime(DateTime.UtcNow))
+        if (start < DateTimeOffset.UtcNow || request.StartDate < DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(12)).DateTime))
         { ModelState.AddModelError(nameof(request.StartDate), "Pickup cannot be in the past."); return ValidationProblem(ModelState); }
         var asset = await db.Assets.Include(item => item.Branch).Include(item => item.Division)
             .Include(item => item.ServiceOffering).Include(item => item.AssetCategory)
@@ -326,7 +339,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         var questions = OrganizationConfiguration.Questions(flow, asset.ServiceOffering, asset.AssetCategory);
         var answerError = OrganizationConfiguration.ValidateAnswers(questions, request.ConfigurationAnswers);
         if (answerError is not null) return BadRequest(new { message = answerError });
-        var requestedDays = request.EndDate.DayNumber - request.StartDate.DayNumber;
+        var requestedDays = Math.Max(1, (int)Math.Ceiling((end - start).TotalDays));
         if (requestedDays < flow.MinimumHireDays || requestedDays > flow.MaximumHireDays)
         { ModelState.AddModelError(nameof(request.EndDate), $"Choose a hire between {flow.MinimumHireDays} and {flow.MaximumHireDays} days."); return ValidationProblem(ModelState); }
         if (request.Fulfilment is not ("Pickup" or "Delivery"))
@@ -350,16 +363,18 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.ServiceOfferingId.HasValue && !await db.BranchDivisionServices.AnyAsync(x => x.BranchId == asset.BranchId && x.DivisionId == asset.DivisionId && x.ServiceOfferingId == asset.ServiceOfferingId && x.IsActive && x.IsBookable, cancellationToken))
             return BadRequest(new { message = "This service is not currently bookable at the selected branch." });
 
-        var start = new DateTimeOffset(request.StartDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        var end = new DateTimeOffset(request.EndDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        var overlaps = await db.BookingItems.AnyAsync(item =>
-            item.AssetId == asset.Id && item.StartAt < end && item.EndAt > start &&
+        await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+        var reservations = await db.BookingItems.AsNoTracking().Where(item =>
+            item.AssetId == asset.Id && item.StartAt < end.AddMinutes(asset.TurnaroundMinutes) && item.EndAt > start.AddDays(-1) &&
             (item.Booking!.Status == BookingStatus.Confirmed ||
              item.Booking.Status == BookingStatus.ConvertedToRental ||
-             item.Booking.Status == BookingStatus.Draft && item.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)), cancellationToken);
+             item.Booking.Status == BookingStatus.Draft && item.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)))
+            .Select(item => new { item.StartAt, item.EndAt }).ToListAsync(cancellationToken);
+        var overlaps = reservations.Any(item => RentalAvailability.Conflicts(start, end, item.StartAt, item.EndAt, asset.TurnaroundMinutes));
         if (overlaps)
         {
-            ModelState.AddModelError(nameof(request.AssetId), "This item is no longer available for the selected dates.");
+            var next = RentalAvailability.EarliestStart(start, end - start, reservations.Select(x => (x.StartAt, x.EndAt)), asset.TurnaroundMinutes);
+            ModelState.AddModelError(nameof(request.AssetId), $"This asset is booked for the selected time. The earliest matching slot begins {next:dd MMM yyyy h:mm tt} Fiji time.");
             return ValidationProblem(ModelState);
         }
 
@@ -392,14 +407,13 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             DriverName = licenceRequired ? activeCustomer.Name : null,
             DriverLicence = licenceRequired ? licence?.LicenceNumber : null,
         };
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Keep the registered identity authoritative while allowing current contact details.
         // Contact identity is read from the customer profile; checkout does not overwrite it.
         activeCustomer.Address = Normalize(request.Address) ?? activeCustomer.Address;
         if (!licenceRequired)
             activeCustomer.IdentificationNumber = Normalize(request.IdentificationNumber) ?? activeCustomer.IdentificationNumber;
 
-        var hireDays = Math.Max(1, request.EndDate.DayNumber - request.StartDate.DayNumber);
+        var hireDays = requestedDays;
         var availableCharges = await db.ChargeDefinitions.AsNoTracking().Where(x => x.IsActive && x.IsCustomerVisible && x.Category != ChargeCategory.BaseHire &&
             x.DivisionId == asset.DivisionId && (!x.ServiceOfferingId.HasValue || x.ServiceOfferingId == asset.ServiceOfferingId))
             .ToListAsync(cancellationToken);
@@ -633,7 +647,7 @@ public sealed record PublicAssetResponse(
     string? DivisionName, string? Category, string? CategoryCode, PersonnelRequirement PersonnelRequirement,
     string? ServiceName, bool RequiresQuote, bool RequiresDelivery, string PhotoUrlsJson,
     IReadOnlyList<PublicAssetAttributeResponse> Attributes, bool IsAvailable, decimal BondAmount, string QuoteMode,
-    ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, Guid? ServiceOfferingId = null, bool IsBookableOnline = true, bool AllowsQuoteRequests = true, Guid? AssetCategoryId = null, AssetFulfilmentMode FulfilmentMode = AssetFulfilmentMode.PickupOrDelivery);
+    ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, Guid? ServiceOfferingId = null, bool IsBookableOnline = true, bool AllowsQuoteRequests = true, Guid? AssetCategoryId = null, AssetFulfilmentMode FulfilmentMode = AssetFulfilmentMode.PickupOrDelivery, int TurnaroundMinutes = 60, DateTimeOffset? NextAvailableAt = null);
 public sealed record PublicAssetAttributeResponse(string Code, string Name, string Value, string? Unit);
 public sealed record PublicBookingRequest(
     Guid AssetId,
@@ -658,7 +672,8 @@ public sealed record PublicBookingRequest(
     [MaxLength(100)] string? DriverLicence,
     bool RequestQuotation,
     IReadOnlyList<PublicBookingExtraRequest>? Extras, decimal? HireQuantity = null,
-    IReadOnlyDictionary<string, string>? ConfigurationAnswers = null, [MaxLength(100)] string? SecondaryContact = null);
+    IReadOnlyDictionary<string, string>? ConfigurationAnswers = null, [MaxLength(100)] string? SecondaryContact = null,
+    TimeOnly? PickupTime = null, TimeOnly? ReturnTime = null);
 public sealed record PublicBookingExtraRequest(Guid ChargeDefinitionId, decimal Quantity);
 public sealed record PublicBookingResponse(
     string Reference, string AssetName, string BranchName,
