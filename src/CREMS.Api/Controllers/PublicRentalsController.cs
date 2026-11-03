@@ -135,13 +135,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.Division != null && asset.Division.IsActive && asset.Division.IsPublic &&
                 (asset.ServiceOffering == null || asset.ServiceOffering.IsActive && (asset.ServiceOffering.IsBookableOnline || asset.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == asset.BranchId && s.DivisionId == asset.DivisionId && s.ServiceOfferingId == asset.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
                 db.BranchDivisions.Any(b => b.BranchId == asset.BranchId && b.DivisionId == asset.DivisionId && b.IsActive && b.AcceptsBookings) &&
-                !db.BookingItems.Any(item => item.AssetId == asset.Id &&
-                    (item.Booking!.Status == BookingStatus.ConvertedToRental && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return) ||
-                     item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
-                !db.MaintenanceJobs.Any(job => job.AssetId == asset.Id &&
-                    (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)) &&
-                asset.Status != AssetStatus.Maintenance && asset.Status != AssetStatus.Inspection &&
-                asset.Status != AssetStatus.OutOfService &&
+
                 asset.Status != AssetStatus.Retired);
         if (branchId.HasValue) query = query.Where(asset => asset.BranchId == branchId);
         if (divisionId.HasValue) query = query.Where(asset => asset.DivisionId == divisionId);
