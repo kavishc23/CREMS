@@ -1,3 +1,4 @@
+import { assetPhotoUrls } from '../utils/assetPhotoUrls'
 import Popover from '@mui/material/Popover'
 import TuneOutlined from '@mui/icons-material/TuneOutlined'
 import { useSearchNavigationGuard } from '../components/useSearchNavigationGuard'
@@ -76,15 +77,6 @@ function dateInputValue(offsetDays: number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-function assetPhotoUrls(asset: PublicAsset, thumbnails = false) {
-  try {
-    const uploaded = JSON.parse(asset.photoUrlsJson || '[]') as string[]
-    return uploaded.filter(url => typeof url === 'string' && url.startsWith('/api/public/assets/'))
-      // Invalidate missing-image responses cached before catalogue files were restored.
-      .map(url => thumbnails && url.endsWith('.webp') ? url.replace(/\.webp$/, '.thumb.webp') : url)
-      .map(url => `${url}${url.includes('?') ? '&' : '?'}v=3`)
-  } catch { return [] }
-}
 
 function assetAttribute(asset: PublicAsset, code: string) {
   return (asset.attributes ?? []).find(attribute => attribute.code === code)?.value ?? ''

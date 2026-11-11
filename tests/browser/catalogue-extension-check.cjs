@@ -1,0 +1,25 @@
+const assert = require('node:assert/strict');
+(async () => {
+  const base = process.env.CREMS_TEST_API_URL || 'http://localhost:5080';
+  const response = await fetch(base + '/api/public/catalogue-bootstrap', { signal: AbortSignal.timeout(20000) });
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  const events = data.divisions.find(item => item.code === 'EVENTS');
+  assert(events && events.name === 'Carpenters Events');
+  assert(events.services.some(item => item.code === 'PROJECTOR_HIRING' && item.name === 'Projector hiring'));
+  const tags = new Set(['CM-SED-001', 'CM-SED-002', 'CM-HAT-001', 'CM-HAT-002', 'CM-SUV-001', 'CM-SUV-002', 'CM-PUP-001', 'CM-VAN-001', 'CE-PJ-001']);
+  const assets = data.assets.filter(item => tags.has(item.assetNumber));
+  assert.equal(assets.length, 9);
+  assert(assets.every(item => item.isAvailable && !/demo/i.test(item.name + item.assetNumber)));
+  assert.deepEqual([...new Set(assets.filter(item => item.divisionId !== events.id).map(item => item.category))].sort(), ['Hatchback', 'Minivan', 'Pickup', 'SUV', 'Sedan']);
+  const projector = assets.find(item => item.assetNumber === 'CE-PJ-001');
+  assert.equal(projector.name, 'Epson EB-X49 Projector');
+  assert.equal(projector.divisionId, events.id);
+  assert.equal(projector.serviceName, 'Projector hiring');
+  assert.equal(projector.categoryCode, 'PROJECTOR');
+  assert.equal(projector.attributes.find(item => item.code === 'BRIGHTNESS').value, '3600');
+  assert.equal(projector.attributes.find(item => item.code === 'HDMI_INPUT').value, 'true');
+  const image = await fetch((process.env.CREMS_TEST_URL || 'http://localhost:5173') + '/catalog/projector-eb-x49.jpg');
+  assert.equal(image.status, 200); assert(image.headers.get('content-type').startsWith('image/'));
+  console.log('PASS: actual public API exposes five Motors categories/eight vehicles and Carpenters Events with its projector service, asset, specifications and matching photo. Read-only local SQL-backed check.');
+})().catch(error => { console.error(error); process.exit(1); });

@@ -52,7 +52,8 @@ public sealed class PlanningController(ApplicationDbContext db, CurrentStaffScop
    .OrderBy(x => x.Date).Select(x => new { x.Id, x.BranchId, x.Date, x.Name, x.IsClosed })
    .ToListAsync(token);
   var assetRows = await assets.OrderBy(x => x.AssetNumber)
-   .Select(x => new { x.Id, x.AssetNumber, x.Name, x.Status, x.BranchId, x.DivisionId,
+   .Select(x => new { x.Id, x.AssetNumber, x.Name, x.Status, x.BranchId, x.DivisionId, x.AssetCategoryId,
+    CategoryName = x.AssetCategory != null ? x.AssetCategory.Name : x.Category,
     IsUnreturned = db.BookingItems.Any(item => item.AssetId == x.Id &&
      (item.Booking!.Status == BookingStatus.ConvertedToRental ||
       item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))

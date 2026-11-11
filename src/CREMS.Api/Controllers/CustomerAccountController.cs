@@ -754,11 +754,12 @@ public sealed class CustomerAccountController(
     [Authorize(Policy = SystemPolicies.CustomerPortal)]
     public async Task<ActionResult> ReportIncident(Guid bookingId, CustomerIncidentRequest request, CancellationToken token)
     {
+        if (IncidentEvidence.Validate(request.EvidenceDataUrls) is { } evidenceError) return BadRequest(new { message = evidenceError });
         var user = await userManager.GetUserAsync(User); if (user?.CustomerId is null) return Unauthorized();
         var booking = await db.Bookings.FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
         if (booking is null) return NotFound();
         if (booking.Status != BookingStatus.ConvertedToRental) return BadRequest(new { message = "Incidents can only be reported for an active hire." });
-        var incident = new RentalIncident { BookingId = booking.Id, IncidentNumber = Number("INC"), Type = request.Type, OccurredAt = request.OccurredAt, Description = request.Description.Trim(), Location = Clean(request.Location), PoliceReference = Clean(request.PoliceReference), EvidenceJson = "[]" };
+        var incident = new RentalIncident { BookingId = booking.Id, IncidentNumber = Number("INC"), Type = request.Type, OccurredAt = request.OccurredAt, Description = request.Description.Trim(), Location = Clean(request.Location), PoliceReference = Clean(request.PoliceReference), EvidenceJson = JsonSerializer.Serialize(request.EvidenceDataUrls ?? []) };
         db.RentalIncidents.Add(incident); db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Breakdown, Priority = CasePriority.Critical, Subject = $"Customer incident — {incident.IncidentNumber} — {booking.BookingNumber}", Description = request.Description.Trim(), DueAt = DateTimeOffset.UtcNow.AddMinutes(30) });
         await db.SaveChangesAsync(token); return Accepted(new { incident.IncidentNumber });
     }
@@ -885,7 +886,7 @@ public sealed record ChangeCustomerPasswordRequest(
     [Required, MinLength(10)] string NewPassword);
 public sealed record CustomerBookingChangeRequest([MaxLength(1000)] string? Reason);
 public sealed record CustomerExtensionRequest(DateTimeOffset RequestedEndAt, [MaxLength(1000)] string? Reason);
-public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required, MaxLength(2000)] string Description, [MaxLength(500)] string? Location, [MaxLength(100)] string? PoliceReference);
+public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required, MaxLength(2000)] string Description, [MaxLength(500)] string? Location, [MaxLength(100)] string? PoliceReference, IReadOnlyList<string>? EvidenceDataUrls = null);
 public sealed record CustomerQuoteDecisionRequest(bool Accepted, [MaxLength(1000)] string? Note, int? ExpectedVersion);
 public sealed record CustomerQuoteLine(string Description, decimal Quantity, decimal Rate, string Unit);
 public sealed record CustomerProfileRequest([Required, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,

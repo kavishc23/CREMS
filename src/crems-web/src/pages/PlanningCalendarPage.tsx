@@ -20,8 +20,9 @@ import {
 import { AssetProfileDialog } from '../components/AssetProfileDialog'
 import { PageHeader } from '../components/PageHeader'
 import { api } from '../api/client'
+import { categoryKey, matchesAvailabilityFilters, type AvailabilityAsset, type AvailabilityFilters } from '../utils/availabilityFilters'
 
-type Asset = { id: string; assetNumber: string; name: string; status: string; branchId: string; divisionId: string | null; isUnreturned: boolean }
+type Asset = AvailabilityAsset & { status: string; isUnreturned: boolean }
 type Event = { assetId: string; startAt: string; endAt: string; type: string; reference: string }
 type Calendar = {
   assets: Asset[]
@@ -114,6 +115,7 @@ export function PlanningCalendarPage() {
   const [assetSearch, setAssetSearch] = useState('')
   const [branchFilter, setBranchFilter] = useState('all')
   const [divisionFilter, setDivisionFilter] = useState('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
   const [availableOnly, setAvailableOnly] = useState(false)
   const [detailAssetId, setDetailAssetId] = useState<string | null>(null)
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
@@ -122,20 +124,23 @@ export function PlanningCalendarPage() {
   const [assetPage, setAssetPage] = useState(0)
 
   useEffect(() => {
+    const controller = new AbortController()
     const from = addDays(rangeStartDate, -7)
     const to = addDays(rangeEndDate, 7)
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset request feedback when the external calendar range changes.
-    setLoading(true); setError('')
+    setLoading(true); setError(''); setData(null)
     void api.get<Calendar>('/planning/calendar', {
+      signal: controller.signal,
       params: {
         from: from.toISOString(),
         to: to.toISOString(),
       },
     })
-      .then((response) => setData(response.data))
-      .catch(() => setError('Unable to load availability planning.'))
-      .finally(() => setLoading(false))
+      .then((response) => { if (!controller.signal.aborted) setData(response.data) })
+      .catch(() => { if (!controller.signal.aborted) setError('Unable to load availability planning.') })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
   }, [rangeEndDate, rangeStartDate])
 
   useEffect(() => {
@@ -176,6 +181,16 @@ export function PlanningCalendarPage() {
   }, [data, visibleClosures])
 
   const todayKey = toLocalDateKey(new Date())
+  const categories = useMemo(() => [...new Map((data?.assets ?? []).map(asset =>
+    [categoryKey(asset), { id: categoryKey(asset), name: asset.categoryName || 'Uncategorised' }])).values()]
+    .sort((a, b) => a.name.localeCompare(b.name)), [data])
+  const assetOptions = (data?.assets ?? []).filter(asset => matchesAvailabilityFilters(asset,
+    { branch: branchFilter, division: divisionFilter, category: categoryFilter }))
+  function changeScope(next: AvailabilityFilters) {
+    setBranchFilter(next.branch); setDivisionFilter(next.division); setCategoryFilter(next.category); setAssetPage(0)
+    if (selectedAssetId !== 'all' && !data?.assets.some(asset => asset.id === selectedAssetId && matchesAvailabilityFilters(asset, next)))
+      setSelectedAssetId('all')
+  }
 
   const filteredAssets = useMemo(() => {
     if (!data) return []
@@ -184,13 +199,12 @@ export function PlanningCalendarPage() {
       const search = assetSearch.trim().toLowerCase()
       if (search && !`${asset.assetNumber} ${asset.name}`.toLowerCase().includes(search)) return false
       if (selectedAssetId !== 'all' && asset.id !== selectedAssetId) return false
-      if (branchFilter !== 'all' && asset.branchId !== branchFilter) return false
-      if (divisionFilter !== 'all' && asset.divisionId !== divisionFilter) return false
+      if (!matchesAvailabilityFilters(asset, { branch: branchFilter, division: divisionFilter, category: categoryFilter })) return false
       if (!availableOnly) return true
 
       return !visibleDates.some((date) => closureMap.has(`${asset.branchId}:${toLocalDateKey(date)}`) || getAssetStatusForDate(asset, date, allEvents).busy)
     })
-  }, [allEvents, assetSearch, branchFilter, closureMap, data, divisionFilter, selectedAssetId, availableOnly, visibleDates])
+  }, [allEvents, assetSearch, branchFilter, categoryFilter, closureMap, data, divisionFilter, selectedAssetId, availableOnly, visibleDates])
   const maxAssetPage = Math.max(0, Math.ceil(filteredAssets.length / 20) - 1)
   const currentAssetPage = Math.min(assetPage, maxAssetPage)
   const visibleAssets = filteredAssets.slice(currentAssetPage * 20, (currentAssetPage + 1) * 20)
@@ -266,17 +280,16 @@ export function PlanningCalendarPage() {
         </Stack>
       } />
 
-      <Card variant="outlined" sx={{ mb: 2.5, borderTop: '3px solid', borderTopColor: 'secondary.main' }}><CardContent sx={{ p: { xs: 2, md: 2.5 }, overflowX: 'auto' }}><Box sx={{
+      <Card variant="outlined" sx={{ mb: 2.5, borderTop: '3px solid', borderTopColor: 'secondary.main' }}><CardContent sx={{ p: { xs: 2, md: 2.5 } }}><Box sx={{
         display: 'grid', gap: 1.5, alignItems: 'center',
-        minWidth: 1264,
-        gridTemplateColumns: 'minmax(190px, 1.5fr) repeat(3, minmax(125px, 1fr)) minmax(105px, .75fr) repeat(2, minmax(160px, 1.15fr)) minmax(190px, 1.4fr)',
+        gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' },
         '& > *': { minWidth: 0 },
       }}>
           <TextField
             label="Search vehicle or asset"
             placeholder="Name or asset number"
             value={assetSearch}
-            onChange={(event) => setAssetSearch(event.target.value)}
+            onChange={(event) => { setAssetSearch(event.target.value); setAssetPage(0) }}
             fullWidth
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined fontSize="small" /></InputAdornment> }}
           />
@@ -286,12 +299,21 @@ export function PlanningCalendarPage() {
               labelId="asset-filter-label"
               label="Asset"
               value={selectedAssetId}
-              onChange={(event) => setSelectedAssetId(event.target.value)}
+              onChange={(event) => { setSelectedAssetId(event.target.value); setAssetPage(0) }}
             >
               <MenuItem value="all">All assets</MenuItem>
-              {data.assets.map((asset) => (
+              {assetOptions.map((asset) => (
                 <MenuItem key={asset.id} value={asset.id}>{asset.assetNumber}</MenuItem>
               ))}
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" fullWidth>
+            <InputLabel id="category-filter-label">Asset category</InputLabel>
+            <Select labelId="category-filter-label" label="Asset category" value={categoryFilter}
+              onChange={event => changeScope({ branch: branchFilter, division: divisionFilter, category: event.target.value })}>
+              <MenuItem value="all">All categories</MenuItem>
+              {categories.map(category => <MenuItem key={category.id} value={category.id}>{category.name}</MenuItem>)}
             </Select>
           </FormControl>
 
@@ -301,7 +323,7 @@ export function PlanningCalendarPage() {
               labelId="branch-filter-label"
               label="Branch"
               value={branchFilter}
-              onChange={(event) => setBranchFilter(event.target.value)}
+              onChange={(event) => changeScope({ branch: event.target.value, division: divisionFilter, category: categoryFilter })}
             >
               <MenuItem value="all">All branches</MenuItem>
               {branches.map((branch) => (
@@ -316,7 +338,7 @@ export function PlanningCalendarPage() {
               labelId="division-filter-label"
               label="Division"
               value={divisionFilter}
-              onChange={(event) => setDivisionFilter(event.target.value)}
+              onChange={(event) => changeScope({ branch: branchFilter, division: event.target.value, category: categoryFilter })}
             >
               <MenuItem value="all">All divisions</MenuItem>
               {divisions.map((division) => (
@@ -363,7 +385,7 @@ export function PlanningCalendarPage() {
           variant={availableOnly ? 'contained' : 'outlined'}
           color="success"
           size="small"
-          onClick={() => setAvailableOnly((current) => !current)}
+          onClick={() => { setAvailableOnly((current) => !current); setAssetPage(0) }}
           sx={{ minHeight: 40, width: '100%', whiteSpace: 'nowrap' }}
         >
           {availableOnly ? 'Showing available only' : 'Show available only'}

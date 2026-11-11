@@ -119,6 +119,9 @@ namespace CREMS.Api.Data.Migrations
                     b.Property<string>("OwnershipType")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateOnly?>("PassingExpiry")
+                        .HasColumnType("date");
+
                     b.Property<int?>("PersonnelOverride")
                         .HasColumnType("int");
 

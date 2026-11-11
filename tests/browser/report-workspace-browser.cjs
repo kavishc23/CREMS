@@ -34,7 +34,7 @@ const fs = require('node:fs');
     await (await downloadPromise).saveAs('tmp/reports-qa/asset-report.pdf');
     const safe = await page.evaluate(async () => { const { reportCsv } = await import('/src/utils/reportDocument.ts'); return reportCsv({ ...window.report, sections: [{ title: 'CSV safety', columns: ['value'], rows: [{value:'=1+1'}, {value:'Quoted "text", comma'}] }] }); });
     assert(safe.includes("'=1+1")); assert(safe.includes('Quoted ""text"", comma'));
-    await page.route('**/api/assets/test/profile', route => route.fulfill({ json: { asset: { assetNumber: 'TEST-001', name: 'Test excavator', attributeValues: [] }, availability: { bookings: [], transfers: [] }, inspections: [], rentalInspections: [], maintenance: [], meters: [], lifecycle: [], documents: [{documentNumber:'DOC-001',fileName:'Service record.pdf',type:'Maintenance'}], audits: [] } }));
+    await page.route('**/api/assets/test/profile*', route => route.fulfill({ json: { asset: { assetNumber: 'TEST-001', name: 'Test excavator', attributeValues: [] }, availability: { bookings: [], transfers: [] }, inspections: [], rentalInspections: [], maintenance: [], meters: [], lifecycle: [], documents: [{documentNumber:'DOC-001',fileName:'Service record.pdf',type:'Maintenance'}], audits: [] } }));
     await page.route('**/api/assets/test/performance', route => route.fulfill({ status: 403, json: {} }));
     const assetReport = await page.evaluate(async () => (await (await import('/src/utils/moduleReports.ts')).detailedAssetReports('test'))[0]);
     assert(assetReport.title.includes('TEST-001'));

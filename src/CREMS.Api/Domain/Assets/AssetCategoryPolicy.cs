@@ -1,4 +1,5 @@
 using CREMS.Api.Domain.Common;
+using CREMS.Api.Domain.Operations;
 using CREMS.Api.Domain.Rentals;
 
 namespace CREMS.Api.Domain.Assets;
@@ -8,6 +9,9 @@ public static class AssetCategoryPolicy
 {
     public static bool IsVehicle(AssetType type) => type is AssetType.Vehicle or AssetType.PassengerVehicle or AssetType.CommercialVehicle;
     public static bool IsEquipment(AssetType type) => !IsVehicle(type) && type != AssetType.PropertyUnit;
+    public static MeterType MeterKind(Asset asset) => asset.MeterUnit?.Contains("hour", StringComparison.OrdinalIgnoreCase) == true
+        ? asset.Type == AssetType.LightEquipment ? MeterType.OperatingHours : MeterType.EngineHours
+        : MeterType.Odometer;
     public static string Code(Asset asset) => asset.Type == AssetType.PropertyUnit ? "PROPERTY_UNIT" : asset.AssetCategory?.Code?.ToUpperInvariant() ??
         (IsVehicle(asset.Type) ? "RENTAL_VEHICLE" : "GENERAL_EQUIPMENT");
 

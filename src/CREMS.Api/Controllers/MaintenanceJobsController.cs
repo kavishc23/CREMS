@@ -127,11 +127,13 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
                 FuelCost = 0, TaxCost = 0, OtherCost = 0, LabourHours = null, LabourRate = technicianRate };
         if (request.LabourHours.HasValue && !request.LabourRate.HasValue || !request.AssignedPersonnelId.HasValue && !request.LabourHours.HasValue && request.LabourRate.HasValue) return BadRequest(new { message = "Enter both labour hours and hourly rate, or leave both blank." });
         if (request.LabourHours.HasValue) request = request with { LabourCost = decimal.Round(request.LabourHours.Value * request.LabourRate!.Value, 2) };
+        var vehiclePassing = string.Equals(request.ServiceType?.Trim(), "Vehicle passing", StringComparison.OrdinalIgnoreCase);
         var completing = request.Status == MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Completed;
         if (completing && request.CalculateDowntime) request = request with { DowntimeHours = (int)Math.Min(100000, Math.Max(0, Math.Ceiling((DateTimeOffset.UtcNow - job.ReportedAt).TotalHours))) };
         if (completing && string.IsNullOrWhiteSpace(request.CompletionNotes)) return BadRequest(new { message = "Record the work performed before completing this job." });
         if (completing && !string.IsNullOrWhiteSpace(job.Asset?.MeterUnit) && !request.MeterReading.HasValue) return BadRequest(new { message = "Record the final meter reading before completion." });
         if (completing && request.ServiceIntervalMonths.HasValue && !request.NextServiceDate.HasValue) request = request with { NextServiceDate = MaintenanceRules.LocalDate(DateTimeOffset.UtcNow).AddMonths(request.ServiceIntervalMonths.Value) };
+        if (completing && vehiclePassing && (!request.NextServiceDate.HasValue || request.NextServiceDate <= MaintenanceRules.LocalDate(DateTimeOffset.UtcNow))) return BadRequest(new { message = "Enter a future next passing date before completing vehicle passing." });
         var meterChanged = request.MeterReading != job.MeterReading;
         var scheduleChanged = request.NextServiceDate != job.NextServiceDate;
         var previousServiceDate = job.NextServiceDate;
@@ -141,7 +143,7 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
             return BadRequest(new { message = "Parts cost cannot be less than the net cost of inventory issued to this job. Return unused stock before reducing its cost." });
         if (request.Status is not (MaintenanceStatus.Completed or MaintenanceStatus.Cancelled) && job.Asset?.BranchId != job.BranchId)
             return BadRequest(new { message = "Create a new maintenance job at the asset's current branch instead of reopening a transferred asset's historical job." });
-        if (completing && (request.IsPreventive || job.IsPreventive || job.Asset?.NextServiceDate <= MaintenanceRules.LocalDate(DateTimeOffset.UtcNow)) &&
+        if (completing && !vehiclePassing && (request.IsPreventive || job.IsPreventive || job.Asset?.NextServiceDate <= MaintenanceRules.LocalDate(DateTimeOffset.UtcNow)) &&
             ((job.Asset?.NextServiceDate.HasValue == true && !request.NextServiceDate.HasValue) || (job.NextServiceMeter.HasValue && !request.NextServiceMeter.HasValue)
             || (request.NextServiceDate.HasValue && request.NextServiceDate <= MaintenanceRules.LocalDate(DateTimeOffset.UtcNow))
             || (request.NextServiceMeter.HasValue && request.NextServiceMeter <= (request.MeterReading ?? job.Asset?.CurrentMeterReading))))
@@ -209,9 +211,10 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
             if (request.Status == MaintenanceStatus.Completed)
             {
                 // Historical notes must not replace a schedule established by later work or an asset edit.
-                if ((completing && (request.NextServiceDate.HasValue || request.IsPreventive)) || (scheduleChanged && asset.NextServiceDate == previousServiceDate
+                if (vehiclePassing && completing) asset.PassingExpiry = request.NextServiceDate;
+                if (!vehiclePassing && ((completing && (request.NextServiceDate.HasValue || request.IsPreventive)) || (scheduleChanged && asset.NextServiceDate == previousServiceDate
                     && !await db.MaintenanceJobs.AnyAsync(item => item.AssetId == job.AssetId && item.Id != job.Id
-                        && item.Status == MaintenanceStatus.Completed && item.CompletedAt >= job.CompletedAt, cancellationToken)))
+                        && item.Status == MaintenanceStatus.Completed && item.CompletedAt >= job.CompletedAt, cancellationToken))))
                     asset.NextServiceDate = request.NextServiceDate;
                 if (request.MeterReading.HasValue && (completing || meterChanged))
                 {

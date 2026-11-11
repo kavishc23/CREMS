@@ -138,7 +138,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             {
                 AssetId = asset.Id,
                 BookingId = booking.Id,
-                Type = asset.MeterUnit?.Contains("hour", StringComparison.OrdinalIgnoreCase) == true ? MeterType.EngineHours : MeterType.Odometer,
+                Type = AssetCategoryPolicy.MeterKind(asset),
                 Unit = asset.MeterUnit ?? "unit",
                 Reading = request.MeterReading.Value,
                 FuelPercent = request.FuelLevelPercent,
@@ -154,7 +154,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
     public async Task<ActionResult> InspectionContext(Guid bookingId, CancellationToken cancellationToken)
     {
         var booking = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset).Include(x => x.Inspections)
-            .Include(x => x.Inspections).FirstOrDefaultAsync(x => x.Id == bookingId, cancellationToken);
+            .Include(x => x.Charges).AsSplitQuery().FirstOrDefaultAsync(x => x.Id == bookingId, cancellationToken);
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
@@ -169,6 +169,8 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         {
             templates = configuration?.Templates ?? templates.Select(t => new InspectionTemplateSnapshot(t.Id, t.Name, t.Stage, t.ChecklistJson)).ToArray(),
             tracksMeter = configuration?.TracksMeter, tracksFuel = configuration?.TracksFuel, meterUnit = categoryUnit ?? configuration?.MeterUnit,
+            requiresDrivingLicence = booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.IsVehicle(x.Asset.Type)) &&
+                !booking.Charges.Any(x => x.Category == ChargeCategory.Driver || x.Category == ChargeCategory.Operator),
             assetCurrentMeterReading = booking.Items.FirstOrDefault()?.Asset?.CurrentMeterReading,
             preHire = preHire is null ? null : new { preHire.ConditionNotes, preHire.DamageNotes, preHire.EvidenceJson, preHire.MeterReading, preHire.FuelLevelPercent }
         });
@@ -261,7 +263,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             ("Refuelling", request.RefuellingCharge, ChargeCategory.Fuel), ("Cleaning", request.CleaningCharge, ChargeCategory.Cleaning),
             ("Damage", request.DamageCharge, ChargeCategory.Other), (request.AdditionalChargesDescription ?? "Other return charges", request.AdditionalCharges, ChargeCategory.Other)
         }.Where(x => x.Item2 > 0))
-            booking.Charges.Add(new BookingCharge { BookingId = booking.Id, Description = description, Category = category, Unit = ChargeUnit.Fixed, Quantity = 1, UnitRate = RentalFinancials.Money(amount), IsTaxable = true });
+            booking.Charges.Add(new BookingCharge { BookingId = booking.Id, Description = description, Category = category, Unit = ChargeUnit.Fixed, Quantity = 1, UnitRate = RentalFinancials.Money(amount), IsTaxable = false });
         // Explicitly insert new charges: their application-generated keys must not be
         // mistaken for existing rows when EF discovers them through the collection.
         foreach (var charge in booking.Charges.Where(x => db.Entry(x).State == EntityState.Detached))
@@ -293,7 +295,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
                 (x.Status != MaintenanceStatus.Completed && x.Status != MaintenanceStatus.Cancelled || x.ReleasedAt == null), cancellationToken);
             asset.Status=hasDamage || hasUnreleasedMaintenance ? AssetStatus.Maintenance : AssetStatus.Available;
             db.AssetLifecycleEvents.Add(new AssetLifecycleEvent{AssetId=asset.Id,BookingId=booking.Id,Type=hasDamage?AssetLifecycleEventType.DamageReported:AssetLifecycleEventType.PostHireInspection,FromStatus=from,ToStatus=asset.Status,MeterReading=request.MeterReading,Notes=Normalize(request.DamageNotes)??$"Returned on {booking.BookingNumber}",RecordedByUserId=scope.UserId,RecordedByName=scope.UserName});
-            if(request.MeterReading.HasValue){asset.CurrentMeterReading=request.MeterReading;db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=asset.MeterUnit?.Contains("hour",StringComparison.OrdinalIgnoreCase)==true?MeterType.EngineHours:MeterType.Odometer,Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PostHireInspection,RecordedByUserId=scope.UserId});}
+            if(request.MeterReading.HasValue){asset.CurrentMeterReading=request.MeterReading;db.AssetMeterReadings.Add(new AssetMeterReading{AssetId=asset.Id,BookingId=booking.Id,Type=AssetCategoryPolicy.MeterKind(asset),Unit=asset.MeterUnit??"unit",Reading=request.MeterReading.Value,FuelPercent=request.FuelLevelPercent,Source=MeterReadingSource.PostHireInspection,RecordedByUserId=scope.UserId});}
             // Preserve a separate traceable job for each newly reported return fault.
             if (hasDamage)
                 db.MaintenanceJobs.Add(new MaintenanceJob { JobNumber = $"MNT-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}", AssetId = asset.Id, BranchId = asset.BranchId, SourceType = "Damage", SourceReference = booking.BookingNumber, ReportedByName = scope.UserName, ServiceType = "Post-hire damage assessment", FaultDescription = Normalize(request.DamageNotes) ?? "Failed post-hire checklist items require assessment.", Description = $"Automatically referred from return of {booking.BookingNumber}.", Priority = MaintenancePriority.High, Status = MaintenanceStatus.Open, MeterReading = request.MeterReading });

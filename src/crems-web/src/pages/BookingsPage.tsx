@@ -1,3 +1,4 @@
+import { IncidentAttachments, incidentEvidence } from '../components/IncidentAttachments'
 import { useActionNotice } from '../components/useActionNotice'
 import type { CustomerQuestion } from '../config/organizationSetup'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -208,6 +209,7 @@ function BookingWorkspace({open,row,data,loading,error,onClose,onChanged,setErro
                 <Typography fontWeight={850}>{incident.incidentNumber} · {incident.type}</Typography>
                 <Typography variant="body2">Reported {date(incident.occurredAt)} · {incident.location||'Location not recorded'}</Typography>
                 <Typography variant="body2" sx={{whiteSpace:'pre-line',mt:1}}>{incident.description}</Typography>
+                <IncidentAttachments value={incidentEvidence(incident.evidenceJson)} />
                 {incident.staffResolution&&<Typography variant="body2" color="text.secondary" sx={{mt:1}}><b>Previous staff resolution:</b> {incident.staffResolution}</Typography>}
               </Box>
               <Chip label={incident.status} color={incident.status==='Resolved'||incident.status==='Closed'?'success':'warning'}/>

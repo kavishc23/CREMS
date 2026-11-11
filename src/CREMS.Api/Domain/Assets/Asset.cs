@@ -29,6 +29,7 @@ public sealed class Asset : Entity
     public string? OwnershipType { get; set; }
     public string? InsurancePolicyNumber { get; set; }
     public DateOnly? InsuranceExpiry { get; set; }
+    public DateOnly? PassingExpiry { get; set; }
     public DateOnly? WarrantyExpiry { get; set; }
     public string? CurrentLocation { get; set; }
     public string PhotoUrlsJson { get; set; } = "[]";

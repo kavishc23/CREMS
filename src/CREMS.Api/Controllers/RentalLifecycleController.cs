@@ -1,3 +1,5 @@
+using CREMS.Api.Services;
+
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using CREMS.Api.Data;
@@ -97,6 +99,7 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
     [HttpPost("incidents")]
     public async Task<ActionResult> AddIncident(Guid bookingId, IncidentRequest request, CancellationToken cancellationToken)
     {
+        if (IncidentEvidence.Validate(request.EvidenceDataUrls) is { } evidenceError) return BadRequest(new { message = evidenceError });
         var access = await GetBooking(bookingId, cancellationToken); if (access.Result is not null) return access.Result;
         if (request.OccurredAt == default || request.OccurredAt > DateTimeOffset.UtcNow) return Validation("occurredAt", "Enter a valid incident time no later than now.");
         var incident = new RentalIncident { BookingId = bookingId, IncidentNumber = $"INC-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}", Type = request.Type, OccurredAt = request.OccurredAt, Description = request.Description.Trim(), Location = Clean(request.Location), PoliceReference = Clean(request.PoliceReference), InsuranceClaimNumber = Clean(request.InsuranceClaimNumber), EstimatedCost = request.EstimatedCost, EvidenceJson = JsonSerializer.Serialize(request.EvidenceDataUrls ?? []) };

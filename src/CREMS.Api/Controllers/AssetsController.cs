@@ -177,7 +177,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
             Category = Normalize(request.Category), Manufacturer = Normalize(request.Manufacturer), Model = Normalize(request.Model), ModelYear = request.ModelYear,
             VinOrChassisNumber = Normalize(request.VinOrChassisNumber), EngineNumber = Normalize(request.EngineNumber), MeterUnit = await ConfiguredMeterUnit(request, cancellationToken), CurrentMeterReading = request.CurrentMeterReading,
             AcquisitionDate = request.AcquisitionDate, AcquisitionCost = request.AcquisitionCost, CurrentBookValue = request.CurrentBookValue,
-            OwnershipType = Normalize(request.OwnershipType), InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber), InsuranceExpiry = request.InsuranceExpiry, WarrantyExpiry = request.WarrantyExpiry,
+            OwnershipType = Normalize(request.OwnershipType), InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber), InsuranceExpiry = request.InsuranceExpiry, PassingExpiry = request.PassingExpiry, WarrantyExpiry = request.WarrantyExpiry,
             DailyRate = request.DailyRate, HireUnit = request.HireUnit, UseServiceHireRate = request.UseServiceHireRate,
             DefaultBondAmount = request.DefaultBondAmount, InheritBond = request.InheritBond, PersonnelOverride = request.PersonnelOverride ?? request.PersonnelRequirement,
             NextServiceDate = request.NextServiceDate,
@@ -256,7 +256,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.Category = Normalize(request.Category); asset.Manufacturer = Normalize(request.Manufacturer); asset.Model = Normalize(request.Model); asset.ModelYear = request.ModelYear;
         asset.VinOrChassisNumber = Normalize(request.VinOrChassisNumber); asset.EngineNumber = Normalize(request.EngineNumber); asset.MeterUnit = await ConfiguredMeterUnit(request, cancellationToken); asset.CurrentMeterReading = request.CurrentMeterReading;
         asset.AcquisitionDate = request.AcquisitionDate; asset.AcquisitionCost = request.AcquisitionCost; asset.CurrentBookValue = request.CurrentBookValue; asset.OwnershipType = Normalize(request.OwnershipType);
-        asset.InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber); asset.InsuranceExpiry = request.InsuranceExpiry; asset.WarrantyExpiry = request.WarrantyExpiry;
+        asset.InsurancePolicyNumber = Normalize(request.InsurancePolicyNumber); asset.InsuranceExpiry = request.InsuranceExpiry; asset.PassingExpiry = request.PassingExpiry; asset.WarrantyExpiry = request.WarrantyExpiry;
         asset.DailyRate = request.DailyRate; asset.HireUnit = request.HireUnit; asset.UseServiceHireRate = request.UseServiceHireRate;
         asset.DefaultBondAmount = request.DefaultBondAmount;
         asset.InheritBond = request.InheritBond; asset.PersonnelOverride = request.PersonnelOverride;
@@ -478,7 +478,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         asset.Category, asset.Manufacturer, asset.Model, asset.ModelYear, asset.VinOrChassisNumber, asset.EngineNumber, asset.MeterUnit, asset.CurrentMeterReading,
         asset.AcquisitionDate, asset.AcquisitionCost, asset.CurrentBookValue, asset.OwnershipType, asset.InsurancePolicyNumber, asset.InsuranceExpiry, asset.WarrantyExpiry,
         asset.DailyRate, asset.DefaultBondAmount, asset.NextServiceDate, asset.IsActive, asset.ServiceOfferingId, asset.AssetCategoryId, AssetCategoryPolicy.Personnel(asset), asset.RequiresDelivery, asset.CurrentLocation, asset.PhotoUrlsJson, asset.InheritBond, asset.PersonnelOverride, asset.HireUnit, asset.UseServiceHireRate, PublicRentalRequestPolicy.Fulfilment(asset), asset.TurnaroundMinutes,
-        operationalStatus ?? asset.Status, unavailableReason);
+        operationalStatus ?? asset.Status, unavailableReason, asset.PassingExpiry);
 }
 
 public sealed record SaveAssetRequest(
@@ -515,7 +515,7 @@ public sealed record SaveAssetRequest(
     PersonnelRequirement? PersonnelRequirement = null,
     bool RequiresDelivery = false, bool InheritBond = false,
     [EnumDataType(typeof(PersonnelRequirement))] PersonnelRequirement? PersonnelOverride = null,
-    [EnumDataType(typeof(ChargeUnit))] ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, IReadOnlyDictionary<string, string>? CategoryAttributes = null, [EnumDataType(typeof(AssetFulfilmentMode))] AssetFulfilmentMode? FulfilmentMode = null, [Range(0, 1440)] int TurnaroundMinutes = 60);
+    [EnumDataType(typeof(ChargeUnit))] ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, IReadOnlyDictionary<string, string>? CategoryAttributes = null, [EnumDataType(typeof(AssetFulfilmentMode))] AssetFulfilmentMode? FulfilmentMode = null, [Range(0, 1440)] int TurnaroundMinutes = 60, DateOnly? PassingExpiry = null);
 
 public sealed record SetAssetStatusRequest(AssetStatus Status, bool IsActive);
 public sealed record AssetResponse(
@@ -525,5 +525,5 @@ public sealed record AssetResponse(
     string? Category, string? Manufacturer, string? Model, int? ModelYear, string? VinOrChassisNumber, string? EngineNumber, string? MeterUnit, decimal? CurrentMeterReading,
     DateOnly? AcquisitionDate, decimal AcquisitionCost, decimal? CurrentBookValue, string? OwnershipType, string? InsurancePolicyNumber, DateOnly? InsuranceExpiry, DateOnly? WarrantyExpiry,
     decimal DailyRate, decimal DefaultBondAmount, DateOnly? NextServiceDate, bool IsActive, Guid? ServiceOfferingId, Guid? AssetCategoryId, PersonnelRequirement PersonnelRequirement, bool RequiresDelivery, string? CurrentLocation, string PhotoUrlsJson, bool InheritBond, PersonnelRequirement? PersonnelOverride, ChargeUnit HireUnit = ChargeUnit.Day, bool UseServiceHireRate = false, AssetFulfilmentMode FulfilmentMode = AssetFulfilmentMode.PickupOrDelivery, int TurnaroundMinutes = 60,
-    AssetStatus OperationalStatus = AssetStatus.Available, string? UnavailableReason = null);
+    AssetStatus OperationalStatus = AssetStatus.Available, string? UnavailableReason = null, DateOnly? PassingExpiry = null);
 public sealed record SaveAssetCostRequest(Guid? BookingId, AssetCostCategory Category, [Required, MaxLength(300)] string Description, [Range(0.01, 100000000)] decimal Amount, DateOnly OccurredOn, string? Supplier, string? ReferenceNumber);

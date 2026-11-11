@@ -106,10 +106,25 @@ public sealed class ReturnChargesAndBondTests
         Assert.IsType<OkObjectResult>(await controller.Return(booking.Id, request, TestContext.Current.CancellationToken));
         var invoice = await db.RentalInvoices.Include(x => x.Lines).SingleAsync(TestContext.Current.CancellationToken);
         Assert.Equal(240m + expected, invoice.Subtotal);
-        Assert.Equal(decimal.Round((240m + expected) * .15m, 2), invoice.TaxAmount);
+        Assert.Equal(36m, invoice.TaxAmount);
         Assert.Equal(expected, invoice.Lines.Where(x => x.Description == "Late return").Sum(x => x.UnitPrice));
         Assert.Equal(100m, booking.BondRefundAmount);
         Assert.Equal(returnedAt, (await db.RentalInspections.SingleAsync(TestContext.Current.CancellationToken)).CompletedAt);
+    }
+
+    [Fact]
+    public async Task Paid_hire_with_ten_dollars_damage_leaves_exactly_ten_dollars_due()
+    {
+        await using var db = CreateDb();
+        var (booking, context) = await Seed(db, BookingStatus.ConvertedToRental);
+        db.RentalPayments.Add(new RentalPayment { BookingId=booking.Id, Type=PaymentType.RentalCharge, Method=PaymentMethod.Cash, Amount=276, ReceiptNumber="PAID-HIRE", RecordedByUserId=Guid.Parse(context.HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)!), RecordedByName="Staff" });
+        using(db.SuppressNotifications()) await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var controller=new RentalOperationsController(db,new CurrentStaffScope(db)){ControllerContext=context};
+        var request=new ReturnInspectionRequest("A-1",true,true,null,null,"Inspected",null,"Customer",0,null,0,0,0,0,10,0,null,PaymentMethod.Cash){ReturnedAt=booking.Items.Single().EndAt,SignatureDataUrl="data:image/png;base64,AA==",ChecklistItems=["Checked"],EvidenceDataUrls=["data:image/png;base64,AA=="]};
+        Assert.IsType<OkObjectResult>(await controller.Return(booking.Id,request,TestContext.Current.CancellationToken));
+        var invoice=await db.RentalInvoices.Include(x=>x.Lines).SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(10m,invoice.BalanceDue);Assert.Equal(36m,invoice.TaxAmount);
+        Assert.False(Assert.Single(invoice.Lines,x=>x.Description=="Damage").IsTaxable);
     }
 
     [Theory]

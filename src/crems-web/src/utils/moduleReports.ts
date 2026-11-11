@@ -44,8 +44,8 @@ export async function loadAssetRegisterReports(filters: Record<string, string | 
   return assetRegisterReports(rows, `All ${rows.length} assets matching the current register filters within your access. Generated from current records.`)
 }
 
-export async function detailedAssetReports(id: string): Promise<StaffReport[]> {
-  const profile = (await api.get(`/assets/${id}/profile`)).data
+export async function detailedAssetReports(id: string, usageDays = 90): Promise<StaffReport[]> {
+  const profile = (await api.get(`/assets/${id}/profile`, { params: { usageDays } })).data
   let performance: ReportRow | null = null
   try { performance = (await api.get(`/assets/${id}/performance`)).data } catch (error) {
     const status = (error as { response?: { status: number } }).response?.status
@@ -56,6 +56,22 @@ export async function detailedAssetReports(id: string): Promise<StaffReport[]> {
   const identity = fields.map(field => ({ detail: field.replace(/([a-z])([A-Z])/g, '$1 $2'), value: a[field] }))
   identity.push(...['branch', 'division', 'assetCategory', 'serviceOffering'].map(field => ({ detail: field, value: a[field]?.name })))
   const sections = [
+    ...(profile.usage ? [
+      section('Rental use and maintenance downtime', [
+        { metric: 'Period start', value: new Date(profile.usage.from).toLocaleString('en-FJ', { timeZone: 'Pacific/Fiji' }) + ' (Fiji)' },
+        { metric: 'Period end', value: new Date(profile.usage.to).toLocaleString('en-FJ', { timeZone: 'Pacific/Fiji' }) + ' (Fiji)' },
+        { metric: 'Total observed hours', value: profile.usage.totalHours },
+        { metric: 'In service (rented + available) hours', value: profile.usage.inServiceHours },
+        { metric: 'Rental utilisation (%)', value: profile.usage.utilisationPercent },
+        { metric: 'Maintenance downtime (%)', value: profile.usage.downtimePercent },
+        { metric: 'Hires in period', value: profile.usage.rentalCount },
+        { metric: 'Maintenance jobs in period', value: profile.usage.maintenanceCount },
+        { metric: 'Hires with estimated start times', value: profile.usage.estimatedRentalCount },
+        { metric: 'Overlapping rental and maintenance hours (counted as maintenance)', value: profile.usage.conflictingHours },
+      ], ['metric', 'value']),
+      section('Asset time breakdown (24-hour days)', profile.usage.breakdown, ['activity', 'hours', 'days', 'percent']),
+      section('How asset time is measured', [{ explanation: profile.usage.basis }], ['explanation']),
+    ] : []),
     section('Identity, ownership and compliance', identity, ['detail', 'value']),
     section('Category specifications', (a.attributeValues ?? []).map((row: ReportRow) => ({ specification: (row.attributeDefinition as ReportRow)?.name, value: row.value, unit: (row.attributeDefinition as ReportRow)?.unit })), ['specification', 'value', 'unit']),
     section('Current availability', [{ status: a.status, reason: profile.availability.unavailableReason, expectedAvailableAt: profile.availability.expectedAvailableAt }], ['status', 'reason', 'expectedAvailableAt']),
@@ -71,14 +87,14 @@ export async function detailedAssetReports(id: string): Promise<StaffReport[]> {
   ]
   if (performance) {
     const financialFields = ['rentalRevenue', 'maintenanceExpense', 'operatingExpense', 'transferExpense', 'totalExpense', 'operatingProfit', 'acquisitionCost', 'currentBookValue', 'lifetimeNetAfterAcquisition']
-    sections.splice(3, 0, section('Lifetime financial performance (FJD)', financialFields.map(metric => ({ metric: metric.replace(/([a-z])([A-Z])/g, '$1 $2'), value: performance![metric] })), ['metric', 'value']), section('Lifetime usage totals', ['rentalCount', 'rentalDays', 'inspectionCount'].map(metric => ({ metric: metric.replace(/([a-z])([A-Z])/g, '$1 $2'), value: performance![metric] })), ['metric', 'value']))
+    sections.splice(sections.findIndex(item => item.title === 'Current availability') + 1, 0, section('Lifetime financial performance (FJD)', financialFields.map(metric => ({ metric: metric.replace(/([a-z])([A-Z])/g, '$1 $2'), value: performance![metric] })), ['metric', 'value']), section('Lifetime usage totals', ['rentalCount', 'rentalDays', 'inspectionCount'].map(metric => ({ metric: metric.replace(/([a-z])([A-Z])/g, '$1 $2'), value: performance![metric] })), ['metric', 'value']))
     sections.push(
       section('Asset financial ledger (FJD)', (performance.ledger as ReportRow[] ?? []), ['date', 'reference', 'category', 'description', 'revenue', 'expense'], ['date', 'reference', 'relatedReference', 'category', 'description', 'quantity', 'rate', 'revenue', 'expense', 'recordedBy', 'id']),
       section('Rental revenue trace (FJD)', (performance.rentals as ReportRow[] ?? []), ['bookingNumber', 'customerName', 'rentalCharge', 'services', 'assetRevenue', 'invoiceNumber'], ['bookingNumber', 'customerName', 'status', 'rentalCharge', 'services', 'discount', 'assetRevenue', 'invoiceNumber', 'bookingNet', 'bookingVat', 'bookingTotal', 'invoiceTotal', 'paid', 'balance', 'bondAmountHeld', 'bondDeductionAmount', 'bondRefundAmount', 'id']),
       section('Booking receipts including separate bonds (FJD)', (performance.payments as ReportRow[] ?? []).map(row => ({ ...row, date: row.createdAt })), ['bookingNumber', 'receiptNumber', 'date', 'type', 'amount', 'status'], ['bookingNumber', 'receiptNumber', 'date', 'type', 'method', 'amount', 'status', 'recordedByName', 'note', 'id']))
     sections.push(section('Maintenance expenditure (FJD)', (performance.maintenance as ReportRow[] ?? []).map(row => ({ ...row, date: row.reportedAt })), ['jobNumber', 'date', 'serviceType', 'actualCost', 'invoiceNumber'], ['jobNumber', 'date', 'serviceType', 'status', 'partsCost', 'labourCost', 'transportCost', 'externalServiceCost', 'fuelCost', 'otherCost', 'taxMode', 'taxRate', 'taxCost', 'actualCost', 'downtimeHours', 'invoiceNumber', 'id']), section('Operating expenditure (FJD)', (performance.costs as ReportRow[] ?? []).map(row => ({ ...row, date: row.occurredOn })), ['date', 'category', 'description', 'amount', 'supplier', 'referenceNumber']))
   }
-  return [{ title: `${a.assetNumber} — Detailed asset report`, description: `${a.name} | ${a.branch?.name ?? 'Branch not recorded'} | ${a.division?.name ?? 'Division not recorded'}`, coverage: `Generated from the current asset profile. Bookings, maintenance, meters, transfers, documents, lifecycle and audit history include the latest 50 records each; inspection history includes all returned records. Financial figures are lifetime contracted revenue excluding VAT and bonds. Booking receipt and invoice totals are full booking amounts; shared asset revenue and costs are allocated equally. Actual staffing costs replace quoted staffing costs when available${performance ? '.' : ' and are excluded for your access level.'} Inspection photos and signatures remain in the asset profile.`, sections }]
+  return [{ title: `${a.assetNumber} — Detailed asset report`, description: `${a.name} | ${a.branch?.name ?? 'Branch not recorded'} | ${a.division?.name ?? 'Division not recorded'}`, coverage: `Generated from the current asset profile. Usage totals cover the selected ${usageDays}-day window (or the available asset history if shorter), using all recorded activity without the 50-record display limit. Bookings, maintenance, meters, transfers, documents, lifecycle and audit history include the latest 50 records each; inspection history includes all returned records. Financial figures are lifetime contracted revenue excluding VAT and bonds. Booking receipt and invoice totals are full booking amounts; shared asset revenue and costs are allocated equally. Actual staffing costs replace quoted staffing costs when available${performance ? '.' : ' and are excluded for your access level.'} Inspection photos and signatures remain in the asset profile.`, sections }]
 }
 
 export function financeReports(invoices: ReportRow[], payments: ReportRow[]): StaffReport[] {
