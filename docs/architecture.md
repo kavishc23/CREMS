@@ -1,33 +1,25 @@
-# Initial architecture
+# CREMS architecture
 
-CREMS begins as a modular monolith: one React frontend, one ASP.NET Core API, and one SQL Server database. This keeps deployment and debugging manageable for a four-person team while retaining a clean API boundary for future clients.
+CREMS consists of a React frontend, an ASP.NET Core API and a Microsoft SQL Server database. The API owns business rules, authorization and persistence; the frontend presents customer and staff workflows.
 
-## Backend modules
+## Main modules
 
-- Identity and access
-- Branches
-- Customers
-- Assets
-- Bookings and availability
-- Rentals and returns
-- Inspections and damage
-- Maintenance
-- Reporting
-- Notifications
-- Auditing
+- Identity, staff roles, access scopes and browser sessions.
+- Organization, branches, divisions, services and asset categories.
+- Assets, availability, utilisation and maintenance.
+- Customer accounts, preferences, licence records and incident reporting.
+- Quotations, bookings, pickup, agreements, returns and extensions.
+- Payments, bonds, invoices and financial reporting.
+- Notifications, uploaded evidence and audit history.
 
-Modules initially share one database and process. Business rules belong in backend application/domain services, never solely in React components or controllers.
+## Persistence and deployment
 
-## Key design decisions
+Entity Framework Core migrations under `src/CREMS.Api/Data/Migrations` define the database schema. Retain the migration history when upgrading an existing database. Event timestamps use `DateTimeOffset`; user-facing dates use Fiji time. Bookings retain agreed rates and signed agreement snapshots.
 
-- GUID primary keys avoid exposing predictable record counts and simplify offline imports.
-- `DateTimeOffset` is used for events; Fiji-local conversion occurs at system boundaries.
-- Assets have explicit states rather than deriving operational state from UI labels.
-- Booking lines carry their agreed daily rate so later master-rate changes do not alter history.
-- SQL constraints and transactional availability checks will jointly prevent double booking.
-- Transactional records will be deactivated or cancelled rather than physically deleted.
+Uploaded files and data-protection keys require backup alongside SQL Server. Keep credentials and client uploads outside source control. Development catalogue images bundled in the repository support the supplied local catalogue.
 
-## Authentication
+The local API runs on port 5080 and the frontend on port 5173. The frontend proxies `/api` requests to the API. Windows and macOS/Linux launchers are in `scripts/`; production hosting requires client-managed deployment, HTTPS, credentials and backups as described in the handover guide.
 
-ASP.NET Core Identity is configured with the roles `Administrator`, `RentalOfficer`, and `BranchManager`. The first production administrator must be provisioned through a controlled deployment process; public registration will not remain enabled for the deployed staff system.
+## Access control
 
+ASP.NET Core Identity provides cookie authentication. The API checks staff roles, branch/division scopes and customer ownership. The frontend sends a browser-window session identifier with authenticated requests. See the root README for session requirements and the handover guide for administrator setup.

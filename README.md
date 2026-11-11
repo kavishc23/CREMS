@@ -1,6 +1,6 @@
 # CREMS
 
-Car and Rental Equipment Management System for Carpenters Fiji. The application provides public rental discovery, customer booking workflows, staff operations, asset management, maintenance, reporting, and administration.
+Carpenters Rental and Equipment Management System (CREMS) for Carpenters Fiji. The application provides public rental discovery, customer booking workflows, staff operations, asset management, maintenance, reporting, and administration.
 
 ## Technology
 
@@ -15,7 +15,7 @@ Car and Rental Equipment Management System for Carpenters Fiji. The application 
 src/CREMS.Api/   ASP.NET Core API and domain model
 src/crems-web/   React frontend
 tests/           API, browser, and end-to-end tests
-ops/             Optional data-seeding and configuration utilities
+ops/             Optional catalogue setup and configuration utilities
 docs/            Maintained setup, configuration, and operations guides
 ```
 
@@ -87,25 +87,34 @@ The script starts SQL Server, restores dependencies when needed, and runs the AP
 
 Open `http://localhost:5173`. During development, Vite proxies `/api` requests to `http://localhost:5080`.
 
-Swagger UI is available at `http://localhost:5080/swagger` while the API runs in Development.
-Use the **API session** panel to sign in, verify/resend MFA codes, view the account and roles,
-refresh your session, or sign out. Credentials are not stored in browser storage.
-The banner shows the connected environment, database server and database name, without credentials.
-Review it and check **Allow data changes** before executing non-authentication write requests.
-This browser-side guard is a testing aid; server authorization still applies.
-Examples for customer creation, maintenance creation and booking updates use fictional data;
-replace zero GUIDs with accessible record IDs and review dates and rates.
-Expand an endpoint and select **Try it out**, then **Execute**. For protected endpoints,
-you can alternatively execute `POST /api/auth/login` in Swagger with your email and password (and
-`POST /api/auth/mfa/verify` if prompted). Subsequent requests use the session cookie;
-Swagger supplies the required browser-window header automatically.
-The OpenAPI document is at `http://localhost:5080/openapi/v1.json`.
-Use the filter to find endpoint groups. Lock icons indicate required authentication,
-not current session status. This API uses HttpOnly login cookies, not a bearer token;
-the Swagger Authorize dialog cannot sign you in or out. Use the login endpoint above
-and `POST /api/auth/logout` (staff) or `POST /api/customer-account/logout` (customers).
-A 401 means you need a valid session in this browser window; a 403 means your account
-lacks the necessary role, permission, or resource access.
+Swagger UI is available at `http://localhost:5080/swagger` in Development. Sign in through its API session panel before using protected endpoints. The OpenAPI document is available at `/openapi/v1.json`.
+
+## Handover documentation
+
+- [Installation, backup and administration](docs/CLIENT_HANDOVER.md)
+- [Windows installation and everyday startup](docs/CLIENT_RUN_GUIDE.md) · [PDF copy](docs/CREMS_Client_Run_Guide.pdf)
+- [Architecture and repository responsibilities](docs/architecture.md)
+- [Organization and asset configuration](docs/configurable-organization-settings.md)
+- [Hire pricing and billing units](docs/configurable-hire-pricing.md)
+- [Rental defaults](docs/rental-defaults-configuration.md) · [Pricing defaults](docs/rental-pricing-defaults.md)
+- [Maintenance operations](docs/maintenance-staff-guide.md)
+- [Asset usage and utilisation](docs/asset-usage.md)
+- [Staff reports](docs/staff-reports.md) · [Reporting definitions](docs/reporting-metrics.md)
+- [Email configuration](docs/STAGING_EMAIL_SETUP.md)
+
+The optional utilities in `ops/SeedCatalogue` and `ops/ExtendRentalCatalogue` configure a local catalogue. Production business records must be entered or imported through an approved client process. Presentation bookings and historical sample-transaction utilities are excluded from the handover source.
+
+## Validation
+
+```bash
+dotnet test tests/CREMS.Api.Tests
+cd src/crems-web
+npm ci
+npm test
+npm run build
+```
+
+Browser and end-to-end setup is documented in [browser checks](tests/browser/README.md) and [end-to-end checks](tests/CREMS.E2E/README.md).
 
 ## API session security
 

@@ -60,3 +60,7 @@ In **Preventive schedule**, select **View service rules** to see the next date, 
 Total recorded cost includes actual costs on active, cancelled and completed jobs. Completed cost and downtime remain separate. Estimates do not count as actual costs. Warranty inputs are revealed with **Add warranty details** or when an existing warranty is recorded.
 
 Use [maintenance-uat-checklist.md](maintenance-uat-checklist.md) for staff acceptance, evidence, defects and sign-off. Its Pending entries must be completed by the named staff roles; development checks do not constitute their approval.
+
+## Vehicle passing
+
+Choose **Vehicle passing** in the service / repair type dropdown. Record the passing fee under **Costs & files → Contractor / external service**. Enter a future **Next passing date** before completing the job. Completion updates the asset register's vehicle passing expiry without replacing its normal service date. Safety release remains a separate step.

@@ -40,3 +40,6 @@ src/CREMS.Api/App_Data/maintenance-documents/
 src/CREMS.Api/App_Data/asset-images/
 src/CREMS.Api/wwwroot/
 outputs/operational-label-backup-*.json
+
+# Temporary document and presentation authoring files
+.presentation-build/

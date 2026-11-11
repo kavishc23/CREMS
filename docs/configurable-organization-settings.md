@@ -1,6 +1,5 @@
 # Configurable Organization & settings
 
-Implemented on `configurable-system-settings-enhancements` in `C:\Users\jaysh\Documents\CREMS`.
 
 ## Staff experience
 
