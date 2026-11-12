@@ -113,6 +113,7 @@ public sealed class CustomerJourneyRegressionTests
     [InlineData("", "valid@example.test", "1234567", "Portfolio123!")]
     [InlineData("New", "invalid-email", "1234567", "Portfolio123!")]
     [InlineData("New", "valid@example.test", "", "Portfolio123!")]
+    [InlineData("New", "valid@example.test", "not-a-phone", "Portfolio123!")]
     [InlineData("New", "valid@example.test", "1234567", "short")]
     public void Registration_request_annotations_reject_invalid_fields(string name, string email, string phone, string password)
     {
@@ -589,6 +590,58 @@ public sealed class CustomerJourneyRegressionTests
         Assert.IsType<OkObjectResult>(await controller.UpdateSupplier(supplier.Id, new SupplierDirectoryRequest("SUP-999998", "Updated supplier", ExpectedVersion: supplier.UpdatedAt ?? supplier.CreatedAt), TestContext.Current.CancellationToken));
         Assert.Equal("SUP-000001", supplier.SupplierNumber);
         Assert.Equal("Existing tax data", supplier.TaxNumber);
+    }
+
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("foreign")]
+    [InlineData("valid")]
+    public async Task Required_event_documents_are_checked_and_linked_to_the_booking(string scenario)
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var f = await Fixture.Create();
+        f.Asset.Type = AssetType.LightEquipment;
+        var service = new ServiceOffering { Code = "EVENT", Name = "Event hire", IsActive = true, IsBookableOnline = true,
+            RequiredDocumentsJson = "[\"Event Approval\"]", Type = ServiceOfferingType.EquipmentHire, DivisionId = f.Division.Id };
+        f.Asset.ServiceOfferingId = service.Id; f.Asset.ServiceOffering = service;
+        f.Db.AddRange(service, new BranchDivisionService { BranchId = f.Branch.Id, DivisionId = f.Division.Id, ServiceOfferingId = service.Id, IsActive = true, IsBookable = true });
+        var record = new DocumentRecord { DocumentNumber = "DOC-TEST", EntityType = nameof(Customer), EntityId = scenario == "foreign" ? Guid.NewGuid() : f.Customer.Id,
+            Type = "Event Approval", FileName = "event.pdf", StoragePath = "not-downloaded-in-this-test.pdf" };
+        f.Db.Add(record); await f.Db.SaveChangesAsync(token);
+        var request = f.PublicRequest() with { DocumentIds = scenario == "missing" ? [] : [record.Id] };
+        var response = await f.Public.RequestBooking(request, token);
+        if (scenario == "valid") {
+            Assert.IsType<OkObjectResult>(response.Result);
+            var booking = await f.Db.Bookings.SingleAsync(token);
+            Assert.Equal(nameof(Booking), record.EntityType); Assert.Equal(booking.Id, record.EntityId); Assert.Equal(booking.BranchId, record.BranchId);
+        } else {
+            Assert.IsType<BadRequestObjectResult>(response.Result);
+            Assert.Empty(await f.Db.Bookings.ToListAsync(token)); Assert.Equal(nameof(Customer), record.EntityType);
+        }
+    }
+
+    [Fact]
+    public async Task Customer_can_upload_configured_event_document_but_not_invent_document_types_or_use_another_booking()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var f = await Fixture.Create();
+        var service = new ServiceOffering { Code = "EVENT", Name = "Event hire", RequiredDocumentsJson = "[\"Event Approval\"]" };
+        f.Asset.ServiceOffering = service; f.Asset.ServiceOfferingId = service.Id; f.Db.Add(service); await f.Db.SaveChangesAsync(token);
+        var bytes = Encoding.UTF8.GetBytes("%PDF-1.4 test document");
+        using var stream = new MemoryStream(bytes);
+        var file = new FormFile(stream, 0, bytes.Length, "file", "approval.pdf");
+        var upload = new CustomerDocumentUploadRequest { File = file, Type = "Event Approval", AssetId = f.Asset.Id };
+        Assert.IsType<OkObjectResult>(await f.Account.UploadDocument(upload, token));
+        var record = await f.Db.DocumentRecords.SingleAsync(token);
+        var path = Path.Combine(Path.GetTempPath(), "App_Data", "customer-documents", record.StoragePath);
+        try {
+            Assert.True(File.Exists(path)); Assert.Equal("Event Approval", record.Type);
+            Assert.Equal(f.Customer.Id, record.EntityId);
+            Assert.IsType<BadRequestObjectResult>(await f.Account.UploadDocument(new() { File = file, Type = "Invented document", AssetId = f.Asset.Id }, token));
+            var other = f.Booking(Guid.NewGuid()); f.Db.Add(other); await f.Db.SaveChangesAsync(token);
+            Assert.IsType<NotFoundResult>(await f.Account.UploadDocument(new() { File = file, Type = "Event Approval", BookingId = other.Id }, token));
+        } finally { File.Delete(path); }
     }
 
     private sealed class Fixture : IAsyncDisposable

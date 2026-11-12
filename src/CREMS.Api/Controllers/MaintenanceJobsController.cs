@@ -127,7 +127,7 @@ public sealed class MaintenanceJobsController(ApplicationDbContext db, CurrentSt
                 FuelCost = 0, TaxCost = 0, OtherCost = 0, LabourHours = null, LabourRate = technicianRate };
         if (request.LabourHours.HasValue && !request.LabourRate.HasValue || !request.AssignedPersonnelId.HasValue && !request.LabourHours.HasValue && request.LabourRate.HasValue) return BadRequest(new { message = "Enter both labour hours and hourly rate, or leave both blank." });
         if (request.LabourHours.HasValue) request = request with { LabourCost = decimal.Round(request.LabourHours.Value * request.LabourRate!.Value, 2) };
-        var vehiclePassing = string.Equals(request.ServiceType?.Trim(), "Vehicle passing", StringComparison.OrdinalIgnoreCase);
+        var vehiclePassing = string.Equals(request.ServiceType.Trim(), "Vehicle passing", StringComparison.OrdinalIgnoreCase);
         var completing = request.Status == MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Completed;
         if (completing && request.CalculateDowntime) request = request with { DowntimeHours = (int)Math.Min(100000, Math.Max(0, Math.Ceiling((DateTimeOffset.UtcNow - job.ReportedAt).TotalHours))) };
         if (completing && string.IsNullOrWhiteSpace(request.CompletionNotes)) return BadRequest(new { message = "Record the work performed before completing this job." });

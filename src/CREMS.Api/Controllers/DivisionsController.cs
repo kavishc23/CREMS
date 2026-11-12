@@ -194,10 +194,10 @@ public sealed class DivisionsController(ApplicationDbContext db, CurrentStaffSco
 
 public sealed record SaveDivisionRequest([Required, MaxLength(30)] string Code, [Required, MaxLength(150)] string Name,
     [MaxLength(1000)] string? Description, [EmailAddress, MaxLength(254)] string? ContactEmail,
-    [MaxLength(50)] string? ContactPhone, DivisionCapabilities Capabilities, bool IsPublic, bool IsActive = true, string? BrandingJson = "{}", string DefaultCurrency = "FJD", [Range(0,100)] decimal DefaultTaxRate = FijiRentalDefaults.VatRate, string? DefaultRentalTerms = null, Guid? DefaultApprovalWorkflowId = null, string? CustomerBookingConfigurationJson = "{}", [Range(0,1_000_000)] decimal DefaultBondAmount = 0);
+    [Phone, MaxLength(50)] string? ContactPhone, DivisionCapabilities Capabilities, bool IsPublic, bool IsActive = true, string? BrandingJson = "{}", string DefaultCurrency = "FJD", [Range(0,100)] decimal DefaultTaxRate = FijiRentalDefaults.VatRate, string? DefaultRentalTerms = null, Guid? DefaultApprovalWorkflowId = null, string? CustomerBookingConfigurationJson = "{}", [Range(0,1_000_000)] decimal DefaultBondAmount = 0);
 public sealed record SaveDivisionDetailsRequest([Required, MaxLength(30)] string Code, [Required, MaxLength(150)] string Name,
     [MaxLength(1000)] string? Description, [EmailAddress, MaxLength(254)] string? ContactEmail,
-    [MaxLength(50)] string? ContactPhone, DivisionCapabilities Capabilities, bool IsPublic, bool IsActive,
+    [Phone, MaxLength(50)] string? ContactPhone, DivisionCapabilities Capabilities, bool IsPublic, bool IsActive,
     string? BrandingJson);
 public sealed record SaveServiceRequest([Required, MaxLength(40)] string Code, [Required, MaxLength(150)] string Name,
     [MaxLength(1000)] string? Description, ServiceOfferingType Type, PersonnelRequirement PersonnelRequirement,

@@ -390,7 +390,7 @@ public sealed record SaveCustomerRequest(
     string? CustomerNumber,
     [Required, MaxLength(150)] string Name,
     [EmailAddress, MaxLength(254)] string? Email,
-    [MaxLength(50)] string? Phone,
+    [Phone, MaxLength(50)] string? Phone,
     [MaxLength(500)] string? Address,
     [MaxLength(100)] string? IdentificationNumber);
 

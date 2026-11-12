@@ -274,7 +274,7 @@ public sealed record SaveBranchRequest(
     [Required, MaxLength(20)] string Code,
     [Required, MaxLength(150)] string Name,
     [MaxLength(500)] string? Address,
-    [MaxLength(50)] string? Phone,
+    [Phone, MaxLength(50)] string? Phone,
     IReadOnlyCollection<Guid>? DivisionIds = null, string? PostalAddress = null, string? Email = null, decimal? Latitude = null, decimal? Longitude = null, Guid? BranchManagerUserId = null, string? PickupInstructions = null, string? ReturnInstructions = null, string? DeliveryCoverage = null, bool IsPublic = true, IReadOnlyCollection<Guid>? ServiceOfferingIds = null);
 public sealed record SetBranchStatusRequest(bool IsActive);
 public sealed record BranchResponse(

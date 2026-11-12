@@ -514,8 +514,21 @@ public sealed class CustomerAccountController(
     {
         var user = await userManager.GetUserAsync(User);
         if (user?.CustomerId is null) return Unauthorized();
-        if (!string.Equals(request.Type, "DriverLicence", StringComparison.OrdinalIgnoreCase))
-            return BadRequest(new { message = "Only a driver licence can be uploaded from the customer portal." });
+        var documentType = string.Equals(request.Type.Trim(), "DriverLicence", StringComparison.OrdinalIgnoreCase) ? "DriverLicence" : request.Type.Trim();
+        if (!string.Equals(documentType, "DriverLicence", StringComparison.OrdinalIgnoreCase))
+        {
+            var asset = request.AssetId.HasValue ? await db.Assets.AsNoTracking().Include(x => x.ServiceOffering).FirstOrDefaultAsync(x => x.Id == request.AssetId && x.IsActive, token) : null;
+            if (request.BookingId.HasValue)
+            {
+                var linked = await db.Bookings.AsNoTracking().Include(x => x.Items).ThenInclude(x => x.Asset).ThenInclude(x => x!.ServiceOffering)
+                    .FirstOrDefaultAsync(x => x.Id == request.BookingId && x.CustomerId == user.CustomerId, token);
+                if (linked is null) return NotFound();
+                asset = linked.Items.FirstOrDefault()?.Asset;
+            }
+            var configured = BookingDocuments.Required(asset).FirstOrDefault(x => string.Equals(x, documentType, StringComparison.OrdinalIgnoreCase));
+            if (configured is null) return BadRequest(new { message = "Choose a document required for this rental service." });
+            documentType = configured;
+        }
         if (request.File.Length is <= 0 or > 5_242_880)
             return BadRequest(new { message = "Choose a PDF, JPEG or PNG file no larger than 5 MB." });
         var extension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
@@ -538,7 +551,7 @@ public sealed class CustomerAccountController(
         Directory.CreateDirectory(root);
         var storageName = $"{Guid.NewGuid():N}{extension}";
         await System.IO.File.WriteAllBytesAsync(Path.Combine(root, storageName), bytes, token);
-        if (!request.BookingId.HasValue)
+        if (!request.BookingId.HasValue && documentType == "DriverLicence")
         {
             var previous = await db.DocumentRecords.Where(document => document.EntityType == nameof(Customer) &&
                 document.EntityId == user.CustomerId && document.Type == "DriverLicence").ToListAsync(token);
@@ -550,7 +563,7 @@ public sealed class CustomerAccountController(
             db.DocumentRecords.RemoveRange(previous);
         }
         var record = new DocumentRecord { DocumentNumber = Number("DOC"), EntityType = entityType, EntityId = entityId,
-            BranchId = branchId, Type = request.Type, FileName = Path.GetFileName(request.File.FileName),
+            BranchId = branchId, Type = documentType, FileName = Path.GetFileName(request.File.FileName),
             StoragePath = Path.Combine(user.CustomerId.Value.ToString("N"), storageName),
             ExpiresOn = request.ExpiresOn, ContentHash = Convert.ToHexString(SHA256.HashData(bytes)) };
         db.DocumentRecords.Add(record); await db.SaveChangesAsync(token);
@@ -877,6 +890,7 @@ public sealed class CustomerDocumentUploadRequest
     [Required] public required IFormFile File { get; init; }
     [Required, MaxLength(50)] public required string Type { get; init; }
     public Guid? BookingId { get; init; }
+    public Guid? AssetId { get; init; }
     public DateOnly? ExpiresOn { get; init; }
 }
 
@@ -889,7 +903,7 @@ public sealed record CustomerExtensionRequest(DateTimeOffset RequestedEndAt, [Ma
 public sealed record CustomerIncidentRequest(IncidentType Type, DateTimeOffset OccurredAt, [Required, MaxLength(2000)] string Description, [MaxLength(500)] string? Location, [MaxLength(100)] string? PoliceReference, IReadOnlyList<string>? EvidenceDataUrls = null);
 public sealed record CustomerQuoteDecisionRequest(bool Accepted, [MaxLength(1000)] string? Note, int? ExpectedVersion);
 public sealed record CustomerQuoteLine(string Description, decimal Quantity, decimal Rate, string Unit);
-public sealed record CustomerProfileRequest([Required, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,
+public sealed record CustomerProfileRequest([Required, Phone, MaxLength(50)] string Phone, [MaxLength(500)] string? Address,
     [Required, MaxLength(3)] CustomerHirePreference[] HirePreferences, [MaxLength(50)] Guid[]? PreferredServiceIds = null);
 public sealed record CustomerBookingDatesRequest(DateTimeOffset StartAt, DateTimeOffset EndAt);
 public sealed record ActivateCustomerAccountRequest([Required, EmailAddress] string Email,
@@ -898,7 +912,7 @@ public sealed record ActivateCustomerAccountRequest([Required, EmailAddress] str
 public sealed record RegisterCustomerRequest(
     [Required, MaxLength(150)] string FullName,
     [Required, EmailAddress, MaxLength(254)] string Email,
-    [Required, MaxLength(50)] string Phone,
+    [Required, Phone, MaxLength(50)] string Phone,
     [MaxLength(500)] string? Address,
     [Required, MinLength(10)] string Password);
 

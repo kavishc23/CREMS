@@ -23,6 +23,24 @@ public sealed class AdministrationController(ApplicationDbContext db, CurrentSta
         return Ok(await query.OrderByDescending(x => x.OccurredAt).Take(Math.Clamp(take, 1, 500)).ToListAsync(token));
     }
 
+    [HttpGet("audit-history")]
+    public async Task<ActionResult> AuditHistory([FromQuery] string? search=null, [FromQuery] string? actor=null, [FromQuery] string? action=null, [FromQuery] string? entityType=null, [FromQuery] DateTimeOffset? from=null, [FromQuery] DateTimeOffset? to=null, [FromQuery] int page=1, [FromQuery] int pageSize=20, CancellationToken token=default, [FromQuery] string? branch=null, [FromQuery] DateTimeOffset? asOf=null)
+    {
+        if(page<1 || page>1000000 || pageSize is not (20 or 50) || from>to) return BadRequest(new { message="Use page 1 or later, a page size of 20 or 50, and a valid date range." });
+        var snapshot = asOf ?? DateTimeOffset.UtcNow;
+        var query=db.AuditEvents.AsNoTracking().Where(x=>x.OccurredAt<=snapshot);
+        if(!string.IsNullOrWhiteSpace(branch))query=query.Where(x=>x.Branch!=null&&x.Branch.Name.Contains(branch.Trim()));
+        if(!string.IsNullOrWhiteSpace(search)){var term=search.Trim();query=query.Where(x=>x.Summary.Contains(term)||x.Action.Contains(term)||x.EntityType.Contains(term)||x.EntityId.ToString().Contains(term));}
+        if(!string.IsNullOrWhiteSpace(actor))query=query.Where(x=>x.UserName.Contains(actor.Trim()));
+        if(!string.IsNullOrWhiteSpace(action))query=query.Where(x=>x.Action.Contains(action.Trim()));
+        if(!string.IsNullOrWhiteSpace(entityType))query=query.Where(x=>x.EntityType.Contains(entityType.Trim()));
+        if(from.HasValue)query=query.Where(x=>x.OccurredAt>=from.Value);
+        if(to.HasValue)query=query.Where(x=>x.OccurredAt<=to.Value);
+        var total=await query.CountAsync(token);
+        var items=await query.OrderByDescending(x=>x.OccurredAt).ThenByDescending(x=>x.Id).Skip((page-1)*pageSize).Take(pageSize).Select(x=>new{x.Id,x.OccurredAt,x.UserName,x.Action,x.EntityType,x.EntityId,x.Summary,x.PreviousValues,x.NewValues,branchName=x.Branch!=null?x.Branch.Name:null}).ToListAsync(token);
+        return Ok(new{items,total,page,pageSize,asOf=snapshot,hasMore=(long)page*pageSize<total});
+    }
+
     [HttpGet("settings")]
     public async Task<ActionResult> Settings(CancellationToken token)
     {

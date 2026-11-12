@@ -71,13 +71,14 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["verification"] = [customerWillDrive ? "Identification, driver licence and payment verification are required before pickup." : "Customer identification and payment verification are required before pickup."] }));
         if (!request.CustomerAcceptedTerms || !request.AgentApproved || string.IsNullOrWhiteSpace(request.CustomerSignatureName) || string.IsNullOrWhiteSpace(request.CustomerSignatureDataUrl))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["signature"] = ["Customer acceptance, a drawn customer signature and agent approval are required."] }));
-        if (request.ChecklistItems is null || request.ChecklistItems.Count == 0 || string.IsNullOrWhiteSpace(request.ConditionNotes))
+        if (request.ChecklistItems is null || request.ChecklistItems.Count + (request.ChecklistFailedItems?.Count ?? 0) == 0 || string.IsNullOrWhiteSpace(request.ConditionNotes))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["inspection"] = ["Complete the category checklist and record the pre-hire condition."] }));
-        if (request.ChecklistFailedItems?.Count > 0 || request.ChecklistAllItems is { Count: > 0 } && request.ChecklistAllItems.Any(label => !request.ChecklistItems.Contains(label)))
+        var acceptingDamage = request.ChecklistFailedItems?.Count > 0 && request.AcceptExistingDamage && request.SafeToOperate && request.ExistingDamageAcceptanceNote?.Trim().Length >= 10 && !string.IsNullOrWhiteSpace(request.DamageNotes);
+        if (request.ChecklistFailedItems?.Count > 0 && !acceptingDamage || request.ChecklistAllItems is { Count: > 0 } && request.ChecklistAllItems.Any(label => !request.ChecklistItems.Contains(label) && !(acceptingDamage && request.ChecklistFailedItems?.Contains(label) == true)))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["checklist"] = ["Resolve every failed or pending pre-hire check before pickup."] }));
         if (request.EvidenceDataUrls is null || request.EvidenceDataUrls.Count == 0)
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["photos"] = ["Attach at least one pre-hire inspection photograph."] }));
-        var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PreHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, false, cancellationToken);
+        var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PreHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, false, cancellationToken, acceptingDamage);
         if (configuredError is not null) return BadRequest(new { message = configuredError });
         await ConfiguredHireRules.CaptureIfMissing(db, booking, cancellationToken);
         if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || !DriverLicenceRules.ValidNumber(request.LicenceNumber) || !DriverLicenceRules.ValidClasses(request.LicenceClass) || !request.LicenceExpiry.HasValue || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
@@ -91,7 +92,14 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
 
         if (request.MeterReading.HasValue && booking.Items.Any(x => x.Asset != null && x.Asset.CurrentMeterReading.HasValue && request.MeterReading < x.Asset.CurrentMeterReading))
             return BadRequest(new { message = "The pickup meter reading cannot be lower than the asset's recorded reading." });
+        if (acceptingDamage)
+        {
+            var note = $"Existing damage accepted for handover; staff confirms safe operation: {request.ExistingDamageAcceptanceNote!.Trim()}";
+            request = request with { DamageNotes = $"{request.DamageNotes}\n{note}" };
+            AuditWriter.Record(db, scope, "Pickup existing damage accepted", nameof(Booking), booking.Id, note, booking.BranchId);
+        }
         var draft = BuildAgreementData(booking);
+        if (acceptingDamage) draft = draft with { Terms = draft.Terms.Append(new AgreementTerm("Recorded existing damage accepted at pickup", request.DamageNotes!)).ToArray() };
         if (request.AmountCollected > Math.Max(0, booking.DepositRequired - booking.BondAmountHeld))
             return BadRequest(new { message = "The amount collected exceeds the remaining refundable bond. Previously recorded bond payments are already included." });
         if (booking.BondAmountHeld + request.AmountCollected < booking.DepositRequired)
@@ -154,7 +162,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         inspection.SignatureName = request.CustomerSignatureName.Trim();
         inspection.SignatureDataUrl = request.CustomerSignatureDataUrl;
         inspection.PaymentVerified = request.PaymentVerified;
-        inspection.EvidenceJson = JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], checklistResults = request.ChecklistAllItems?.Select(label => new { label, passed = request.ChecklistItems?.Contains(label) == true ? (bool?)true : request.ChecklistFailedItems?.Contains(label) == true ? false : null }), photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes }, SnapshotJson);
+        inspection.EvidenceJson = JsonSerializer.Serialize(new { checklist = request.ChecklistItems ?? [], checklistResults = request.ChecklistAllItems?.Select(label => new { label, passed = request.ChecklistItems?.Contains(label) == true ? (bool?)true : request.ChecklistFailedItems?.Contains(label) == true ? false : null }), acceptedExistingDamage = acceptingDamage, acceptanceNote = request.ExistingDamageAcceptanceNote, safeToOperate = request.SafeToOperate, photos = request.EvidenceDataUrls ?? [], damageZones = request.DamageZones ?? [], accessories = request.AccessoryNotes }, SnapshotJson);
         inspection.CompletedByUserId = scope.UserId;
         inspection.CompletedByName = scope.UserName;
         inspection.CompletedAt = now;
@@ -351,6 +359,9 @@ public sealed record PickupRentalRequest(
     IReadOnlyList<string>? ChecklistItems, string? AccessoryNotes, IReadOnlyList<string>? ChecklistAllItems = null, IReadOnlyList<string>? ChecklistFailedItems = null)
 {
     [System.ComponentModel.DataAnnotations.Range(0, 1000000)] public decimal RentalAmountCollected { get; init; }
+    public bool AcceptExistingDamage { get; init; }
+    public bool SafeToOperate { get; init; }
+    [System.ComponentModel.DataAnnotations.StringLength(2000)] public string? ExistingDamageAcceptanceNote { get; init; }
     public bool PayHireOnReturn { get; init; }
     public string? PaymentDeferralReason { get; init; }
 }

@@ -35,7 +35,7 @@ const assets = [
       if(route.request().method()!=='GET')throw Error('Unexpected mutation '+p);
       return route.fulfill({json:[]});
     });
-    await page.goto('http://localhost:5173/account');
+    await page.goto((process.env.CREMS_TEST_URL || 'http://localhost:5173') + '/account');
     await page.getByRole('button',{name:'Review quotation',exact:true}).first().click();
     const modal=page.getByRole('dialog');
     assert.equal(await modal.getByText(/Version\s+1/i).count(),0);
@@ -82,7 +82,7 @@ const assets = [
       if(p==='/api/branches'||p==='/api/asset-categories')return route.fulfill({json:[]});
       return route.fallback();
     });
-    await page.goto('http://localhost:5173/staff/organization');
+    await page.goto((process.env.CREMS_TEST_URL || 'http://localhost:5173') + '/staff/organization');
     await page.getByRole('tab',{name:'Booking & quotations',exact:true}).waitFor({timeout:10000}).catch(async error=>{await page.screenshot({path:output+'/admin-failure.png'});console.log(errors,await page.locator('body').innerText());throw error});
     await page.getByRole('tab',{name:'Booking & quotations',exact:true}).click();
     await page.getByRole('button',{name:'Save division booking flow',exact:true}).click();

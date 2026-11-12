@@ -53,7 +53,7 @@ public static class ConfiguredHireRules
 
     public static async Task<string?> ValidateInspection(ApplicationDbContext db, Booking booking, InspectionStage stage,
         IReadOnlyList<string>? passed, IReadOnlyList<string>? failed, decimal? meter, decimal? fuel,
-        bool preparation, CancellationToken token)
+        bool preparation, CancellationToken token, bool acceptedExistingDamage = false)
     {
         var config = await Resolve(db, booking, token);
         var template = config?.Templates.FirstOrDefault(t => t.Stage == stage);
@@ -61,8 +61,8 @@ public static class ConfiguredHireRules
         {
             if (OrganizationConfiguration.ValidateChecklist(template.ChecklistJson) is not null) return "The configured checklist is invalid. Ask an administrator to correct the category template.";
             var expected = OrganizationConfiguration.Checklist(template.ChecklistJson);
-            if (expected.Any(label => passed?.Contains(label) != true && (stage == InspectionStage.PreHire && !preparation || failed?.Contains(label) != true))) return "Record a result for every configured inspection check.";
-            if (stage == InspectionStage.PreHire && !preparation && expected.Any(label => failed?.Contains(label) == true)) return "Resolve every failed inspection check before handing over the asset.";
+            if (expected.Any(label => passed?.Contains(label) != true && (stage == InspectionStage.PreHire && !preparation && !acceptedExistingDamage || failed?.Contains(label) != true))) return "Record a result for every configured inspection check.";
+            if (stage == InspectionStage.PreHire && !preparation && !acceptedExistingDamage && expected.Any(label => failed?.Contains(label) == true)) return "Resolve every failed inspection check before handing over the asset.";
         }
         var asset = booking.Items.FirstOrDefault()?.Asset;
         var serviceRules = asset?.ServiceOffering?.InspectionRequirementsJson;

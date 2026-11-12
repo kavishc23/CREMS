@@ -136,6 +136,12 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 (asset.ServiceOffering == null || asset.ServiceOffering.IsActive && (asset.ServiceOffering.IsBookableOnline || asset.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == asset.BranchId && s.DivisionId == asset.DivisionId && s.ServiceOfferingId == asset.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
                 db.BranchDivisions.Any(b => b.BranchId == asset.BranchId && b.DivisionId == asset.DivisionId && b.IsActive && b.AcceptsBookings) &&
 
+                !db.BookingItems.Any(item => item.AssetId == asset.Id &&
+                    (item.Booking!.Status == BookingStatus.ConvertedToRental || item.Booking.Status == BookingStatus.Completed) &&
+                    !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)) &&
+                !db.MaintenanceJobs.Any(job => job.AssetId == asset.Id &&
+                    (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)) &&
+                asset.Status != AssetStatus.Maintenance && asset.Status != AssetStatus.Inspection && asset.Status != AssetStatus.OutOfService &&
                 asset.Status != AssetStatus.Retired);
         if (branchId.HasValue) query = query.Where(asset => asset.BranchId == branchId);
         if (divisionId.HasValue) query = query.Where(asset => asset.DivisionId == divisionId);
@@ -390,6 +396,13 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             ModelState.AddModelError(nameof(request.DriverLicence), "Verify your driver licence in My account before requesting this rental.");
             return ValidationProblem(ModelState);
         }
+        var documentIds = (request.DocumentIds ?? []).Distinct().ToArray();
+        var uploads = await db.DocumentRecords.Where(x => documentIds.Contains(x.Id) && x.EntityType == nameof(Customer) && x.EntityId == activeCustomer.Id).ToListAsync(cancellationToken);
+        var requiredDocuments = BookingDocuments.Required(asset);
+        if (uploads.Count != documentIds.Length || uploads.Any(x => x.ExpiresOn.HasValue && x.ExpiresOn < MaintenanceRules.LocalDate(DateTimeOffset.UtcNow)))
+            return BadRequest(new { message = "One or more uploaded documents could not be verified. Upload your own current documents and try again." });
+        var missingDocuments = requiredDocuments.Where(name => !uploads.Any(x => string.Equals(x.Type, name, StringComparison.OrdinalIgnoreCase))).ToArray();
+        if (missingDocuments.Length > 0) return BadRequest(new { message = $"Upload the required documents before submitting: {string.Join(", ", missingDocuments)}." });
         request = request with
         {
             CustomerType = activeCustomer.Type,
@@ -475,6 +488,10 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 Quantity = charge.Quantity, UnitRate = charge.Definition.DefaultSellingRate,
                 UnitCost = charge.Definition.DefaultCostRate, IsTaxable = charge.Definition.IsTaxable });
         db.Bookings.Add(booking);
+        foreach (var upload in uploads)
+        {
+            upload.EntityType = nameof(Booking); upload.EntityId = booking.Id; upload.BranchId = booking.BranchId;
+        }
 
         if (requiresQuote)
         {
@@ -651,7 +668,7 @@ public sealed record PublicBookingRequest(
     CustomerType CustomerType,
     [MaxLength(150)] string? CompanyName,
     [Required, EmailAddress, MaxLength(254)] string Email,
-    [Required, MaxLength(50)] string Phone,
+    [Required, Phone, MaxLength(50)] string Phone,
     [MaxLength(500)] string? Address,
     [MaxLength(100)] string? IdentificationNumber,
     [MaxLength(250)] string? Purpose,
@@ -667,7 +684,7 @@ public sealed record PublicBookingRequest(
     bool RequestQuotation,
     IReadOnlyList<PublicBookingExtraRequest>? Extras, decimal? HireQuantity = null,
     IReadOnlyDictionary<string, string>? ConfigurationAnswers = null, [MaxLength(100)] string? SecondaryContact = null,
-    TimeOnly? PickupTime = null, TimeOnly? ReturnTime = null);
+    TimeOnly? PickupTime = null, TimeOnly? ReturnTime = null, [MaxLength(20)] IReadOnlyList<Guid>? DocumentIds = null);
 public sealed record PublicBookingExtraRequest(Guid ChargeDefinitionId, decimal Quantity);
 public sealed record PublicBookingResponse(
     string Reference, string AssetName, string BranchName,

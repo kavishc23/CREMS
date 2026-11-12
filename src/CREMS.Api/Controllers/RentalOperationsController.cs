@@ -165,8 +165,11 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var preHire = booking.Inspections.Where(x => x.Type == InspectionType.Handover).OrderByDescending(x => x.CompletedAt).FirstOrDefault();
         var configuration = await ConfiguredHireRules.Resolve(db, booking, cancellationToken);
         var categoryUnit = categoryId.HasValue ? await db.AssetCategories.AsNoTracking().Where(x => x.Id == categoryId).Select(x => x.DefaultMeterType).FirstOrDefaultAsync(cancellationToken) : null;
+        var driver = await db.AuthorizedDrivers.AsNoTracking().Where(x => x.BookingId == bookingId).OrderByDescending(x => x.IsPrimary).FirstOrDefaultAsync(cancellationToken);
+        var licence = await db.CustomerLicences.AsNoTracking().Where(x => x.CustomerId == booking.CustomerId && x.Status == CREMS.Api.Domain.Customers.LicenceVerificationStatus.Verified).OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken);
         return Ok(new
         {
+            driverLicence = new { number = driver?.LicenceNumber ?? licence?.LicenceNumber, licenceClass = driver?.LicenceClass ?? licence?.LicenceClasses, expiry = driver?.LicenceExpiry, name = driver?.FullName ?? licence?.ExtractedName },
             templates = configuration?.Templates ?? templates.Select(t => new InspectionTemplateSnapshot(t.Id, t.Name, t.Stage, t.ChecklistJson)).ToArray(),
             tracksMeter = configuration?.TracksMeter, tracksFuel = configuration?.TracksFuel, meterUnit = categoryUnit ?? configuration?.MeterUnit,
             requiresDrivingLicence = booking.Items.Any(x => x.Asset is not null && AssetCategoryPolicy.IsVehicle(x.Asset.Type)) &&

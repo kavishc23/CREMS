@@ -18,7 +18,7 @@ import RefreshRuntime from '/@react-refresh';RefreshRuntime.injectIntoGlobalHook
 const {default:React}=await import('/node_modules/.vite/deps/react.js');const {default:{createRoot}}=await import('/node_modules/.vite/deps/react-dom_client.js');const {RentalsPage}=await import('/src/pages/RentalsPage.tsx');createRoot(document.getElementById('root')).render(React.createElement(RentalsPage));
 </script>`}));
 const next=()=>page.getByRole('button',{name:'Continue',exact:true}).click();
-await page.goto('http://localhost:5173/__workflow_test');
+await page.goto((process.env.CREMS_TEST_URL || 'http://localhost:5173') + '/__workflow_test');
 await page.getByRole('button',{name:'Begin pickup'}).first().click();await page.getByLabel('Customer identification sighted and matches booking').check();await next();
 await page.getByLabel('Scan or enter asset QR number').fill('TEST-ASSET');await next();
 

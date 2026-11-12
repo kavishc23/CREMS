@@ -25,9 +25,8 @@ const {default:React}=await import('/node_modules/.vite/deps/react.js');const {d
       await page.goto(`${process.env.CREMS_TEST_URL || 'http://localhost:5173'}/__return_charge_test`);
       try { await page.getByRole('button', { name: 'Begin return' }).first().click({timeout:15000}); } catch (error) { console.error((await page.locator('body').innerText()).slice(0,3000)); throw error; }
       const next = () => page.getByRole('button', { name: 'Continue', exact: true }).click();
-      await page.getByLabel('Scan or enter returned asset QR number').fill('TEST-ASSET');
-      await next(); await next();
-      await page.getByRole('button', { name: 'Pass all', exact:true }).click();
+      await next();
+      await page.getByRole('button', { name: 'Mark all as passed', exact:true }).click();
       await page.getByLabel('Post-hire inspection result').fill('Returned intact');
       await page.getByLabel('Inspection photo files').setInputFiles('src/crems-web/public/catalog/sedan.jpg');
       await page.getByAltText('Inspection photo 1', { exact: true }).waitFor();
@@ -45,7 +44,7 @@ const {default:React}=await import('/node_modules/.vite/deps/react.js');const {d
       await page.mouse.move(rect.x + 20, rect.y + 20); await page.mouse.down(); await page.mouse.move(rect.x + 100, rect.y + 50); await page.mouse.up();
       await page.getByLabel('Customer acknowledges the return record, charges and bond settlement', { exact: true }).check();
       await next();
-      const submitted = page.waitForRequest(r => r.method() === 'POST' && r.url().endsWith('/return'));
+      const submitted = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith('/return'));
       await page.getByRole('button', { name: 'Complete return & create invoice' }).click();
       await submitted;
       assert.equal(submissions.length, 1);

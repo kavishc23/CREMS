@@ -31,13 +31,33 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var candidates = await db.Assets.AsNoTracking().Where(x => x.Id != item.AssetId && x.IsActive &&
             x.BranchId == booking.BranchId && x.ServiceOfferingId == item.Asset.ServiceOfferingId &&
             x.AssetCategoryId == item.Asset.AssetCategoryId && (x.Status == AssetStatus.Available || x.Status == AssetStatus.Reserved))
-            .OrderBy(x => x.AssetNumber).Select(x => new { x.Id, x.AssetNumber, x.Name, x.DivisionId }).ToListAsync(token);
-        return Ok(candidates.Where(x => scope.HasAssetAccess(booking.BranchId, x.DivisionId)));
+            .OrderBy(x => x.AssetNumber).ToListAsync(token);
+        var available = new List<object>();
+        foreach (var candidate in candidates.Where(x => scope.HasAssetAccess(booking.BranchId, x.DivisionId)))
+            if (await ReplacementProblem(booking, item, candidate, token) is null)
+                available.Add(new { candidate.Id, candidate.AssetNumber, candidate.Name, candidate.DivisionId });
+        return Ok(available);
+    }
+
+    private async Task<string?> ReplacementProblem(Booking booking, BookingItem item, Asset replacement, CancellationToken token)
+    {
+        var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == booking.CustomerId, token);
+        var proposed = new Booking { Id = booking.Id, BookingNumber = booking.BookingNumber, CustomerId = booking.CustomerId,
+            Customer = customer, BranchId = booking.BranchId, Status = BookingStatus.Confirmed,
+            Items = [new BookingItem { AssetId = replacement.Id, Asset = replacement, StartAt = item.StartAt, EndAt = item.EndAt }] };
+        var problems = await PickupReadiness.Check(db, proposed, token);
+        if (problems.Count > 0) return string.Join(" ", problems);
+        var conflicts = await db.BookingItems.AsNoTracking().AnyAsync(x => x.BookingId != booking.Id && x.AssetId == replacement.Id &&
+            x.StartAt < item.EndAt.AddMinutes(replacement.TurnaroundMinutes) && x.EndAt > item.StartAt.AddMinutes(-replacement.TurnaroundMinutes) &&
+            (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental ||
+             x.Booking.Status == BookingStatus.Draft && x.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)), token);
+        return conflicts ? "The replacement is reserved during this hire or its turnaround period." : null;
     }
 
     [HttpPost("{id:guid}/exception-resolution")]
     public async Task<ActionResult> ResolveConfirmedException(Guid id, ResolveBookingExceptionRequest request, CancellationToken token)
     {
+        await using var transaction = await MaintenanceRules.BeginAsync(db, token);
         var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset)
             .Include(x => x.RentalAgreement).FirstOrDefaultAsync(x => x.Id == id, token);
         if (booking is null) return NotFound();
@@ -92,6 +112,18 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
                 .Select(x => new { x.StartAt, x.EndAt }).ToListAsync(token);
             if (reservations.Any(x => RentalAvailability.Conflicts(item.StartAt, item.EndAt, x.StartAt, x.EndAt, replacement.TurnaroundMinutes)))
                 return Conflict(new { message = "The replacement asset is booked during this hire or its turnaround period." });
+            var replacementProblem = await ReplacementProblem(booking, item, replacement, token);
+            if (replacementProblem is not null) return Conflict(new { message = replacementProblem });
+            var preparation = await db.RentalInspections.SingleOrDefaultAsync(x => x.BookingId == id && x.Type == InspectionType.Handover, token);
+            if (preparation is not null)
+            {
+                AuditWriter.Record(db, scope, "Pickup inspection superseded by replacement", nameof(Booking), id,
+                    $"{booking.BookingNumber}: old asset inspection retained in audit; inspect the replacement before handover.", booking.BranchId,
+                    previousValues: System.Text.Json.JsonSerializer.Serialize(new { preparation.ConditionNotes, preparation.DamageNotes, preparation.EvidenceJson, preparation.MeterReading, preparation.FuelLevelPercent, preparation.CompletedAt, preparation.CompletedByName }));
+                db.RentalInspections.Remove(preparation);
+            }
+            foreach (var charge in await db.BookingCharges.Where(x => x.BookingId == id && x.AssetId == item.AssetId).ToListAsync(token))
+                charge.AssetId = replacement.Id;
             var previousAsset = item.Asset;
             var previous = previousAsset?.AssetNumber ?? item.AssetId.ToString();
             item.AssetId = replacement.Id;
@@ -119,6 +151,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         }
         booking.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
         return Ok(new { booking.Id, booking.Status, booking.Notes });
     }
     [HttpGet("work-queue")]
@@ -224,6 +257,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var customerRequests = await db.CustomerCases.AsNoTracking().Where(x => x.CustomerId == booking.CustomerId && x.Subject.Contains(booking.BookingNumber))
             .OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.CaseNumber, type = x.Type.ToString(), priority = x.Priority.ToString(), status = x.Status.ToString(), x.Subject, x.Description, x.CreatedAt, x.DueAt }).ToListAsync(cancellationToken);
         var item = booking.Items.FirstOrDefault();
+        var requiredDocuments = BookingDocuments.Required(item?.Asset);
         var days = item is null ? 0 : Math.Max(1, (decimal)Math.Ceiling((item.EndAt - item.StartAt).TotalDays));
         var hire = item is null ? 0 : HirePricing.Amount(item); var subtotal = Math.Max(0, hire - booking.DiscountAmount + booking.AdditionalCharges);
         var paid = booking.Payments.Where(x => x.Status == PaymentStatus.Recorded &&
@@ -246,7 +280,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             agreement = booking.Status == BookingStatus.Confirmed || booking.RentalAgreement is null ? null : new { booking.RentalAgreement.AgreementNumber, status = booking.RentalAgreement.Status.ToString(), booking.RentalAgreement.CustomerSignedAt, booking.RentalAgreement.ApprovedByName, booking.RentalAgreement.LastEmailedAt, addendumCount = booking.RentalAgreement.Addendums.Count },
             quotation = quote is null ? null : new { quote.Id, quote.QuoteNumber, status = quote.Status.ToString(), quote.ValidUntil, quote.Subtotal, quote.Discount, quote.Tax, quote.Total, quote.Version, quote.LineItemsJson, quote.LastEmailedTo, quote.LastEmailedAt },
             invoice = booking.Invoice is null ? null : new { booking.Invoice.InvoiceNumber, status = booking.Invoice.Status.ToString(), booking.Invoice.Total, booking.Invoice.AmountPaid, booking.Invoice.BalanceDue },
-            approvalRule = approvalRule is null ? null : new { approvalRule.WorkflowName, approvalRule.Reason, stages = approvalRule.Stages.Select(x => new { x.Sequence, x.Name, x.AssignedRole, x.EscalateAfterHours }) }, approvals, customerRequests, documents, activity
+            approvalRule = approvalRule is null ? null : new { approvalRule.WorkflowName, approvalRule.Reason, stages = approvalRule.Stages.Select(x => new { x.Sequence, x.Name, x.AssignedRole, x.EscalateAfterHours }) }, approvals, customerRequests, requiredDocuments, documents, activity
         });
     }
 
