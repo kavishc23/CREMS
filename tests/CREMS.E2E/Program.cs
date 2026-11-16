@@ -43,6 +43,8 @@ try
     builder.Services.AddApplicationAuthorization();
     builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
     builder.Services.AddScoped<CurrentStaffScope>();
+    builder.Services.AddScoped<RentalPricingService>();
+    builder.Services.AddAuthentication().AddCookie(SystemAuthenticationSchemes.Customer, options => { options.Cookie.Name = "CREMS.CustomerSession"; options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; });
     builder.Services.AddSingleton<WindowSessionRegistry>();
     builder.Services.AddScoped<IEmailQueue, EmailQueue>();
     builder.Services.AddControllers().AddApplicationPart(typeof(BranchesController).Assembly)
@@ -70,26 +72,28 @@ try
         var branch = new Branch { Code = "SEED", Name = "Seed branch" };
         db.AddRange(division, branch, new BranchDivision { BranchId = branch.Id, DivisionId = division.Id, IsActive = true });
         using (db.SuppressNotifications()) await db.SaveChangesAsync();
-        var customer = new Customer { CustomerNumber = "E2ECUST", Name = "E2E Customer" };
+        var customer = new Customer { CustomerNumber = "E2ECUST", Name = "E2E Customer", Email = "customer@example.test", Phone = "9123456" };
         var booking = new Booking { BookingNumber = "E2EBOOK", BranchId = branch.Id, CustomerId = customer.Id, Status = BookingStatus.Confirmed };
         db.AddRange(customer, booking, new DispatchJob { DispatchNumber = "E2EDEL", BookingId = booking.Id, BranchId = branch.Id, Status = DispatchStatus.Arrived, ScheduledAt = DateTimeOffset.UtcNow });
         using (db.SuppressNotifications()) await db.SaveChangesAsync();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        foreach (var (name, role) in new[] { ("admin", SystemRoles.SuperAdministrator), ("manager", SystemRoles.BranchManager), ("officer", SystemRoles.RentalOfficer) })
+        foreach (var (name, role) in new[] { ("admin", SystemRoles.SuperAdministrator), ("manager", SystemRoles.BranchManager), ("officer", SystemRoles.RentalOfficer), ("customer", SystemRoles.Customer) })
         {
-            var user = new ApplicationUser { UserName = name + "@example.test", Email = name + "@example.test", FullName = "E2E " + name, EmailConfirmed = true, BranchId = branch.Id, DivisionId = division.Id };
+            var user = new ApplicationUser { UserName = name + "@example.test", Email = name + "@example.test", FullName = "E2E " + name, EmailConfirmed = true, BranchId = branch.Id, DivisionId = division.Id, CustomerId = role == SystemRoles.Customer ? customer.Id : null };
             var created = await users.CreateAsync(user, password);
             if (!created.Succeeded) throw new InvalidOperationException("Test user creation failed.");
             await users.AddToRoleAsync(user, role);
         }
-        db.RolePermissions.AddRange(new RolePermission { RoleName = SystemRoles.BranchManager, Permission = SystemPermissions.BranchesConfigure },
+        db.RolePermissions.AddRange(new RolePermission { RoleName = SystemRoles.BranchManager, Permission = SystemPermissions.RentalsApprove },
+            new RolePermission { RoleName = SystemRoles.BranchManager, Permission = SystemPermissions.BranchesConfigure },
             new RolePermission { RoleName = SystemRoles.BranchManager, Permission = SystemPermissions.AssetCategoriesConfigure });
         using (db.SuppressNotifications()) await db.SaveChangesAsync();
     }
     await app.StartAsync();
     Console.WriteLine("Isolated SQL database migrated; real API and Identity host started.");
     var start = new ProcessStartInfo("node") { WorkingDirectory = root, UseShellExecute = false };
-    start.ArgumentList.Add("tests/browser/organization-operations-e2e.cjs");
+    var assessment = Environment.GetEnvironmentVariable("CREMS_E2E_ASSESSMENT") == "1";
+    start.ArgumentList.Add(assessment ? "tests/browser/practical-assessment-e2e.cjs" : "tests/browser/organization-operations-e2e.cjs");
     start.Environment["CREMS_E2E_URL"] = app.Urls.Single();
     start.Environment["CREMS_E2E_PASSWORD"] = password;
     using var process = Process.Start(start)!;

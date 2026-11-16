@@ -281,7 +281,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
         return Ok(new
         {
             hireRate,
-            asset.Id, asset.Name, asset.Type, asset.Category, asset.DailyRate, PersonnelRequirement = AssetCategoryPolicy.Personnel(asset),
+            asset.Id, asset.Name, asset.Type, Category = asset.AssetCategory?.Name ?? asset.Category, asset.DailyRate, PersonnelRequirement = AssetCategoryPolicy.Personnel(asset),
             BondAmount = AssetCategoryPolicy.Bond(asset), TaxRate = asset.Division?.DefaultTaxRate ?? FijiRentalDefaults.VatRate,
             BookingFlow = DivisionBookingFlow.For(asset.Division),
             CustomerQuestions = OrganizationConfiguration.Questions(DivisionBookingFlow.For(asset.Division), asset.ServiceOffering, asset.AssetCategory),

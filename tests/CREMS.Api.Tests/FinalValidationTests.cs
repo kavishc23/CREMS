@@ -10,6 +10,22 @@ namespace CREMS.Api.Tests;
 public sealed class FinalValidationTests
 {
     [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("   ", true)]
+    [InlineData("+679 9123456", true)]
+    [InlineData("not a phone", false)]
+    public void Optional_division_phone_allows_blank_but_rejects_invalid_contact(string? phone, bool expected)
+    {
+        var request = new SaveDivisionRequest("TEST", "Test division", null, null, phone, 0, true);
+        var errors = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
+        var rules = typeof(SaveDivisionRequest).GetConstructors().Single().GetParameters().Single(x => x.Name == "ContactPhone")
+            .GetCustomAttributes(true).OfType<System.ComponentModel.DataAnnotations.ValidationAttribute>();
+        Assert.Equal(expected, System.ComponentModel.DataAnnotations.Validator.TryValidateValue(phone,
+            new System.ComponentModel.DataAnnotations.ValidationContext(request) { MemberName = "ContactPhone" }, errors, rules));
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("data:text/html;base64,PGgxPmJhZDwvaDE+")]

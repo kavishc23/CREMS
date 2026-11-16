@@ -333,7 +333,9 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
     [HttpPost("{bookingId:guid}/customer-requests/{caseId:guid}/decision")]
     public async Task<ActionResult> DecideCustomerRequest(Guid bookingId, Guid caseId, CustomerRequestDecision request, CancellationToken token)
     {
+        await using var transaction = await MaintenanceRules.BeginAsync(db, token);
         var booking = await db.Bookings.Include(x => x.Items).ThenInclude(x => x.Asset)
+            .Include(x => x.Charges).Include(x => x.Payments).Include(x => x.Invoice).ThenInclude(x => x!.Lines)
             .FirstOrDefaultAsync(x => x.Id == bookingId, token);
         if (booking is null) return NotFound();
         var customerCase = await db.CustomerCases.FirstOrDefaultAsync(x => x.Id == caseId && x.CustomerId == booking.CustomerId && x.Subject.Contains(booking.BookingNumber), token);
@@ -344,12 +346,15 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (customerCase.Status is CaseStatus.Resolved or CaseStatus.Closed) return BadRequest(new { message = "This customer request has already been decided." });
 
+        decimal additionalHireCharge = 0, additionalTax = 0;
         if (request.Approved && customerCase.Subject.StartsWith("Extension request", StringComparison.OrdinalIgnoreCase))
         {
             if (booking.Status is not (BookingStatus.Confirmed or BookingStatus.ConvertedToRental))
                 return BadRequest(new { message = "Only confirmed or active rentals can be extended." });
             if (!TryReadRequestedEnd(customerCase.Description, out var requestedEnd))
                 return BadRequest(new { message = "The requested return date could not be read." });
+            if (booking.Items.Count == 0) return BadRequest(new { message = "Allocate an asset before extending this rental." });
+            if (booking.Invoice?.Status == InvoiceStatus.Voided) return Conflict(new { message = "Resolve the voided invoice in Finance before extending this rental." });
             var currentEnd = booking.Items.Max(x => x.EndAt);
             if (requestedEnd <= currentEnd || requestedEnd > currentEnd.AddMonths(6))
                 return BadRequest(new { message = "The requested return date is no longer valid." });
@@ -357,8 +362,40 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
             var conflict = await db.BookingItems.AnyAsync(x => x.BookingId != booking.Id && assetIds.Contains(x.AssetId) &&
                 x.StartAt < requestedEnd.AddMinutes(x.Asset!.TurnaroundMinutes) && x.EndAt > currentEnd && (x.Booking!.Status == BookingStatus.Confirmed || x.Booking.Status == BookingStatus.ConvertedToRental), token);
             if (conflict) return Conflict(new { message = "The extension conflicts with another confirmed rental." });
-            foreach (var item in booking.Items) item.EndAt = requestedEnd;
-            booking.Notes = $"{booking.Notes}\nExtension approved to {requestedEnd:u}.".Trim();
+            var previousNet = RentalFinancials.Net(booking);
+            var previousTax = HirePricing.Tax(booking);
+            var lines = RentalExtensions.Apply(booking, requestedEnd);
+            additionalHireCharge = RentalFinancials.Net(booking) - previousNet;
+            additionalTax = HirePricing.Tax(booking) - previousTax;
+            if (booking.Invoice is { } invoice)
+            {
+                void AddInvoiceLine(InvoiceLine line)
+                {
+                    line.InvoiceId = invoice.Id;
+                    invoice.Lines.Add(line);
+                    db.InvoiceLines.Add(line);
+                }
+                // Retain receipts, credits and original invoice lines. The signed
+                // pickup agreement remains the original accepted pricing schedule.
+                if (invoice.Lines.Count == 0)
+                    foreach (var line in InvoiceDocumentLines.Read(invoice)) AddInvoiceLine(new InvoiceLine {
+                        Description = line.Description, Quantity = line.Quantity, UnitPrice = line.Rate,
+                        IsTaxable = line.IsTaxable, TaxRate = booking.TaxRate });
+                foreach (var line in lines) AddInvoiceLine(new InvoiceLine {
+                    Description = line.Description, Quantity = line.Quantity,
+                    UnitPrice = invoice.TaxInclusive && line.IsTaxable ? line.Rate * (1 + booking.TaxRate / 100) : line.Rate,
+                    IsTaxable = line.IsTaxable, TaxRate = booking.TaxRate });
+                var totalAdded = additionalHireCharge + additionalTax;
+                invoice.Subtotal += invoice.TaxInclusive ? totalAdded : additionalHireCharge;
+                invoice.TaxAmount += additionalTax; invoice.Total += totalAdded;
+                invoice.BalanceDue = Math.Max(0, invoice.Total - invoice.AmountPaid);
+                invoice.Status = invoice.BalanceDue == 0 ? InvoiceStatus.Paid : invoice.AmountPaid > 0 ? InvoiceStatus.PartiallyPaid : InvoiceStatus.Issued;
+                invoice.LineItemsJson = System.Text.Json.JsonSerializer.Serialize(invoice.Lines.Select(x => new { x.Description, x.Quantity, x.UnitPrice, x.TaxRate, x.IsTaxable }));
+                invoice.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+            booking.Notes = $"{booking.Notes}\nExtension approved to {requestedEnd:u}. Additional hire: FJD {additionalHireCharge:0.00}; VAT: FJD {additionalTax:0.00}; total added: FJD {additionalHireCharge + additionalTax:0.00}.".Trim();
+            AuditWriter.Record(db, scope, "Rental extension priced", nameof(Booking), booking.Id,
+                $"{customerCase.CaseNumber}: return {currentEnd:u} → {requestedEnd:u}; additional hire FJD {additionalHireCharge:0.00}, VAT FJD {additionalTax:0.00}.", booking.BranchId);
         }
         else if (request.Approved && customerCase.Subject.StartsWith("Cancellation request", StringComparison.OrdinalIgnoreCase))
         {
@@ -375,7 +412,10 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         AuditWriter.Record(db, scope, request.Approved ? "Customer request approved" : "Customer request declined", nameof(Booking), booking.Id,
             $"{customerCase.Subject}: {customerCase.Resolution}", booking.BranchId);
         await db.SaveChangesAsync(token);
-        return Ok(new { customerCase.Status, bookingStatus = booking.Status.ToString() });
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return Ok(new { customerCase.Status, bookingStatus = booking.Status.ToString(), additionalHireCharge, additionalTax,
+            total = booking.Invoice?.Total ?? RentalFinancials.Total(booking),
+            balanceDue = booking.Invoice?.BalanceDue ?? Math.Max(0, RentalFinancials.Total(booking) - RentalFinancials.Paid(booking)) });
     }
 
     private static bool TryReadRequestedEnd(string description, out DateTimeOffset requestedEnd)

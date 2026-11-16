@@ -258,8 +258,17 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         returnInspection.CompletedAt = returnedAt;
         db.RentalInspections.Add(returnInspection);
         var returnChargeTotal = RentalFinancials.Money(request.AdditionalCharges + lateFee + request.ExcessUsageCharge + request.RefuellingCharge + request.CleaningCharge + request.DamageCharge);
-        // Preserve legacy agreed extras, then persist each return surcharge for future documents and reports.
+        // Retaining a bond for damage/return costs is a charge plus a settlement,
+        // not a discount on unpaid hire. Cover existing return charges first and
+        // itemise only the remainder so an already-entered charge is never doubled.
         var legacyExtras = RentalFinancials.Unitemised(booking);
+        var retainedBondCharge = request.BondCoversReturnCharges ? Math.Max(0, request.BondDeductionAmount - returnChargeTotal) : 0;
+        if (retainedBondCharge > 0)
+            booking.Charges.Add(new BookingCharge { BookingId = booking.Id,
+                Description = $"Bond retention — {request.BondDeductionReason!.Trim()}", Category = ChargeCategory.Other,
+                Unit = ChargeUnit.Fixed, Quantity = 1, UnitRate = retainedBondCharge, IsTaxable = false });
+        returnChargeTotal += retainedBondCharge;
+        // Preserve legacy agreed extras, then persist each return surcharge for future documents and reports.
         if (legacyExtras > 0) booking.Charges.Add(new BookingCharge { BookingId = booking.Id, Description = booking.AdditionalChargesDescription ?? "Other agreed charges", Category = ChargeCategory.Other, Unit = ChargeUnit.Fixed, Quantity = 1, UnitRate = legacyExtras, IsTaxable = true });
         foreach (var (description, amount, category) in new[] {
             ("Late return", lateFee, ChargeCategory.Other), ("Excess kilometres / hours", request.ExcessUsageCharge, ChargeCategory.Other),
@@ -421,6 +430,7 @@ public sealed record ReturnInspectionRequest(
         IdentificationVerified, DriverLicenceVerified, MeterReading, FuelLevelPercent,
         ConditionNotes, DamageNotes, SignatureName)
 {
+    public bool BondCoversReturnCharges { get; init; }
     public DateTimeOffset? ReturnedAt { get; init; }
     [Range(0, 1000000)] public decimal AmountCollected { get; init; }
     public PaymentMethod PaymentMethod { get; init; }

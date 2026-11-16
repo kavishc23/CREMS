@@ -46,7 +46,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         var reasons = await PickupReadiness.Check(db, booking, token);
-        return Ok(new { canPickup = reasons.Count == 0, reasons });
+        return Ok(new { canPickup = reasons.Count == 0, reasons, canDeferHirePayment = scope.IsAdministrator || User.IsInRole(SystemRoles.BranchManager) });
     }
 
     [HttpPost("{bookingId:guid}/pickup")]

@@ -32,3 +32,11 @@ The browser script covers administrator organization writes and reloads, categor
 fields, branch service reactivation and nullable cutoffs, operations task completion,
 delivery completion evidence, supplier creation, business-tools navigation, mobile
 layout, anonymous access and cross-role/cross-branch write restrictions.
+
+For the connected practical-assessment scenario, set `CREMS_E2E_ASSESSMENT=1`
+before running the same host. This uses fictional customer and manager accounts
+to verify configuration, fees, approval, customer acceptance, availability filters
+and audit history. Results are written under `output/assessment-flow`. SMTP workers
+remain disabled in this host; actual loopback SMTP acceptance, rejection and retry
+behavior are covered separately by `AssessmentEmailDeliveryTests`. No external
+customer email is sent by either test workflow.
