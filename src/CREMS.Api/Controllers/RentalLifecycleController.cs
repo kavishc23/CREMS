@@ -8,6 +8,7 @@ using CREMS.Api.Domain.Common;
 using CREMS.Api.Domain.Corporate;
 using CREMS.Api.Domain.Identity;
 using CREMS.Api.Domain.Rentals;
+using CREMS.Api.Domain.Operations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -115,6 +116,8 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
         var booking = access.Booking!;
         var incident = await db.RentalIncidents.FirstOrDefaultAsync(x => x.Id == incidentId && x.BookingId == bookingId, cancellationToken);
         if (incident is null) return NotFound();
+        if (booking.IncidentClosedAt.HasValue && (request.BondDeductionAmount > 0 || request.FineAmount > 0))
+            return Conflict(new { message = "Record financial decisions in the incident settlement for this closed hire." });
         if (incident.Status is IncidentStatus.Resolved or IncidentStatus.Closed || incident.BondDeductionAmount > 0 || incident.FineAmount > 0)
             return Conflict(new { message = "This incident has already been resolved. Its financial actions cannot be applied again." });
         if (request.BondDeductionAmount > 0 && request.BondDeductionAmount > Math.Max(0, booking.BondAmountHeld - booking.BondDeductionAmount))
@@ -176,6 +179,105 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
         return Ok(new { incident.Id, incident.IncidentNumber, incident.Status, incident.CustomerResolution, incident.BondDeductionAmount, incident.FineAmount, incident.WarningIssued, incident.ImmediateReturnRequested, cancellationRequested = request.CancelRental });
     }
 
+    [HttpPost("incidents/end-hire")]
+    [HttpPost("incidents/{incidentId:guid}/end-hire")]
+    public async Task<ActionResult> EndHireAfterIncident(Guid bookingId, [FromRoute] Guid? incidentId, EndHireAfterIncidentRequest request, CancellationToken token)
+    {
+        if (request.AssetStatus is not (AssetStatus.OutOfService or AssetStatus.Maintenance))
+            return Validation("assetStatus", "Choose Out of service or Needs repair.");
+        var reason = Clean(request.Reason);
+        var custody = Clean(request.Custody);
+        if (reason is null || reason.Length < 10 || custody is null || custody.Length < 3)
+            return Validation("reason", "Record why the hire must end and where the asset is or who has custody.");
+
+        await using var transaction = await MaintenanceRules.BeginAsync(db, token);
+        var access = await GetBooking(bookingId, token);
+        if (access.Result is not null) return access.Result;
+        var booking = access.Booking!;
+        if (booking.Status != BookingStatus.ConvertedToRental || booking.IncidentClosedAt.HasValue)
+            return Conflict(new { message = "Only an active hire can be ended after an incident." });
+        if (booking.Items.Count != 1 || booking.Items.Single().Asset is not { } asset)
+            return Conflict(new { message = "This action requires one allocated asset. Contact the branch manager to coordinate the individual assets." });
+        if (asset.Status != AssetStatus.Rented)
+            return Conflict(new { message = "The asset status has changed. Review the hire and asset record before closing." });
+        if (await db.RentalInspections.AnyAsync(x => x.BookingId == bookingId && x.Type == InspectionType.Return, token))
+            return Conflict(new { message = "A return inspection is already recorded for this hire. Review it before closing the hire." });
+
+        var scope = access.Scope!;
+        var now = DateTimeOffset.UtcNow;
+        RentalIncident incident;
+        if (incidentId.HasValue)
+        {
+            var report = await db.RentalIncidents.FirstOrDefaultAsync(x => x.Id == incidentId.Value && x.BookingId == bookingId, token);
+            if (report is null) return NotFound();
+            incident = report;
+        }
+        else
+        {
+            if (request.IncidentType is not { } type || !Enum.IsDefined(type) ||
+                request.OccurredAt is not { } occurredAt || occurredAt == default || occurredAt > now)
+                return Validation("occurredAt", "Select an incident type and enter a valid time no later than now.");
+            incident = new RentalIncident
+            {
+                BookingId = booking.Id, Type = type, OccurredAt = occurredAt,
+                IncidentNumber = $"INC-{now:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}",
+                Description = "A serious incident was reported to the branch."
+            };
+            db.RentalIncidents.Add(incident);
+        }
+
+        var note = $"Incident {incident.IncidentNumber}. Reason: {reason} Custody: {custody}";
+        var agreement = await db.RentalAgreements.FirstOrDefaultAsync(x => x.BookingId == bookingId, token);
+        if (agreement is not null) agreement.Status = AgreementStatus.Completed;
+        db.AssetLifecycleEvents.Add(new AssetLifecycleEvent
+        {
+            AssetId = asset.Id, BookingId = booking.Id, Type = AssetLifecycleEventType.DamageReported,
+            FromStatus = asset.Status, ToStatus = request.AssetStatus, OccurredAt = now, Notes = note,
+            RecordedByUserId = scope.UserId, RecordedByName = scope.UserName
+        });
+        if (request.AssetStatus == AssetStatus.Maintenance)
+        {
+            db.MaintenanceJobs.Add(new MaintenanceJob
+            {
+                JobNumber = $"MNT-{now:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
+                AssetId = asset.Id, BranchId = asset.BranchId, SourceType = "Damage",
+                SourceReference = incident.IncidentNumber, ReportedByName = scope.UserName,
+                ServiceType = "Incident damage assessment", Priority = MaintenancePriority.High, ReportedAt = now,
+                FaultDescription = $"Assess damage and confirm custody before release. Incident {incident.IncidentNumber}.",
+                Description = $"Referred from hire {booking.BookingNumber}."
+            });
+        }
+        asset.Status = request.AssetStatus;
+        asset.UpdatedAt = now;
+        booking.Status = BookingStatus.Completed;
+        booking.IncidentClosedAt = now;
+        booking.UpdatedAt = now;
+        if (incident.Status == IncidentStatus.Open) incident.Status = IncidentStatus.Investigating;
+        incident.ImmediateReturnRequested = false;
+        incident.CustomerResolution = "The branch has ended this hire following an incident. Contact the branch for any outstanding arrangements.";
+        var obsoleteTasks = await db.ManagementTasks.Where(x => !x.IsCompleted &&
+            x.SourceEntityType == nameof(Booking) && x.SourceEntityId == bookingId &&
+            x.Category == TaskCategory.OverdueRental).ToListAsync(token);
+        foreach (var task in obsoleteTasks) task.IsCompleted = true;
+        var branchManagerId = await db.Branches.Where(x => x.Id == booking.BranchId)
+            .Select(x => x.BranchManagerUserId).FirstOrDefaultAsync(token);
+        var managerClosingHire = User.IsInRole(SystemRoles.BranchManager) || User.IsInRole(SystemRoles.Administrator) ||
+            User.IsInRole(SystemRoles.SuperAdministrator);
+        db.ManagementTasks.Add(new ManagementTask
+        {
+            BranchId = booking.BranchId, Category = TaskCategory.CustomerCase, Priority = TaskPriority.High,
+            Title = $"Incident follow-up for {booking.BookingNumber}",
+            Description = $"Review asset recovery, investigation and any outstanding invoice or bond for {incident.IncidentNumber}.",
+            DueAt = now, AssignedUserId = branchManagerId ?? (managerClosingHire ? scope.UserId : null),
+            SourceEntityType = nameof(Booking), SourceEntityId = booking.Id
+        });
+        AuditWriter.Record(db, scope, "Hire ended after incident", "Booking", booking.Id,
+            $"{incident.IncidentNumber}: {asset.AssetNumber} moved to {request.AssetStatus}.", booking.BranchId, null, note);
+        await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return Ok(new { booking.IncidentClosedAt, incident.Id, asset.Status });
+    }
+
     [HttpPost("notifications")]
     public async Task<ActionResult> QueueNotification(Guid bookingId, NotificationRequest request, CancellationToken cancellationToken)
     {
@@ -215,3 +317,6 @@ public sealed record IncidentRequest(IncidentType Type, DateTimeOffset OccurredA
 public sealed record IncidentResolutionRequest(IncidentStatus Status, [Required] string StaffResolution, string? CustomerResolution, [Range(0, 1000000)] decimal BondDeductionAmount, [Range(0, 1000000)] decimal FineAmount, bool WarningIssued, bool ImmediateReturnRequested, bool CancelRental);
 public sealed record NotificationRequest(NotificationChannel Channel, [Required] string Recipient, [Required] string Subject, [Required] string Message);
 public sealed record AddendumRequest([Required] string Reason, DateTimeOffset? NewEndAt, decimal? NewDailyRate, string? Note, [Required] string CustomerSignatureName);
+
+public sealed record EndHireAfterIncidentRequest(AssetStatus AssetStatus, [Required, MaxLength(1000)] string Reason,
+    [Required, MaxLength(300)] string Custody, IncidentType? IncidentType = null, DateTimeOffset? OccurredAt = null);

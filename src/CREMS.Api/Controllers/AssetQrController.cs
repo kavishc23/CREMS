@@ -47,7 +47,7 @@ public sealed class AssetQrController(ApplicationDbContext db, CurrentStaffScope
         var inTransit = await db.AssetTransfers.AsNoTracking().AnyAsync(x => x.AssetId == asset.Id && x.DepartedAt != null && x.ReceivedAt == null, token);
         var unreturned = await db.BookingItems.AsNoTracking().AnyAsync(x => x.AssetId == asset.Id &&
             (x.Booking!.Status == BookingStatus.ConvertedToRental ||
-             x.Booking.Status == BookingStatus.Completed && !x.Booking.Inspections.Any(i => i.Type == InspectionType.Return)), token);
+             x.Booking.Status == BookingStatus.Completed && x.Booking.IncidentClosedAt == null && !x.Booking.Inspections.Any(i => i.Type == InspectionType.Return)), token);
         var booking = await db.Bookings.AsNoTracking()
             .Include(x => x.Customer).Include(x => x.Branch).Include(x => x.Items).Include(x => x.RentalAgreement)
             .Where(x => x.Items.Any(i => i.AssetId == asset.Id) &&

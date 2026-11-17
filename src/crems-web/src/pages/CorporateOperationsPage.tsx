@@ -1,6 +1,7 @@
+import { FormError } from '../components/FormError'
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Grid, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material'
+import { Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Grid, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material'
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined'
 import AssignmentTurnedInOutlined from '@mui/icons-material/AssignmentTurnedInOutlined'
 import LocalShippingOutlined from '@mui/icons-material/LocalShippingOutlined'
@@ -117,7 +118,7 @@ export function CorporateOperationsPage({ embedded = false }: { embedded?: boole
   return <Box sx={{p:{xs:2,sm:3,lg:4},pt:embedded?3:undefined,maxWidth:1600,mx:'auto'}}>
     {!embedded&&<PageHeader icon={<CorporateFareOutlined/>} title="Operations centre" subtitle="One place for daily work, decisions and supporting business records." actions={<Stack direction="row" gap={1} alignItems="center"><Button startIcon={<RefreshOutlined/>} onClick={()=>void load()} disabled={loading}>Refresh</Button>{workspace&&<ReportButton label="Operations reports" reports={operationsReports(workspace,overview)}/>}</Stack>}/>}
     {embedded&&<Stack direction="row" justifyContent="flex-end" gap={1} mb={2}><Button startIcon={<RefreshOutlined/>} onClick={()=>void load()} disabled={loading}>Refresh</Button>{workspace&&<ReportButton label="Operations reports" reports={operationsReports(workspace,overview)}/>}</Stack>}
-    {error&&<Alert severity="error" sx={{mb:2}} onClose={()=>setError('')}>{error}</Alert>}
+    {error&&<FormError sx={{mb:2}} onClose={()=>setError('')}>{error}</FormError>}
     {loading?<Box sx={{minHeight:360,display:'grid',placeItems:'center'}}><CircularProgress/></Box>:<>
       {mode==='daily'&&overview&&<Grid container spacing={1.5} mb={2}>{metricKeys.map(key=>{const number=overview[key]??0;const attention=(key==='overdueRentals'||key==='pendingApprovals')&&number>0;return <Grid key={key} size={{xs:6,sm:4,lg:2}}><Card variant="outlined" sx={{height:'100%',borderTop:3,borderTopColor:attention?'error.main':'secondary.main'}}><CardContent><Typography variant="caption" color="text.secondary">{heading(key)}</Typography><Typography variant="h5" fontWeight={800} mt={.5}>{key.includes('Receivables')?`FJD ${number.toLocaleString('en-FJ')}`:key.includes('Percent')?`${number}%`:number.toLocaleString('en-FJ')}</Typography></CardContent></Card></Grid>})}</Grid>}
       <Card variant="outlined" sx={{minHeight:420,overflow:'hidden'}}>

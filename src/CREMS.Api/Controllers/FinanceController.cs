@@ -10,9 +10,12 @@ namespace CREMS.Api.Controllers;
   if (invoice?.Booking is null) return NotFound();
   var scope = await staffScope.GetAsync(User);
   if (scope is null || !scope.HasBranchAccess(invoice.Booking.BranchId)) return Forbid();
+  var dueDate = invoice.BalanceDue > 0 ? await db.IncidentSettlements.Where(x => x.BookingId == invoice.BookingId)
+   .Select(x => x.PaymentDueDate).SingleOrDefaultAsync(token) : null;
   return Ok(new { invoice.Id, invoice.InvoiceNumber, invoice.Booking.BookingNumber, customerName = invoice.Booking.Customer?.Name,
    branchName = invoice.Booking.Branch?.Name, invoice.Subtotal, invoice.TaxAmount, invoice.TaxInclusive, invoice.Total, invoice.AmountPaid, invoice.BalanceDue,
    status = invoice.Status.ToString(), invoice.IssuedAt, lines = InvoiceDocumentLines.Read(invoice),
+   dueDate,
    adjustment = RentalFinancials.Money(invoice.Total - (invoice.TaxInclusive ? invoice.Subtotal : invoice.Subtotal + invoice.TaxAmount)) });
  }
  [HttpGet("workspace")]
@@ -75,6 +78,8 @@ namespace CREMS.Api.Controllers;
   var scope = await staffScope.GetAsync(User);
   if (scope is null || !scope.HasBranchAccess(invoice.Booking!.BranchId)) return Forbid();
   if (invoice.Status is InvoiceStatus.Paid or InvoiceStatus.Voided) return Conflict(new { message = "Paid or voided invoices cannot be edited." });
+  if (await db.IncidentSettlements.AnyAsync(x => x.BookingId == invoice.BookingId && x.PaymentDueDate != null, token))
+   return Conflict(new { message = "Add incident charges in the settlement or use a credit note to adjust the balance." });
   if (lines.Count == 0 || lines.Any(x => string.IsNullOrWhiteSpace(x.Description) || x.Quantity <= 0 || x.UnitPrice < 0 || x.TaxRate is < 0 or > 100))
    return BadRequest(new { message = "Add invoice lines with descriptions, positive quantities, non-negative prices and valid VAT rates. Use credit notes for reductions." });
   if (await db.CreditNotes.AnyAsync(x => x.InvoiceId == id && x.Status == CreditNoteStatus.Applied, token))
@@ -131,10 +136,12 @@ namespace CREMS.Api.Controllers;
   if (invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Voided || string.IsNullOrWhiteSpace(request.Reason) || request.Total <= 0 || request.Total != RentalFinancials.Money(request.Total) || request.Total > invoice.BalanceDue)
    return BadRequest(new { message = "Enter a reason and a credit within the unpaid issued invoice balance. Paid amounts require a controlled refund." });
   var previousCredits = await db.CreditNotes.Where(x => x.InvoiceId == id && x.Status == CreditNoteStatus.Applied).SumAsync(x => (decimal?)x.Total, token) ?? 0;
-  var tax = RentalFinancials.Money(request.Total * invoice.TaxAmount / Math.Max(invoice.Total + previousCredits, .01m));
-  var item = new CreditNote { CreditNoteNumber = $"CN-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid():N}"[..25], InvoiceId = id, Reason = request.Reason.Trim(), Subtotal = request.Total - tax, TaxAmount = tax, Total = request.Total, IssuedByUserId = scope.UserId, Status = CreditNoteStatus.Applied };
-  db.CreditNotes.Add(item); invoice.Total -= request.Total; invoice.BalanceDue = Math.Max(0, invoice.Total - invoice.AmountPaid);
-  invoice.Status = invoice.BalanceDue == 0 ? InvoiceStatus.Paid : invoice.AmountPaid > 0 ? InvoiceStatus.PartiallyPaid : InvoiceStatus.Issued;
+  var item = RentalFinancials.ApplyCredit(invoice, request.Total, previousCredits, request.Reason, scope.UserId);
+  db.CreditNotes.Add(item);
+  if (invoice.Booking is { IncidentClosedAt: not null } incidentBooking)
+   CREMS.Api.Domain.Common.AuditWriter.Record(db, scope, "Incident settlement credit issued", nameof(Booking),
+    invoice.BookingId, $"{item.CreditNoteNumber} applied to {invoice.InvoiceNumber}", incidentBooking.BranchId,
+    newValues: $"FJD {item.Total:0.00}; {item.Reason}");
   await db.SaveChangesAsync(token);
   if (transaction is not null) await transaction.CommitAsync(token);
   return Ok(new { item.Id, item.InvoiceId, item.CreditNoteNumber, item.Reason, item.Subtotal, item.TaxAmount, item.Total, item.Status });

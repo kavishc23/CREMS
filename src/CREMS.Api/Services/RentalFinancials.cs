@@ -6,11 +6,26 @@ namespace CREMS.Api.Services;
 public static class RentalFinancials
 {
     public static decimal Money(decimal value) => decimal.Round(value, 2, MidpointRounding.AwayFromZero);
+    public static string NewReceiptNumber(string prefix) => $"{prefix}-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid():N}";
     public static decimal Services(Booking booking) => booking.Charges.Sum(x => Money(x.Quantity * x.UnitRate));
     public static decimal Unitemised(Booking booking) => Math.Max(0, Money(booking.AdditionalCharges - Services(booking)));
     public static decimal Net(Booking booking) => Math.Max(0, Money(booking.Items.Sum(HirePricing.Amount) - booking.DiscountAmount + Services(booking) + Unitemised(booking)));
     public static decimal Total(Booking booking) => Net(booking) + HirePricing.Tax(booking);
     public static decimal Paid(Booking booking) => booking.Payments.Where(x => x.Status == PaymentStatus.Recorded && (x.Type == PaymentType.RentalCharge || x.Type == PaymentType.AdditionalCharge)).Sum(x => x.Amount) + (booking.BondSettledAt.HasValue ? booking.BondDeductionAmount : 0);
+
+    public static CreditNote ApplyCredit(RentalInvoice invoice, decimal amount, decimal previousCredits, string reason, Guid approvedBy)
+    {
+        var tax = Money(amount * invoice.TaxAmount / Math.Max(invoice.Total + previousCredits, .01m));
+        invoice.Total -= amount;
+        invoice.BalanceDue = Math.Max(0, invoice.Total - invoice.AmountPaid);
+        invoice.Status = invoice.BalanceDue == 0 ? InvoiceStatus.Paid : invoice.AmountPaid > 0 ? InvoiceStatus.PartiallyPaid : InvoiceStatus.Issued;
+        return new CreditNote
+        {
+            CreditNoteNumber = $"CN-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid():N}"[..25],
+            InvoiceId = invoice.Id, Subtotal = amount - tax, TaxAmount = tax, Total = amount,
+            Reason = reason.Trim(), IssuedByUserId = approvedBy, Status = CreditNoteStatus.Applied
+        };
+    }
 
     public static IReadOnlyList<FinancialLine> Lines(Booking booking)
     {

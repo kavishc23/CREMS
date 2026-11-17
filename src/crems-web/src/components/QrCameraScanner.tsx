@@ -1,8 +1,9 @@
+import { FormError } from './FormError'
 import { useEffect, useRef, useState } from 'react'
 import jsQR from 'jsqr'
 import CameraAltOutlined from '@mui/icons-material/CameraAltOutlined'
 import StopCircleOutlined from '@mui/icons-material/StopCircleOutlined'
-import { Alert, Box, Button, Stack } from '@mui/material'
+import { Box, Button, Stack } from '@mui/material'
 
 export function QrCameraScanner({onScan,centered=false,onScanningChange}:{onScan:(value:string)=>void|Promise<void>;centered?:boolean;onScanningChange?:(scanning:boolean)=>void}) {
   const [scanning, setScanning] = useState(false)
@@ -62,7 +63,7 @@ export function QrCameraScanner({onScan,centered=false,onScanningChange}:{onScan
 
   return <Stack spacing={1} sx={{width:centered?'auto':'100%',maxWidth:'100%',flexShrink:0}}>
     <Button sx={{alignSelf:centered?'center':'flex-start'}} variant="outlined" startIcon={scanning ? <StopCircleOutlined/> : <CameraAltOutlined/>} onClick={()=>scanning ? stopScanner() : void startScanner()}>{scanning ? 'Stop camera' : 'Use camera'}</Button>
-    {error && <Alert severity="error">{error}</Alert>}
+    {error && <FormError>{error}</FormError>}
     <Box sx={{display:scanning?'block':'none',bgcolor:'#111',borderRadius:2,overflow:'hidden',width:'min(440px, max(140px, calc(100dvh - 430px)), calc(100vw - 80px))',maxWidth:'100%',aspectRatio:'1 / 1',mx:'auto',minWidth:0}}>
       <video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview for QR scanning" style={{display:'block',width:'100%',height:'100%',objectFit:'cover',aspectRatio:'1 / 1'}}/>
     </Box>

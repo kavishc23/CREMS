@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/wait-for-api.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

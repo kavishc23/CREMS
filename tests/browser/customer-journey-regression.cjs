@@ -39,6 +39,15 @@ async function fixture(t, { signedIn = false, registrationStatus = 201, loginSta
     if (url === '/api/customer-account/documents') return json({ registered: [], agreements: [], invoices: [] });
     if (url === '/api/customer-account/licence') return json({ status: 'Required', licenceNumber: null, classes: [], hasImage: false });
     if (url.includes('/notifications')) return json({ items: [], unreadCount: 0 });
+    if (url === '/api/public/catalogue-bootstrap') {
+      branchCalls++;
+      if (!requestForm && branchCalls <= 2) return json({}, 503);
+      return json({
+        branches: [{ id: 'branch-test', name: 'Suva', address: null, phone: null }],
+        divisions: requestForm ? [{ id: 'division-test', code: 'MOTORS', name: 'Carpenters Motors', capabilities: 1 }] : [],
+        assets: requestForm ? [asset] : [],
+      });
+    }
     if (url === '/api/public/branches') { branchCalls++; return !requestForm && branchCalls <= 2 ? json({}, 503) : json([{ id: 'branch-test', name: 'Suva', address: null, phone: null }]); }
     if (url === '/api/public/divisions') return json(requestForm ? [{ id: 'division-test', code: 'MOTORS', name: 'Carpenters Motors', capabilities: 1 }] : []);
     if (url === '/api/public/assets') return json(requestForm ? [asset] : []);
@@ -51,7 +60,8 @@ import RefreshRuntime from '/@react-refresh';RefreshRuntime.injectIntoGlobalHook
 window.backCalls=0;window.expiryEvents=0;window.addEventListener('crems:customer-session-expired',()=>window.expiryEvents++);
 const {default:React}=await import('/node_modules/.vite/deps/react.js');const {default:{createRoot}}=await import('/node_modules/.vite/deps/react-dom_client.js');
 const {${catalogue ? 'PublicRentalPage' : 'CustomerPortalPage'}}=await import('/src/pages/${catalogue ? 'PublicRentalPage' : 'CustomerPortalPage'}.tsx');
-createRoot(document.getElementById('root')).render(React.createElement(${catalogue ? 'PublicRentalPage' : 'CustomerPortalPage'},${catalogue ? "{customerAuthenticated:true,customerName:'Portfolio Customer',onCustomerAccount:()=>{}}" : '{onBack:()=>window.backCalls++}'}));</script>` }));
+const {NativeFormValidation}=await import('/src/components/InlineValidation.tsx');
+createRoot(document.getElementById('root')).render(React.createElement(React.Fragment,null,React.createElement(NativeFormValidation),React.createElement(${catalogue ? 'PublicRentalPage' : 'CustomerPortalPage'},${catalogue ? "{customerAuthenticated:true,customerName:'Portfolio Customer',onCustomerAccount:()=>{}}" : '{onBack:()=>window.backCalls++}'})));</script>` }));
   t.after(() => { assert.deepEqual(errors, [], 'No unhandled React errors'); assert.deepEqual(unexpected, [], 'No unmocked API requests'); });
   await page.goto(`${process.env.CREMS_TEST_URL || 'http://127.0.0.1:5174'}/__customer_regression`);
   return { page, writes, branches: () => branchCalls };
@@ -176,28 +186,35 @@ for (const quotation of [false, true]) {
   test(`${quotation ? 'Quotation' : 'Booking'} form: restored selection, required contact validation, terms consent and successful payload`, async t => {
     const { page, writes } = await fixture(t, { signedIn: true, catalogue: true, requestForm: true, quotation });
     const dialog = page.getByRole('dialog');
-    await dialog.getByText('When and where?', { exact: true }).waitFor();
+    await dialog.getByRole('heading', { name:'Your rental', exact:true }).waitFor();
+    const pickupDate = dialog.getByLabel('Pickup date');
+    const returnDate = dialog.getByLabel('Return date');
+    const initialReturn = await returnDate.inputValue();
+    await returnDate.fill(await pickupDate.inputValue());
+    await dialog.getByLabel('Return time').fill('08:00');
     await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+    await dialog.getByText('Choose a return time after pickup.', { exact:true }).waitFor();
+    await returnDate.fill(initialReturn);
+    await dialog.getByText('Choose a return time after pickup.', { exact:true }).waitFor({state:'hidden'});
     await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
-    assert.equal(await dialog.getByLabel(/^Contact person(?:\s*\*)?$/).inputValue(), session.fullName);
-    assert.equal(await dialog.getByLabel(/^Verified driver licence(?:\s*\*)?$/).inputValue(), 'TEST-LICENCE');
-    await dialog.getByLabel(/^Phone(?:\s*\*)?$/).fill('');
-    await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
-    assert.equal(await dialog.getByText('Review and submit', { exact: true }).count(), 0);
+    assert.equal(await dialog.getByLabel('Full name').inputValue(), session.fullName);
+    assert.equal(await dialog.getByLabel('Driver licence number').inputValue(), 'TEST-LICENCE');
+    assert.equal(await dialog.getByLabel('Phone contact').inputValue(), session.phone);
     assert.equal(writes.length, 0);
-    await dialog.getByLabel(/^Phone(?:\s*\*)?$/).fill('7654321');
     await dialog.getByLabel(/^Site access confirmed/).click();
     await page.getByRole('option',{name:'No',exact:true}).click();
     await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
     const submit = dialog.getByRole('button', { name: quotation ? 'Request quotation' : 'Submit booking', exact: true });
-    assert.equal(await submit.isDisabled(), true);
+    await submit.click();
+    await dialog.getByText('Select this confirmation to continue.', { exact:true }).waitFor();
+    assert.equal(writes.length, 0);
     await dialog.getByRole('checkbox', { name: /^I understand/ }).check();
     await submit.click();
     await dialog.getByText(quotation ? 'Quotation request submitted' : 'Booking request submitted', { exact: true }).waitFor();
     const payload = writes.find(item => item.url === '/api/public/booking-requests').body;
     assert.equal(payload.assetId, asset.id);
     assert.equal(payload.fullName, session.fullName);
-    assert.equal(payload.phone, '7654321');
+    assert.equal(payload.phone, session.phone);
     assert.equal(payload.driverLicence, 'TEST-LICENCE');
     assert.equal(payload.requestQuotation, quotation);
     assert.equal(payload.configurationAnswers.SITE_ACCESS,'false');

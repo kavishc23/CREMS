@@ -1,9 +1,10 @@
+import { FormError } from '../components/FormError'
 import { useActionNotice } from '../components/useActionNotice'
 import { useEffect, useState } from 'react'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import AddOutlined from '@mui/icons-material/AddOutlined'
 import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
-import { Alert, Box, Button, Card, Checkbox, CircularProgress, FormControlLabel, Grid, InputAdornment, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, Card, Checkbox, CircularProgress, FormControlLabel, Grid, InputAdornment, Stack, TextField, Typography } from '@mui/material'
 import { api } from '../api/client'
 import { apiErrorMessage } from '../api/errors'
 
@@ -58,7 +59,7 @@ export function RentalPreferencesPage({ onBrowse }: { onBrowse: () => void }) {
   const shown = divisions.filter(division => division.name.toLowerCase().includes(normalized) || division.categories.some(category => category.name.toLowerCase().includes(normalized)))
   if (loading) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress aria-label="Loading rental preferences" /></Box>
   return <Box>
-    {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+    {error && <FormError sx={{ mb: 2 }}>{error}</FormError>}
 
     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={2} mb={3}>
       <TextField size="small" placeholder="Explore divisions and categories" value={query} onChange={event => setQuery(event.target.value)} inputProps={{ 'aria-label': 'Search divisions or asset categories' }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> }} sx={{ width: { xs: '100%', sm: 420 }, '& .MuiOutlinedInput-root': { bgcolor: 'white' } }} />

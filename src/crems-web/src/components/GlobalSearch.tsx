@@ -1,5 +1,6 @@
+import { FormError } from './FormError'
 import { useEffect, useState } from 'react'
-import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton, InputAdornment, List, ListItemButton, ListItemText, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton, InputAdornment, List, ListItemButton, ListItemText, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
 import HistoryOutlined from '@mui/icons-material/HistoryOutlined'
 import { api } from '../api/client'
@@ -29,7 +30,7 @@ export function GlobalSearch({ collapsed = false }: { collapsed?: boolean }) {
     <Dialog open={open} onClose={()=>setOpen(false)} fullWidth maxWidth="sm" aria-labelledby="crems-search-title"><DialogTitle id="crems-search-title">Search CREMS</DialogTitle><DialogContent onKeyDown={onKeys}>
       <TextField autoFocus fullWidth placeholder="Asset, booking, customer, invoice, job or quotation" value={query} onChange={e=>{setQuery(e.target.value);setSelected(0);setLoading(e.target.value.trim().length>=2)}} inputProps={{maxLength:100,'aria-label':'Search CREMS records','aria-controls':'crems-search-results','aria-expanded':results.length>0,role:'combobox'}} InputProps={{startAdornment:<InputAdornment position="start"><SearchOutlined/></InputAdornment>}}/>
       <Typography variant="caption" color="text.secondary">Results respect your role, branch and division. Use ↑ ↓ to select and Enter to open.</Typography>
-      {loading&&<Stack alignItems="center" p={3} role="status"><CircularProgress size={24}/></Stack>}{error&&<Alert severity="error" sx={{mt:2}}>{error}</Alert>}
+      {loading&&<Stack alignItems="center" p={3} role="status"><CircularProgress size={24}/></Stack>}{error&&<FormError sx={{mt:2}}>{error}</FormError>}
       <List id="crems-search-results" sx={{maxHeight:'min(55vh,520px)',overflowY:'auto'}}>
         {pages.length>0&&<Typography variant="overline" sx={{px:2,color:'text.secondary'}}>Pages</Typography>}
         {pages.map(page=>{const current=++index;return <ListItemButton key={page.page} selected={selected===current} onMouseEnter={()=>setSelected(current)} onClick={()=>openResult(current)} sx={{minHeight:52,borderRadius:1}}><ListItemText primary={page.title}/><Chip size="small" label="Page" variant="outlined"/></ListItemButton>})}

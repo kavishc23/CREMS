@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { Alert, Snackbar } from '@mui/material'
 
 type Severity = 'success' | 'error' | 'info' | 'warning'
-type Notice = { message: string; severity: Severity; title?: string; id: number }
+type Notice = { message: string; severity: Severity; title?: string; id: number; apiFallback?: boolean }
+
+const normalize = (message: string) => message.trim().replace(/\s+/g, ' ')
 
 export function toast(message: string, severity: Severity = 'info', title?: string) {
   window.dispatchEvent(new CustomEvent('crems:toast', { detail: { message, severity, title } }))
@@ -17,8 +19,20 @@ export function ToastHost() {
   const severity = notice?.severity ?? 'info'
   useEffect(() => {
     if (!notice) return
+    const dismissDuplicate = () => {
+      if ([...document.querySelectorAll<HTMLElement>('[data-form-error]')].some(element =>
+        element.getClientRects().length && !element.closest('[aria-hidden="true"]') &&
+        normalize(element.textContent ?? '') === normalize(notice.message))) {
+        setNotice(current => current === notice ? null : current)
+      }
+    }
+    const observer = notice.apiFallback ? new MutationObserver(dismissDuplicate) : undefined
+    if (observer) {
+      observer.observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['aria-hidden'] })
+      dismissDuplicate()
+    }
     const timer = window.setTimeout(() => setNotice(null), 3000)
-    return () => window.clearTimeout(timer)
+    return () => { observer?.disconnect(); window.clearTimeout(timer) }
   }, [notice])
   return <Snackbar key={notice?.id} open={Boolean(notice)} autoHideDuration={3000}
     onClose={(_, reason) => { if (reason !== 'clickaway') setNotice(null) }}

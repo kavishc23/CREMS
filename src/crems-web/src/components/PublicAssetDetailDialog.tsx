@@ -1,3 +1,4 @@
+import { FormError } from './FormError'
 import { hireQuantity, measuredUnit } from '../utils/hirePricing'
 import { useEffect, useState } from 'react'
 import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined'
@@ -5,7 +6,7 @@ import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined'
 import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined'
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined'
 import {
-  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
+  Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
   Divider, Grid, IconButton, Stack, Typography,
 } from '@mui/material'
 import { api } from '../api/client'
@@ -100,11 +101,11 @@ export function PublicAssetDetailDialog({ asset, imageUrls, startDate, endDate, 
     </Box>
     <DialogContent sx={{ p: 0, overflowY: 'auto', overflowX: 'hidden' }}>
       {loading && <Box sx={{ minHeight: 260, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>}
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <FormError>{error}</FormError>}
       {!loading && details && <Grid container>
         <Grid size={{ xs: 12, md: 6 }} sx={{ p: 3.5 }}><Stack spacing={2.5} width="100%">
           <Box sx={{ display: 'grid', gridTemplateColumns: { sm: 'minmax(220px, 1fr) auto' }, gap: 2, alignItems: 'start' }}>
-            {datesChecked ? <Stack gap={1} alignItems="flex-start"><Chip color={available ? 'success' : 'default'} icon={available ? <CheckCircleOutlined /> : undefined} label={available ? 'Available for your dates' : 'Unavailable for your dates'} /><Chip icon={<CalendarMonthOutlined />} label={`${startDate} to ${endDate}`} /></Stack> : <Typography variant="body2" color="text.secondary">Choose your hire dates in the rental search to check availability.</Typography>}
+            {datesChecked ? <Stack gap={1} alignItems="flex-start"><Chip color={available ? 'success' : 'default'} icon={available ? <CheckCircleOutlined /> : undefined} label={available ? 'Available for your dates' : 'Unavailable for your dates'} /><Chip icon={<CalendarMonthOutlined />} label={`${startDate} to ${endDate}`} /></Stack> : available ? <Typography variant="body2" color="text.secondary">Choose your hire dates in the rental search to check availability.</Typography> : <Chip label="Currently unavailable" sx={{ justifySelf: 'start' }} />}
             <Box sx={{ textAlign: { xs: 'left', sm: 'right' }, overflowWrap: 'anywhere' }}><Typography variant="caption" color="text.secondary">{datesChecked ? 'Estimated base hire' : 'Hire rate'}</Typography><Typography variant="h5" fontWeight={800}>FJD {(datesChecked ? rate * quantity : rate).toFixed(2)}</Typography><Typography variant="body2" color="text.secondary">{datesChecked ? `${quantity} ${unit.toLowerCase()} × FJD ${rate.toFixed(2)}${measuredUnit(unit) ? ' · Confirm quantity at checkout' : ''}` : `per ${unit.toLowerCase()}`}</Typography></Box>
           </Box>
           <Typography variant="h6" fontWeight={750} fontSize="1.15rem">Rental information</Typography><Divider /><Grid container columnSpacing={1.35} rowSpacing={.75}>

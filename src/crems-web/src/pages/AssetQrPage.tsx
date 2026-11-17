@@ -1,3 +1,4 @@
+import { FormError } from '../components/FormError'
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import QrCodeScannerOutlined from '@mui/icons-material/QrCodeScannerOutlined'
@@ -33,11 +34,11 @@ export function AssetQrPage(){
     <PageHeader icon={<QrCodeScannerOutlined/>} title="Scan asset QR" subtitle="Scan a label or enter an asset number to check live availability and hire activity." dense/>
     <Card variant="outlined" sx={{flex:1,borderTop:'4px solid',borderTopColor:'secondary.main',display:'flex',minHeight:0}}>
       <CardContent sx={{width:'100%',p:{xs:2,md:3},display:'flex',flexDirection:'column',justifyContent:'center','&:last-child':{pb:3}}}>
-        {error&&<Alert severity="error" sx={{mb:2}} onClose={()=>setError('')}>{error}</Alert>}
+        {error&&<FormError sx={{mb:2}} onClose={()=>setError('')}>{error}</FormError>}
         <Stack spacing={scanning?1.5:2.5} alignItems="center" justifyContent="center" sx={{width:'100%',mx:'auto',maxWidth:context?1100:900}}>
           {!scanning&&!context&&<><Box sx={{width:72,height:72,borderRadius:2,bgcolor:'primary.main',color:'secondary.main',display:'grid',placeItems:'center'}}><QrCodeScannerOutlined sx={{fontSize:40}}/></Box><Box textAlign="center"><Typography variant="h5" fontWeight={800}>Find an asset</Typography><Typography color="text.secondary">See its current condition, bookings and maintenance in one place.</Typography></Box></>}
           {(!context||scanning)&&<QrCameraScanner centered onScanningChange={active=>{setScanning(active);if(active){setContext(null);setError('')}}} onScan={value=>{setCode(value);return resolve(value)}}/>}
-          {!scanning&&!context&&<Box component="form" onSubmit={event=>{event.preventDefault();void resolve()}} sx={{width:'100%',maxWidth:780}}><Stack direction={{xs:'column',sm:'row'}} gap={1.5}><TextField fullWidth label="Asset number or QR value" value={code} onChange={event=>setCode(event.target.value)} placeholder="e.g. SHP-SUV-3001" autoComplete="off"/><Button type="submit" variant="contained" disabled={loading||!code.trim()} sx={{minWidth:140}}>{loading?<CircularProgress size={22}/>:'Find asset'}</Button></Stack></Box>}
+          {!scanning&&!context&&<Box component="form" onSubmit={event=>{event.preventDefault();void resolve()}} sx={{width:'100%',maxWidth:780}}><Stack direction={{xs:'column',sm:'row'}} gap={1.5}><TextField fullWidth required label="Asset number or QR value" value={code} onChange={event=>setCode(event.target.value)} placeholder="e.g. SHP-SUV-3001" autoComplete="off" inputProps={{pattern:'.*\\S.*'}}/><Button type="submit" variant="contained" disabled={loading} sx={{minWidth:140}}>{loading?<CircularProgress size={22}/>:'Find asset'}</Button></Stack></Box>}
           {!scanning&&context&&<ScanResult context={context} openProfile={()=>setProfileId(context.asset.id)} reset={()=>{setContext(null);setCode('')}}/>}
         </Stack>
       </CardContent>

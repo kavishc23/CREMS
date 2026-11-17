@@ -1,5 +1,6 @@
+import { FormError } from './FormError'
 import { useState } from 'react'
-import { Alert, Stack } from '@mui/material'
+import { Stack } from '@mui/material'
 import { api } from '../api/client'
 import { QrCameraScanner } from './QrCameraScanner'
 
@@ -16,6 +17,6 @@ export function AssetQrCamera({onScan}:{onScan:(assetNumber:string)=>void}) {
   }
   return <Stack spacing={1} sx={{width:'100%'}}>
     <QrCameraScanner onScan={resolve}/>
-    {error&&<Alert severity="error">{error}</Alert>}
+    {error&&<FormError>{error}</FormError>}
   </Stack>
 }

@@ -72,6 +72,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<RentalPayment> RentalPayments => Set<RentalPayment>();
     public DbSet<RentalNotification> RentalNotifications => Set<RentalNotification>();
     public DbSet<RentalIncident> RentalIncidents => Set<RentalIncident>();
+    public DbSet<IncidentSettlement> IncidentSettlements => Set<IncidentSettlement>();
     public DbSet<RentalInvoice> RentalInvoices => Set<RentalInvoice>();
     public DbSet<InvoiceLine> InvoiceLines => Set<InvoiceLine>();
     public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>();
@@ -323,6 +324,13 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
             entity.Property(x => x.BondRefundAmount).HasPrecision(18, 2);
         });
 
+        builder.Entity<IncidentSettlement>(entity =>
+        {
+            entity.HasKey(x => x.BookingId);
+            entity.HasOne<Booking>().WithOne().HasForeignKey<IncidentSettlement>(x => x.BookingId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         builder.Entity<RentalInspection>(entity =>
         {
             entity.Property(x => x.MeterReading).HasPrecision(18, 2);
@@ -349,6 +357,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
         {
             entity.Property(x => x.IncidentNumber).HasMaxLength(50);
             entity.Property(x => x.EstimatedCost).HasPrecision(18, 2);
+            entity.Property(x => x.BondDeductionAmount).HasPrecision(18, 2);
+            entity.Property(x => x.FineAmount).HasPrecision(18, 2);
             entity.HasIndex(x => x.IncidentNumber).IsUnique();
         });
 

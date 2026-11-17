@@ -17,6 +17,57 @@ namespace CREMS.Api.Tests;
 
 public sealed class ReturnChargesAndBondTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reviewed_return_records_exact_payment_and_bond_refund_once(bool cash)
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var db = CreateDb();
+        var (booking, context) = await Seed(db, BookingStatus.ConvertedToRental);
+        var controller = new RentalOperationsController(db, new CurrentStaffScope(db)) { ControllerContext = context };
+        var returnedAt = booking.Items.Single().EndAt.AddHours(6);
+        var request = new ReturnInspectionRequest("A-1", false, false, null, null, "Inspected", null, "Customer",
+            0, null, null, 0, 0, 0, 0, 25, "Apply part of the bond to the late-return charge", PaymentMethod.BankTransfer)
+        {
+            ReturnedAt = returnedAt, SignatureDataUrl = "data:image/png;base64,AA==",
+            ChecklistItems = ["Checked"], EvidenceDataUrls = ["data:image/png;base64,AA=="],
+            BondCoversReturnCharges = true, ExpectedBondHeld = 100, ExpectedInvoiceTotal = 336,
+            ExpectedOutstanding = 311, AmountCollected = 311, PaymentMethod = PaymentMethod.Card,
+            ReceiptNumber = "PAY-RETURN", BondRefundReference = "REFUND-RETURN", ConfirmLateFee = true
+        };
+        Assert.IsType<BadRequestObjectResult>(await controller.Return(booking.Id, request with { BondRefundReference = null }, token));
+        Assert.IsType<ConflictObjectResult>(await controller.Return(booking.Id, request with { ExpectedBondHeld = 90 }, token));
+        Assert.IsType<BadRequestObjectResult>(await controller.Return(booking.Id, request with { ConfirmLateFee = false }, token));
+        Assert.IsType<BadRequestObjectResult>(await controller.Return(booking.Id, request with { LateFee = 0 }, token));
+        Assert.Empty(await db.RentalPayments.ToListAsync(token));
+
+        if (cash)
+            request = request with { PaymentMethod = PaymentMethod.Cash, ReceiptNumber = null,
+                BondRefundMethod = PaymentMethod.Cash, BondRefundReference = null };
+        Assert.IsType<OkObjectResult>(await controller.Return(booking.Id, request, token));
+        var invoice = await db.RentalInvoices.SingleAsync(token);
+        Assert.Equal(336, invoice.Total);
+        Assert.Equal(0, invoice.BalanceDue);
+        var receipts = await db.RentalPayments.ToListAsync(token);
+        var refund = Assert.Single(receipts, x => x.Type == PaymentType.BondRefund);
+        var payment = Assert.Single(receipts, x => x.Type == PaymentType.RentalCharge);
+        Assert.Equal(75, refund.Amount);
+        Assert.Equal(311, payment.Amount);
+        if (cash)
+        {
+            Assert.StartsWith("BRF-", refund.ReceiptNumber);
+            Assert.StartsWith("RCPT-", payment.ReceiptNumber);
+        }
+        else
+        {
+            Assert.Equal("REFUND-RETURN", refund.ReceiptNumber);
+            Assert.Equal("PAY-RETURN", payment.ReceiptNumber);
+        }
+        Assert.IsType<BadRequestObjectResult>(await controller.Return(booking.Id, request, token));
+        Assert.Equal(2, await db.RentalPayments.CountAsync(token));
+    }
+
     [Fact]
     public async Task Incident_termination_keeps_asset_on_hire_and_rejects_duplicate_financial_actions()
     {
@@ -263,6 +314,42 @@ public sealed class ReturnChargesAndBondTests
 
     private static ApplicationDbContext CreateDb() => new(new DbContextOptionsBuilder<ApplicationDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+
+    [Fact]
+    public async Task Hire_lookup_finds_future_pickups_and_preserves_scoped_queue_counts()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var db = CreateDb();
+        var (today, context) = await Seed(db, BookingStatus.Confirmed);
+        var (outsideScope, _) = await Seed(db, BookingStatus.Confirmed);
+        outsideScope.BookingNumber = "BK-OTHER-BRANCH";
+        var start = DateTimeOffset.UtcNow.AddDays(5);
+        var future = new Booking
+        {
+            BookingNumber = "BK-FUTURE", BranchId = today.BranchId, CustomerId = today.CustomerId,
+            Status = BookingStatus.Confirmed,
+            Items = [new BookingItem { AssetId = today.Items.Single().AssetId, StartAt = start, EndAt = start.AddDays(2), DailyRate = 100 }]
+        };
+        db.Bookings.Add(future);
+        using (db.SuppressNotifications()) await db.SaveChangesAsync(token);
+        var controller = new RentalOperationsController(db, new CurrentStaffScope(db)) { ControllerContext = context };
+
+        async Task<RentalWorkQueueResponse> Load(string? search = null, Guid? bookingId = null) =>
+            Assert.IsType<RentalWorkQueueResponse>(Assert.IsType<OkObjectResult>(
+                (await controller.GetWorkQueue(search: search, bookingId: bookingId, cancellationToken: token)).Result).Value);
+
+        var ordinary = await Load();
+        Assert.Equal(today.Id, Assert.Single(ordinary.Items).Id);
+        var matching = await Load(" bk-future ");
+        Assert.Equal(future.Id, Assert.Single(matching.Items).Id);
+        Assert.Equal(1, matching.Total);
+        Assert.Equal(ordinary.Counts, matching.Counts);
+        var focused = await Load(bookingId: future.Id);
+        Assert.Equal(future.Id, Assert.Single(focused.Items).Id);
+        Assert.Equal(ordinary.Counts, focused.Counts);
+        Assert.Empty((await Load("BK-OTHER-BRANCH")).Items);
+        Assert.Empty((await Load(bookingId: outsideScope.Id)).Items);
+    }
 
     private static async Task<(Booking, ControllerContext)> Seed(ApplicationDbContext db, BookingStatus status, string role = SystemRoles.RentalOfficer)
     {

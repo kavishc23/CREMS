@@ -68,7 +68,7 @@ public static class AssetUsageSummary
             if (booking.Status == BookingStatus.Confirmed && pickup is null) { Add(item.StartAt, item.EndAt, "Reserved"); continue; }
             var start = pickup ?? item.StartAt;
             // Without a return inspection an active/overdue hire remains on rent up to now.
-            var end = returned ?? (pickup.HasValue || booking.Status == BookingStatus.ConvertedToRental ? now : item.EndAt);
+            var end = booking.IncidentClosedAt ?? returned ?? (pickup.HasValue || booking.Status == BookingStatus.ConvertedToRental ? now : item.EndAt);
             if (Add(start, end, "Rented")) { rentals.Add(booking.Id); if (!pickup.HasValue) estimated.Add(booking.Id); }
         }
         foreach (var job in jobs)

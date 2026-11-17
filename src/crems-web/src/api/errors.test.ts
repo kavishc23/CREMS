@@ -21,6 +21,16 @@ describe('public booking API handling', () => {
     expect(result).toEqual({ kind: 'validation', message: 'No operator rate is configured for this service.' })
   })
 
+  it('shows repeated validation details once and keeps distinct instructions', () => {
+    const result = classifyApiFailure(axiosError({
+      response: { status: 400, data: { errors: {
+        field: ['Enter a receipt reference.'],
+        payment: [' Enter a receipt reference. ', 'Select a payment method.'],
+      } } },
+    }))
+    expect(result.message).toBe('Enter a receipt reference. Select a payment method.')
+  })
+
   it('distinguishes an unavailable API from a timed-out request', () => {
     expect(classifyApiFailure(axiosError({ code: 'ERR_NETWORK' }))).toEqual({
       kind: 'network',

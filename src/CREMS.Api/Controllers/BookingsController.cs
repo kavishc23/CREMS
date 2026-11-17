@@ -269,7 +269,7 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var forQuotation = quote is not null && quote.Status is not (QuoteStatus.Accepted or QuoteStatus.Converted);
         var approvalRule = await ApprovalWorkflowService.MatchBookingAsync(db, approvalContext, cancellationToken, forQuotation);
         return Ok(new {
-            booking.Id, booking.BookingNumber, status = booking.Status.ToString(), booking.CreatedAt, booking.Notes,
+            booking.Id, booking.BookingNumber, status = booking.Status.ToString(), booking.CreatedAt, booking.Notes, booking.IncidentClosedAt,
             configuration = OrganizationConfiguration.Read<BookingConfigurationSnapshot>(booking.ConfigurationSnapshotJson),
             customer = new { booking.CustomerId, booking.Customer!.CustomerNumber, booking.Customer.Name, type = booking.Customer.Type.ToString(), booking.Customer.Email, booking.Customer.Phone, booking.Customer.Address, booking.Customer.IdentificationNumber, booking.Customer.IsBlocked },
             branch = new { booking.BranchId, booking.Branch!.Name, booking.Branch.Address, booking.Branch.Phone },

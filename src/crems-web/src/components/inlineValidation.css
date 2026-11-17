@@ -1,0 +1,63 @@
+:root {
+  --crems-field-error: #b32626;
+}
+
+.crems-field-message,
+.MuiFormControl-root .MuiFormHelperText-root.Mui-error {
+  display: block;
+  margin: 6px 0 0;
+  color: var(--crems-field-error);
+  font-size: .875rem;
+  font-weight: 400;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.MuiFormControl-root:has(.MuiOutlinedInput-root) > :is(.crems-field-message, .MuiFormHelperText-root.Mui-error) {
+  margin-inline: 14px;
+}
+
+.MuiFormControl-root:is([data-crems-invalid], :has(.MuiOutlinedInput-root.Mui-error)) .MuiInputLabel-root {
+  color: var(--crems-field-error);
+}
+
+.MuiFormControl-root:is([data-crems-invalid], :has(.MuiOutlinedInput-root.Mui-error)) .MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline {
+  border-color: var(--crems-field-error);
+  border-radius: 6px;
+}
+
+.MuiFormControl-root:is([data-crems-invalid], :has(.MuiOutlinedInput-root.Mui-error)) .MuiOutlinedInput-root:not(.Mui-focused) .MuiOutlinedInput-notchedOutline {
+  border-width: 1px;
+}
+
+.MuiFormControl-root[data-crems-invalid] > .MuiFormHelperText-root {
+  display: none;
+}
+
+:is(input, textarea, select, button, canvas)[data-crems-invalid],
+[data-crems-invalid]:not(.MuiFormControl-root, .MuiFormControlLabel-root) :is(input, textarea, select, button, canvas)[aria-invalid="true"] {
+  outline: 1px solid var(--crems-field-error);
+  outline-offset: 2px;
+}
+
+.MuiFormControlLabel-root[data-crems-invalid] :is(.MuiCheckbox-root, .MuiRadio-root, .MuiFormControlLabel-label) {
+  color: var(--crems-field-error);
+}
+
+.MuiFormControlLabel-root[data-crems-invalid] + .crems-field-message {
+  margin-block-start: 2px;
+  padding-inline-start: 38px;
+}
+
+.crems-issue-navigation {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: .875rem;
+  font-weight: 700;
+  min-height: 40px;
+  padding: 6px 8px;
+  text-decoration: underline;
+}

@@ -1,5 +1,6 @@
+import { FormError } from './FormError'
 import { useRef, useState, type ChangeEvent } from 'react'
-import { Alert, Box, Button, Stack, Typography } from '@mui/material'
+import { Box, Button, Stack, Typography } from '@mui/material'
 
 export function InspectionPhotos({ photos, onChange, onBusyChange }: { photos: string[]; onChange: (photos: string[]) => void; onBusyChange?: (busy: boolean) => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -48,7 +49,7 @@ export function InspectionPhotos({ photos, onChange, onBusyChange }: { photos: s
     </Button>
     <input ref={inputRef} aria-label="Inspection photo files" hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={event => void attach(event)} />
     <Typography variant="caption">{photos.length} of 5 photos attached · up to 20 MB each; photos are resized for upload</Typography>
-    {error && <Alert severity="error">{error}</Alert>}
+    {error && <FormError>{error}</FormError>}
     <Stack direction="row" gap={1} flexWrap="wrap">
       {photos.map((photo, index) => <Box key={index}>
         <Box component="img" src={photo} alt={`Inspection photo ${index + 1}`} sx={{ width: 120, height: 90, objectFit: 'cover', display: 'block' }} />

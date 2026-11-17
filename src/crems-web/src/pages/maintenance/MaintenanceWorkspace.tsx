@@ -1,3 +1,5 @@
+import { InlineIssueNavigation } from '../../components/InlineValidation'
+import { FormError } from '../../components/FormError'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import axios from 'axios'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
@@ -56,6 +58,8 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(Boolean(jobId))
   const [error, setError] = useState('')
+  const [recordChanged, setRecordChanged] = useState(false)
+  const [repairAttempted, setRepairAttempted] = useState(false)
   const [tab, setTab] = useState('Details')
   const [documents, setDocuments] = useState<Document[]>([])
   const [documentType, setDocumentType] = useState('FaultPhoto')
@@ -89,7 +93,7 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
   }
   const change = <K extends keyof Form>(key: K, value: Form[K]) => { setForm(current => ({ ...current, [key]: value })); setDirty(true) }
   const loadDetail = useCallback(async (id: string) => {
-    setLoading(true); setError('')
+    setLoading(true); setError(''); setRecordChanged(false); setRepairAttempted(false)
     try {
       const [record, attachments] = await Promise.all([api.get<Detail>(`/maintenance-jobs/${id}/workspace`), api.get<Document[]>(`/maintenance-jobs/${id}/documents`)])
       setDetail(record.data); setForm(jobForm(record.data.job)); if (openedJob.current !== id) { setTab(workflowTab(record.data.job)); openedJob.current = id }
@@ -122,6 +126,21 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
   const labour = form.labourHours !== '' && form.labourRate !== '' ? Math.round(Number(form.labourHours) * Number(form.labourRate) * 100) / 100 : Number(form.labourCost || 0)
   const calculated = calculateMaintenanceTax({ partsCost: Number(form.partsCost || 0), labourCost: labour, transportCost: Number(form.transportCost || 0), externalServiceCost: Number(form.externalServiceCost || 0), fuelCost: Number(form.fuelCost || 0), otherCost: Number(form.otherCost || 0) }, taxSettings, Number(form.taxCost || 0), job?.issuedStockCost ?? 0)
   const total = calculated.total
+  const repairNotesMissing = !form.completionNotes.trim()
+  const requiresFinalMeter = Boolean(asset?.meterUnit || job?.meterUnit)
+  const repairMeterMissing = requiresFinalMeter && form.meterReading.trim() === ''
+  const repairErrors = [
+    repairNotesMissing && { id: 'maintenance-completion-notes', message: 'Describe the work performed.' },
+    repairMeterMissing && { id: 'maintenance-final-meter', message: 'Enter the final meter reading.' },
+  ].filter(issue => issue !== false)
+  function finishRepair() {
+    setError('')
+    setRecordChanged(false)
+    setRepairAttempted(true)
+    if (repairErrors.length || !formElement.current?.reportValidity()) return
+    setReason('')
+    setTransition('Completed')
+  }
   const field = (key: keyof Form, title: string, extra: Record<string, unknown> = {}) => <TextField fullWidth label={title} value={form[key]} disabled={busy || readOnly} onChange={e => change(key, e.target.value as never)} {...extra} />
   const number = (key: keyof Form, title: string, extra: Record<string, unknown> = {}) => field(key, title, { type: 'number', slotProps: { htmlInput: { min: 0, max: 100000000, step: 'any' } }, ...extra })
   function payload(status: string, transitionReason = '') {
@@ -143,13 +162,16 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
     if (!form.serviceType.trim()) { setError('Enter the type of maintenance required.'); setTab('Details'); return }
     if (nextStatus === 'InProgress' && !form.assignedPersonnelId && !form.supplierId) { setError('Assign a technician or an external supplier before starting work.'); setTab('Details'); setTransition(null); return }
     if (!form.assetId || !form.faultDescription.trim()) { setError('Select an asset and enter the repair type and work required.'); setTab('Details'); return }
-    if (nextStatus === 'Completed' && (!form.completionNotes.trim() || (asset?.meterUnit && form.meterReading === ''))) { setError('Record the work performed and final meter reading before completing the work.'); setTab('Repair'); setTransition(null); return }
+    if (nextStatus === 'Completed' && repairErrors.length) { setRepairAttempted(true); setTab('Repair'); setTransition(null); return }
     if (['Cancelled', 'WaitingForParts'].includes(nextStatus) && nextStatus !== job?.status && !reason.trim()) return
-    setBusy(true); setError('')
+    setBusy(true); setError(''); setRecordChanged(false)
     try {
       if (jobId) { await api.put(`/maintenance-jobs/${jobId}`, payload(nextStatus, reason)); setTransition(null); await loadDetail(jobId); if (nextStatus !== job?.status) setTab(['Completed', 'Cancelled'].includes(nextStatus) ? 'Safety' : nextStatus === 'Open' ? 'Details' : 'Repair'); onSaved(`${job?.jobNumber} saved. ${nextStatus === 'Completed' ? 'Work completed; verify safety before returning the asset to service.' : 'Open the workspace for the next action.'}`) }
       else { const result = await api.post<{ id: string; jobNumber: string }>('/maintenance-jobs', payload('Open')); setDirty(false); onSaved(`${result.data.jobNumber} logged. The asset is unavailable while maintenance is open.`, result.data.id) }
-    } catch (requestError) { setError(failure(requestError)); setTransition(null) } finally { setBusy(false) }
+    } catch (requestError) {
+      setRecordChanged(axios.isAxiosError(requestError) && requestError.response?.status === 409)
+      setError(failure(requestError)); setTransition(null)
+    } finally { setBusy(false) }
   }
   async function refreshOpenWork(id: string) {
     const result = await api.get<Detail>(`/maintenance-jobs/${id}/workspace`)
@@ -195,7 +217,7 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
         <Box sx={{display:'flex',flexDirection:{xs:'column',md:'row'},flex:1,minHeight:0}}>{job&&<WorkspaceSections labels={workflowSteps.map(step=>step.title)} active={workflowSteps.findIndex(step=>step.key===tab)} onChange={index=>navigate(workflowSteps[index].key)} disabled={workflowSteps.flatMap((_,index)=>busy||loading||index===1&&job.status==='Open'||index===2&&!closed(job)||index===3&&!job.releasedAt?[index]:[])}/>}
         <Box component="form" ref={formElement} onInvalidCapture={event => { const panel = (event.target as HTMLElement).closest('.MuiAccordion-root'); const toggle = panel?.querySelector<HTMLButtonElement>('button[aria-expanded="false"]'); toggle?.click() }} onSubmit={event => { if (['Safety', 'History'].includes(tab)) event.preventDefault(); else void save(event) }} sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <Box sx={{ flex: 1, overflowY: 'auto', px: { xs: 2, sm: 3 }, py: 3 }}>
-            {error && <Alert severity="error" sx={{ mb: 2 }} role="alert">{error}{jobId && !dirty && <Button onClick={() => void loadDetail(jobId)}>Refresh record</Button>}</Alert>}
+
             {loading && <Box py={5} textAlign="center"><CircularProgress /></Box>}
             <Box sx={{ display: loading ? 'none' : undefined }}>
               {tab === 'Details' && <Stack spacing={2.5}>
@@ -235,8 +257,8 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
               {(tab === 'Repair' || tab === 'Details') && <Stack spacing={2.5} mt={3}>
                 {job && tab === 'Repair' && <><Box><Typography variant="h6">Record the repair</Typography><Typography color="text.secondary">Record the work performed before the safety check.</Typography></Box>
                 <Alert severity="info">{job.status === 'WaitingForParts' ? 'Waiting for parts. Resume work when the parts arrive.' : 'Finishing the repair does not release the asset for hire. A safety check is required.'}</Alert>
-                {field('completionNotes', 'Completion notes / work performed', { multiline: true, minRows: 4, helperText: 'Required to complete work. Describe repairs, tests and remaining concerns.', slotProps: { htmlInput: { maxLength: 4000 } } })}
-                <Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}>{number('meterReading', `Final meter reading${asset?.meterUnit ? ` (${asset.meterUnit})` : ''}`, { helperText: `Current reading: ${asset?.currentMeterReading ?? job?.currentMeterReading ?? 'Not recorded'}` })}</Grid><Grid size={{ xs: 12, sm: 6 }}>{number('downtimeHours', 'Downtime hours', { slotProps: { htmlInput: { min: 0, max: 100000, step: 1 } }, helperText: 'Leave blank to calculate elapsed unavailability when work completes.' })}</Grid></Grid>
+                {field('completionNotes', 'Completion notes / work performed', { multiline: true, minRows: 4, id: 'maintenance-completion-notes', error: repairAttempted && repairNotesMissing, helperText: repairAttempted && repairNotesMissing ? undefined : 'Include repairs, tests and remaining concerns.', slotProps: { htmlInput: { maxLength: 4000 } } })}
+                <Grid container spacing={2}><Grid size={{ xs: 12, sm: 6 }}>{number('meterReading', `Final meter reading${asset?.meterUnit ? ` (${asset.meterUnit})` : ''}`, { id: 'maintenance-final-meter', error: repairAttempted && repairMeterMissing, helperText: `Current reading: ${asset?.currentMeterReading ?? job?.currentMeterReading ?? 'Not recorded'}` })}</Grid><Grid size={{ xs: 12, sm: 6 }}>{number('downtimeHours', 'Downtime hours', { slotProps: { htmlInput: { min: 0, max: 100000, step: 1 } }, helperText: 'Leave blank to calculate elapsed unavailability when work completes.' })}</Grid></Grid>
                 <Accordion><AccordionSummary expandIcon={<ExpandMoreOutlined />}><Typography fontWeight={700}>Parts & stock (optional)</Typography></AccordionSummary><AccordionDetails><Stack spacing={2}>
                 {field('partsUsed', 'Parts and repair notes', { multiline: true, minRows: 2, helperText: 'Stock quantities and issued costs remain in Manage parts.' })}
                 <Button variant="outlined" disabled={!jobId || busy || dirty} onClick={() => setParts(true)}>Manage parts and stock movements</Button>
@@ -319,15 +341,19 @@ export function MaintenanceWorkspace({ jobId, initialAsset, options, permissions
               </Stack>}
             </Box>
           </Box>
+          {error && <FormError placement="footer"
+            action={jobId && (!detail || recordChanged) ? <Button onClick={() => guard(() => void loadDetail(jobId))}>{recordChanged ? 'Refresh record' : 'Retry'}</Button> : undefined}>
+            {error}
+          </FormError>}
           {!job && <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 3, py: 2, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}><Button disabled={busy} onClick={() => guard(onClose)}>Cancel</Button><Button type="submit" variant="contained" disabled={busy || loading || !form.assetId}>{busy ? 'Creating…' : 'Create job'}</Button></Stack>}
           {job && ['Details', 'Repair'].includes(tab) && <Stack direction="row" justifyContent="space-between" alignItems="center" useFlexGap flexWrap="wrap" gap={1} sx={{ px: { xs: 2, sm: 3 }, py: 2, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-            <Button type="submit" disabled={busy || readOnly || loading || !dirty}>Save for later</Button>
+            <Stack direction="row" gap={1}><Button type="submit" disabled={busy || readOnly || loading || !dirty}>Save for later</Button><InlineIssueNavigation attempted={tab === 'Repair' && repairAttempted} issues={repairErrors.map(issue => ({ target: issue.id, message: issue.message }))}/></Stack>
             <Stack direction="row" gap={1} useFlexGap flexWrap="wrap">
               {tab === 'Repair' && job.status === 'InProgress' && <Button variant="outlined" disabled={busy || loading} onClick={() => { setTransition('WaitingForParts'); setReason('') }}>Wait for parts</Button>}
               {job.status === 'Open' ? <Button variant="contained" disabled={busy || loading} onClick={() => { setTransition('InProgress'); setReason('') }}>Save & start work</Button>
                 : tab === 'Details' ? <Button variant="contained" disabled={busy || loading} onClick={() => navigate(closed(job) ? 'Safety' : 'Repair')}>{closed(job) ? 'View safety check' : 'Continue to repair'}</Button>
                 : job.status === 'WaitingForParts' ? <Button variant="contained" disabled={busy || loading} onClick={() => { setTransition('InProgress'); setReason('') }}>Resume work</Button>
-                : !closed(job) && access.canComplete ? <Button variant="contained" disabled={busy || loading} onClick={() => { setTransition('Completed'); setReason('') }}>Finish repair</Button>
+                : !closed(job) && access.canComplete ? <Button variant="contained" disabled={busy || loading} onClick={finishRepair}>Finish repair</Button>
                 : closed(job) && <Button variant="contained" disabled={busy || loading} onClick={() => navigate('Safety')}>View safety check</Button>}
             </Stack>
           </Stack>}

@@ -56,7 +56,7 @@ const assets = [
     await snackbar.waitFor({state:'hidden',timeout:4400});
     await page.getByRole('button',{name:'Save details',exact:true}).click();await snackbar.waitFor();await snackbar.waitFor({state:'hidden',timeout:4400});
     await page.getByRole('button',{name:'Book a rental',exact:true}).click();
-    await page.getByLabel('Return date',{exact:true}).fill(date(2));await page.getByRole('button',{name:'Show available rentals',exact:true}).click();
+    await page.getByLabel('Return date',{exact:true}).fill(date(2));await page.getByRole('button',{name:'Search rentals',exact:true}).click();
     for(const asset of assets){
       const card=page.getByTestId('rental-catalogue-card').filter({has:page.getByText(asset.name,{exact:true})});
       await card.getByRole('button',{name:asset.requiresQuote?'Get quote':'Book now',exact:true}).click();

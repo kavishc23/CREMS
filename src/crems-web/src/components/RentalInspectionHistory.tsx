@@ -1,3 +1,4 @@
+import { FormError } from './FormError'
 import { useEffect, useState } from 'react'
 import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
 import { api } from '../api/client'
@@ -29,7 +30,7 @@ export function RentalInspectionHistory({ bookingId, bookingNumber, assetName, o
     <DialogTitle id="inspection-history-title">Inspection history — {bookingNumber}</DialogTitle>
     <DialogContent dividers>
       <Typography color="text.secondary" mb={2}>{assetName}</Typography>
-      {error ? <Alert severity="error" action={<Button color="inherit" onClick={() => { setError(''); setAttempt(value => value + 1) }}>Retry</Button>}>{error}</Alert> : records === null ? <Box textAlign="center" p={4}><CircularProgress aria-label="Loading inspections" /></Box> :
+      {error ? <FormError action={<Button color="inherit" onClick={() => { setError(''); setAttempt(value => value + 1) }}>Retry</Button>}>{error}</FormError> : records === null ? <Box textAlign="center" p={4}><CircularProgress aria-label="Loading inspections" /></Box> :
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, alignItems: 'start' }}>
           {(['Handover', 'Return'] as const).map(type => <Stack spacing={2} key={type}>
             <Typography variant="h6">{type === 'Handover' ? 'Pre-hire' : 'Post-hire'}</Typography>

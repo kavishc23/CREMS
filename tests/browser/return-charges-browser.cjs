@@ -12,38 +12,42 @@ const assert = require('node:assert/strict');
       await page.route('**/api/**', async route => {
         const url = route.request().url();
         if (!new URL(url).pathname.startsWith('/api/')) { await route.continue(); return; }
+        if (url.endsWith('/api/auth/session')) return route.fulfill({ json: { id: 'test-staff', fullName: 'Test Officer', email: 'test@example.invalid', roles: ['RentalOfficer'], pages: ['rentals'] } });
+        if (url.endsWith('/api/notifications')) return route.fulfill({ json: { items: [], unreadCount: 0, total: 0, page: 1, pageSize: 20 } });
         if (route.request().method() === 'POST') { submissions.push(route.request().postDataJSON()); await route.fulfill({ json: {} }); return; }
         if (url.includes('return-charges')) { await route.fulfill({ json: { returnedAt, lateFee: 60 } }); return; }
         if (url.includes('inspection-context')) { await route.fulfill({ json: { templates: [{ id: 't', name: 'Return checklist', stage: 'PostHire', checklistJson: JSON.stringify([{ section: 'Condition', items: [{ label: 'Clean' }] }]) }], preHire: null } }); return; }
         if (url.includes('work-queue')) { await route.fulfill({ json: { items: [row], counts: { pickupToday: 0, onHire: 1, dueToday: 0, overdue: 1, returnInProgress: 0, recentlyCompleted: 0 }, page: 1, pageSize: 25, total: 1 } }); return; }
         await route.fulfill({ json: [] });
       });
-      await page.route('**/__return_charge_test', route => route.fulfill({ contentType: 'text/html', body: `<div id="root"></div><script type="module">
-import RefreshRuntime from '/@react-refresh';RefreshRuntime.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;window.__vite_plugin_react_preamble_installed__=true;
-const {default:React}=await import('/node_modules/.vite/deps/react.js');const {default:{createRoot}}=await import('/node_modules/.vite/deps/react-dom_client.js');const {RentalsPage}=await import('/src/pages/RentalsPage.tsx');createRoot(document.getElementById('root')).render(React.createElement(RentalsPage));
-</script>` }));
-      await page.goto(`${process.env.CREMS_TEST_URL || 'http://localhost:5173'}/__return_charge_test`);
+      await page.goto(`${process.env.CREMS_TEST_URL || 'http://localhost:5173'}/staff/hire-operations`);
       try { await page.getByRole('button', { name: 'Begin return' }).first().click({timeout:15000}); } catch (error) { console.error((await page.locator('body').innerText()).slice(0,3000)); throw error; }
       const next = () => page.getByRole('button', { name: 'Continue', exact: true }).click();
-      await next();
+      await page.getByLabel(/I checked the physical label matches/).check();
       await page.getByRole('button', { name: 'Mark all as passed', exact:true }).click();
       await page.getByLabel('Post-hire inspection result').fill('Returned intact');
       await page.getByLabel('Inspection photo files').setInputFiles('src/crems-web/public/catalog/sedan.jpg');
       await page.getByAltText('Inspection photo 1', { exact: true }).waitFor();
-      await next(); await next();
+      await next();
+      await page.getByLabel('Adjust or waive the calculated late fee').check();
       const late = page.getByLabel('Late return (FJD)', { exact: true });
       assert.equal(await late.inputValue(), '60');
-      await late.fill('-1');
-      assert.equal(await page.getByRole('button', { name: 'Continue', exact: true }).isDisabled(), true);
-      await page.getByRole('button', { name: 'Use calculated late fee' }).click();
-      assert.equal(await late.inputValue(), '60');
-      if (override !== null) await late.fill(override);
-      await next(); await next();
+      await late.fill('-1'); await next();
+      await page.getByText(/Late fee must be a valid amount/).waitFor();
+      await page.getByLabel('Adjust or waive the calculated late fee').uncheck();
+      if (override !== null) {
+        await page.getByLabel('Adjust or waive the calculated late fee').check();
+        await late.fill(override);
+        await page.getByLabel('Reason for late fee adjustment').fill('Approved counter adjustment');
+      } else await page.getByLabel(/Apply calculated late fee/).check();
+      await page.getByLabel(/Refund already paid/).check();
+      await page.getByLabel('Refund transaction reference').fill('REFUND-TEST');
+      if (override !== '0') await page.getByLabel(/Leave .* outstanding on the invoice/).check();
+      await next();
       await page.getByLabel('Customer acknowledgement name').fill('Test Customer');
       const rect = await page.locator('canvas').boundingBox();
       await page.mouse.move(rect.x + 20, rect.y + 20); await page.mouse.down(); await page.mouse.move(rect.x + 100, rect.y + 50); await page.mouse.up();
       await page.getByLabel('Customer acknowledges the return record, charges and bond settlement', { exact: true }).check();
-      await next();
       const submitted = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith('/return'));
       await page.getByRole('button', { name: 'Complete return & create invoice' }).click();
       await submitted;

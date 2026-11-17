@@ -12,6 +12,7 @@ public sealed class Booking : Entity
     public Guid BranchId { get; set; }
     public Branch? Branch { get; set; }
     public BookingStatus Status { get; set; } = BookingStatus.Draft;
+    public DateTimeOffset? IncidentClosedAt { get; set; }
     public string? Notes { get; set; }
     public string ConfigurationSnapshotJson { get; set; } = "{}";
     public decimal DiscountAmount { get; set; }

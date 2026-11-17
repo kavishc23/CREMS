@@ -1,3 +1,4 @@
+import { FormError } from '../components/FormError'
 import { useActionNotice } from '../components/useActionNotice'
 import { useCallback, useDeferredValue, useEffect, useMemo, useState, type FormEvent } from 'react'
 import axios from 'axios'
@@ -11,7 +12,7 @@ import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
 import PeopleAltOutlined from '@mui/icons-material/PeopleAltOutlined'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import {
-  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
+  Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, FormControl, IconButton,
   InputAdornment, InputLabel, MenuItem, Select, Stack, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography, Pagination,
@@ -45,8 +46,8 @@ function AdminActivityDialog({ activity, loading, error, tab, search, page, savi
   return <Dialog open={Boolean(activity) || loading || Boolean(error)} onClose={() => !loading && onClose()} disableScrollLock fullWidth maxWidth="lg" PaperProps={{ sx: { height: { md: 'calc(100dvh - 20px)' }, maxHeight: 'calc(100dvh - 12px)', overflow: { xs: 'auto', md: 'hidden' }, borderRadius: 2.5 } }}>
     <DialogTitle sx={{ px: 3, py: 1.4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(110deg,#fff 65%,#fff8cc)' }}><Box><Typography variant="overline" fontWeight={900} color="text.secondary" lineHeight={1}>Customer record</Typography><Typography variant="h6" fontWeight={850}>Customer activity · {activity?.customer.name ?? 'Loading…'}</Typography></Box><IconButton aria-label="Close" onClick={onClose}><CloseOutlined /></IconButton></DialogTitle>
     {activity && <><Grid container spacing={1.2} sx={{ px: 2.5, py: 1.2 }}>{[{ label: 'Bookings', value: activity.summary.bookings, tone: '#e9f2ff' }, { label: 'Quotations', value: activity.summary.quotations, tone: '#fff4cf' }, { label: 'Invoice', value: activity.summary.invoices, tone: '#e5f5eb' }, { label: 'Outstanding', value: `$${activity.summary.outstanding.toFixed(2)}`, tone: '#fff0cf' }].map(item => <Grid key={item.label} size={{ xs: 6, md: 3 }}><Card variant="outlined" sx={{ height: '100%', borderColor: item.label === 'Outstanding' && activity.summary.outstanding > 0 ? 'warning.light' : 'divider' }}><CardContent sx={{ py: 1, px: 1.5, '&:last-child': { pb: 1 }, display: 'flex', alignItems: 'center', gap: 1.2 }}><Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: item.tone, display: 'grid', placeItems: 'center', fontWeight: 900 }}>{item.label === 'Outstanding' ? '!' : item.label[0]}</Box><Box><Typography fontWeight={850}>{item.value}</Typography><Typography variant="body2" color="text.secondary" fontWeight={750}>{item.label}</Typography></Box></CardContent></Card></Grid>)}</Grid><Tabs value={tab} onChange={(_, value) => onTab(value)} variant="scrollable" sx={{ minHeight: 43, px: 2.5, bgcolor: '#fafaf7', borderBottom: 1, borderColor: 'divider', '& .MuiTab-root': { minHeight: 43, py: .5, fontWeight: 800, fontSize: 15 } }}><Tab value="overview" label="Overview" /><Tab value="bookings" label={`Bookings ${activity.summary.bookings}`} /><Tab value="quotations" label={`Quotations ${activity.summary.quotations}`} /><Tab value="invoice" label={`Invoice ${activity.summary.invoices}`} /></Tabs></>}
-    <DialogContent sx={{ overflow: 'auto', px: 2.5, py: 1.5 }}>{loading ? <Box sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : !activity && error ? <Alert severity="error">{error}</Alert> : activity && <Stack spacing={1.25}>
-      {error && <Alert severity="error">{error}</Alert>}
+    <DialogContent sx={{ overflow: 'auto', px: 2.5, py: 1.5 }}>{loading ? <Box sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box> : !activity && error ? <FormError>{error}</FormError> : activity && <Stack spacing={1.25}>
+      {error && <FormError>{error}</FormError>}
       {tab === 'overview' && <Grid container spacing={2}>
         <Grid size={12}><RecordTimeline entityType="customer" recordId={activity.customer.id} label="Customer activity timeline"/></Grid>
         <Grid size={{ xs: 12, md: 6 }}><Card variant="outlined" sx={{ height: '100%', borderLeft: '5px solid #4b93df', bgcolor: '#f8fbff' }}><CardContent sx={{ p: 2.5 }}><Typography variant="overline" fontWeight={900} color="text.secondary">Portal access</Typography><Typography variant="h6" fontWeight={850}>Online account</Typography><Typography mt={1.5}><Box component="span" sx={{ color: activity.account?.emailConfirmed ? 'success.main' : 'warning.main', mr: 1 }}>●</Box>{activity.account ? activity.account.emailConfirmed ? 'Verified' : 'Activation pending' : 'No online account'}</Typography><Typography color="text.secondary" mt={1}>Last activity: {activity.account?.lastActivityAt ? new Date(activity.account.lastActivityAt).toLocaleString('en-FJ') : 'Never'}</Typography><Typography mt={1}>Rental preferences: {activity.customer.hirePreferences?.length ? activity.customer.hirePreferences.map(value => preferenceLabel[value]).join(', ') : 'All rentals'}</Typography></CardContent></Card></Grid>
@@ -228,7 +229,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
 
   return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 }, maxWidth: 1500, mx: 'auto' }}>
     <PageHeader icon={<PeopleAltOutlined />} title={administrationView ? 'Customer Accounts' : 'Customers'} subtitle={administrationView ? 'Manage customer identities, portal access and account activity separately from staff.' : 'Maintain customer details and rental eligibility.'} actions={<Button variant="contained" startIcon={<AddOutlined />} onClick={openCreate}>Add customer</Button>} />
-    {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+    {error && !open && <FormError sx={{ mb: 2 }}>{error}</FormError>}
 
     <Grid container spacing={2} mb={2.5}>
       {customerSummary.map((item) => <Grid key={item.label} size={{ xs: 6, md: 4, lg: 2.4 }}><Card variant="outlined" sx={{ height: '100%' }}><CardContent sx={{ py: 2 }}><Typography variant="h4" fontWeight={800} color={item.color}>{item.value}</Typography><Typography variant="caption" color="text.secondary" fontWeight={700} textTransform="uppercase" letterSpacing={.6}>{item.label}</Typography></CardContent></Card></Grid>)}
@@ -262,7 +263,7 @@ export function CustomersPage({ administrationView = false }: { administrationVi
     </CardContent></Card>
     <Dialog open={open} onClose={() => !saving && setOpen(false)} disableScrollLock fullWidth maxWidth="lg" PaperProps={{ sx: { borderRadius: 2.5 } }}>
       <Box component="form" onSubmit={save}><DialogTitle sx={{ px: 3.5, py: 2.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 26, fontWeight: 850 }}>{editing ? 'Edit customer' : 'Add customer'}<IconButton aria-label="Close" onClick={() => setOpen(false)}><CloseOutlined /></IconButton></DialogTitle><DialogContent dividers sx={{ px: 3.5, py: 2.5 }}>
-        <Stack spacing={2.25} mt={1}>{error && <Alert severity="error">{error}</Alert>}
+        <Stack spacing={2.25} mt={1}>{error && <FormError>{error}</FormError>}
           {editing && <TextField fullWidth label="Customer ID" value={form.customerNumber} InputProps={{ readOnly: true }} helperText="Assigned automatically by CREMS." />}
           <TextField required label="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>

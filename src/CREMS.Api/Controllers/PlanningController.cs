@@ -56,7 +56,7 @@ public sealed class PlanningController(ApplicationDbContext db, CurrentStaffScop
     CategoryName = x.AssetCategory != null ? x.AssetCategory.Name : x.Category,
     IsUnreturned = db.BookingItems.Any(item => item.AssetId == x.Id &&
      (item.Booking!.Status == BookingStatus.ConvertedToRental ||
-      item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))
+      item.Booking.Status == BookingStatus.Completed && item.Booking.IncidentClosedAt == null && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))
    }).ToListAsync(token);
 
   return Ok(new { assets = assetRows, events, maintenance, transfers, personnel, closures });

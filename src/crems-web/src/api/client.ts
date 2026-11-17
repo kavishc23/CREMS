@@ -45,7 +45,7 @@ api.interceptors.response.use(
     }
     if (!axios.isCancel(error) && !['get', 'head'].includes(error?.config?.method ?? 'get') && status !== 401 && !requestUrl.includes('/notifications/read') && !usesContextualFeedback(requestUrl)) {
       const message = classifyApiFailure(error, 'The action could not be completed. Check the details and try again.').message
-      window.dispatchEvent(new CustomEvent('crems:toast', { detail: { severity: 'error', message } }))
+      window.dispatchEvent(new CustomEvent('crems:toast', { detail: { severity: 'error', message, apiFallback: true } }))
     }
     return Promise.reject(error)
   },

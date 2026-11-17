@@ -46,7 +46,9 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         var reasons = await PickupReadiness.Check(db, booking, token);
-        return Ok(new { canPickup = reasons.Count == 0, reasons, canDeferHirePayment = scope.IsAdministrator || User.IsInRole(SystemRoles.BranchManager) });
+        return Ok(new { canPickup = reasons.Count == 0, reasons,
+            canDeferHirePayment = scope.IsAdministrator || User.IsInRole(SystemRoles.BranchManager),
+            paidHire = RentalFinancials.Paid(booking), booking.BondAmountHeld, booking.DepositRequired });
     }
 
     [HttpPost("{bookingId:guid}/pickup")]
@@ -81,7 +83,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         var configuredError = await ConfiguredHireRules.ValidateInspection(db, booking, InspectionStage.PreHire, request.ChecklistItems, request.ChecklistFailedItems, request.MeterReading, request.FuelLevelPercent, false, cancellationToken, acceptingDamage);
         if (configuredError is not null) return BadRequest(new { message = configuredError });
         await ConfiguredHireRules.CaptureIfMissing(db, booking, cancellationToken);
-        if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || !DriverLicenceRules.ValidNumber(request.LicenceNumber) || !DriverLicenceRules.ValidClasses(request.LicenceClass) || !request.LicenceExpiry.HasValue || request.LicenceExpiry <= DateOnly.FromDateTime(DateTime.UtcNow)))
+        if (customerWillDrive && (string.IsNullOrWhiteSpace(request.LicenceNumber) || !DriverLicenceRules.ValidNumber(request.LicenceNumber) || !DriverLicenceRules.ValidClasses(request.LicenceClass) || !request.LicenceExpiry.HasValue || request.LicenceExpiry <= MaintenanceRules.LocalDate(DateTimeOffset.UtcNow)))
             return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["licence"] = ["Enter a numeric licence number, select every applicable class from 1 to 8, and enter a future expiry date."] }));
         // Older confirmed bookings may already contain an agreement from the
         // previous flow. Reuse that record at checkout with the fresh signature
@@ -100,19 +102,26 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         }
         var draft = BuildAgreementData(booking);
         if (acceptingDamage) draft = draft with { Terms = draft.Terms.Append(new AgreementTerm("Recorded existing damage accepted at pickup", request.DamageNotes!)).ToArray() };
-        if (request.AmountCollected > Math.Max(0, booking.DepositRequired - booking.BondAmountHeld))
-            return BadRequest(new { message = "The amount collected exceeds the remaining refundable bond. Previously recorded bond payments are already included." });
-        if (booking.BondAmountHeld + request.AmountCollected < booking.DepositRequired)
-            return BadRequest(new { message = "Receive the full refundable bond before releasing the asset." });
         var paidHire = await db.RentalPayments.Where(payment => payment.BookingId == bookingId && payment.Status == PaymentStatus.Recorded && (payment.Type == PaymentType.RentalCharge || payment.Type == PaymentType.AdditionalCharge)).SumAsync(payment => (decimal?)payment.Amount, cancellationToken) ?? 0;
         var dueHire = Math.Max(0, decimal.Round(draft.Pricing.Total - paidHire, 2, MidpointRounding.AwayFromZero));
+        var bondDue = Math.Max(0, booking.DepositRequired - booking.BondAmountHeld);
+        if (request.ExpectedHireBalance is { } expectedHire && expectedHire != dueHire ||
+            request.ExpectedBondBalance is { } expectedBond && expectedBond != bondDue)
+            return Conflict(new { message = "The hire or bond balance changed. Close and reopen pickup to review the current account before recording money." });
+        if (request.AmountCollected > bondDue)
+            return BadRequest(new { message = "The amount collected exceeds the remaining refundable bond. Previously recorded bond payments are already included." });
+        if (request.AmountCollected < bondDue)
+            return BadRequest(new { message = "Receive the full refundable bond before releasing the asset." });
         if (request.AmountCollected != decimal.Round(request.AmountCollected, 2) || request.RentalAmountCollected != decimal.Round(request.RentalAmountCollected, 2)) return BadRequest(new { message = "Enter hire and bond amounts with no more than two decimal places." });
         if (request.RentalAmountCollected < 0 || request.RentalAmountCollected > dueHire) return BadRequest(new { message = "The hire payment must be between zero and the outstanding hire balance." });
-        if ((request.AmountCollected > 0 || request.RentalAmountCollected > 0) && string.IsNullOrWhiteSpace(request.ReceiptNumber)) return BadRequest(new { message = "Enter the receipt or transaction reference for the money received." });
+        var receivedMoney = request.AmountCollected > 0 || request.RentalAmountCollected > 0;
+        if (receivedMoney && request.PaymentMethod != PaymentMethod.Cash && string.IsNullOrWhiteSpace(request.ReceiptNumber))
+            return BadRequest(new { message = "Enter the receipt or transaction reference for the electronic payment." });
         if (request.RentalAmountCollected < dueHire && (!request.PayHireOnReturn || string.IsNullOrWhiteSpace(request.PaymentDeferralReason))) return BadRequest(new { message = "Collect the hire balance or provide a supervisor-approved reason to pay at return." });
         if (request.RentalAmountCollected < dueHire && !scope.IsAdministrator && !User.IsInRole(SystemRoles.BranchManager)) return BadRequest(new { message = "A branch manager or administrator must approve hire payment at return." });
         if ((request.AmountCollected > 0 || request.RentalAmountCollected > 0) && (!Enum.IsDefined(request.PaymentMethod) || request.PaymentMethod == PaymentMethod.PurchaseOrder)) return BadRequest(new { message = "Select the actual payment method used to receive money." });
-        var paymentReference = request.ReceiptNumber?.Trim();
+        var paymentReference = receivedMoney && request.PaymentMethod == PaymentMethod.Cash && string.IsNullOrWhiteSpace(request.ReceiptNumber)
+            ? RentalFinancials.NewReceiptNumber("RCPT") : request.ReceiptNumber?.Trim();
         if (paymentReference?.Length > 58) return BadRequest(new { message = "Keep the receipt or transaction reference to 58 characters or fewer." });
         var splitReceipt = request.RentalAmountCollected > 0 && request.AmountCollected > 0;
         var hireReceipt = splitReceipt ? $"{paymentReference}-H" : paymentReference;
@@ -247,7 +256,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
             agreement.CustomerSignatureName, agreement.CustomerSignatureDataUrl, agreement.CustomerSignedAt, agreement.ApprovedByName, agreement.ApprovedAt,
             agreement.LastEmailedTo, agreement.LastEmailedAt,
             settlement = new {
-                stage = booking.Status == BookingStatus.Completed ? "Final return settlement" : "Current payment position",
+                stage = booking.IncidentClosedAt.HasValue ? "Payment position after incident closure" : booking.Status == BookingStatus.Completed ? "Final return settlement" : "Current payment position",
                 invoiceNumber = booking.Invoice?.InvoiceNumber,
                 lines = booking.Invoice is not null && InvoiceDocumentLines.Read(booking.Invoice).Count > 0 ? InvoiceDocumentLines.Read(booking.Invoice) : RentalFinancials.Lines(booking),
                 subtotal = booking.Invoice?.Subtotal ?? RentalFinancials.Net(booking),
@@ -275,7 +284,7 @@ public sealed class RentalAgreementsController(ApplicationDbContext db, CurrentS
         var pricingLines = string.Join("", (data.Pricing.Lines ?? []).Select(line => $"<tr><td>{HtmlEncoder.Default.Encode(line.Description)} ({line.Quantity:N2} × FJD {line.Rate:N2})</td><td>FJD {line.Amount:N2}</td></tr>"));
         var accountLines = booking.Invoice is not null ? InvoiceDocumentLines.Read(booking.Invoice) : RentalFinancials.Lines(booking);
         var accountRows = string.Join("", accountLines.Select(line => $"<tr><td>{HtmlEncoder.Default.Encode(line.Description)}</td><td>FJD {line.Amount:N2}</td></tr>"));
-        var currentAccount = $"<h2>{(booking.Status == BookingStatus.Completed ? "Final return settlement" : "Current payment position")}</h2><p>The signed pickup schedule above is retained. The current account below includes recorded additional charges.</p><table>{accountRows}<tr><td>VAT</td><td>FJD {booking.Invoice?.TaxAmount ?? HirePricing.Tax(booking):N2}</td></tr><tr><td>Rental charge including VAT</td><td>FJD {booking.Invoice?.Total ?? RentalFinancials.Total(booking):N2}</td></tr><tr><td>Hire payments received</td><td>FJD {RentalFinancials.Paid(booking) - (booking.BondSettledAt.HasValue ? booking.BondDeductionAmount : 0):N2}</td></tr><tr><td>Bond applied to invoice</td><td>FJD {booking.BondDeductionAmount:N2}</td></tr><tr><td>Balance due</td><td>FJD {Math.Max(0, (booking.Invoice?.Total ?? RentalFinancials.Total(booking)) - RentalFinancials.Paid(booking)):N2}</td></tr><tr><td>Refundable bond collected</td><td>FJD {booking.BondAmountHeld:N2}</td></tr><tr><td>Bond refunded</td><td>FJD {booking.BondRefundAmount:N2}</td></tr></table>";
+        var currentAccount = $"<h2>{(booking.IncidentClosedAt.HasValue ? "Payment position after incident closure" : booking.Status == BookingStatus.Completed ? "Final return settlement" : "Current payment position")}</h2><p>The signed pickup schedule above is retained. The current account below includes recorded additional charges.</p><table>{accountRows}<tr><td>VAT</td><td>FJD {booking.Invoice?.TaxAmount ?? HirePricing.Tax(booking):N2}</td></tr><tr><td>Rental charge including VAT</td><td>FJD {booking.Invoice?.Total ?? RentalFinancials.Total(booking):N2}</td></tr><tr><td>Hire payments received</td><td>FJD {RentalFinancials.Paid(booking) - (booking.BondSettledAt.HasValue ? booking.BondDeductionAmount : 0):N2}</td></tr><tr><td>Bond applied to invoice</td><td>FJD {booking.BondDeductionAmount:N2}</td></tr><tr><td>Balance due</td><td>FJD {Math.Max(0, (booking.Invoice?.Total ?? RentalFinancials.Total(booking)) - RentalFinancials.Paid(booking)):N2}</td></tr><tr><td>Refundable bond collected</td><td>FJD {booking.BondAmountHeld:N2}</td></tr><tr><td>Bond refunded</td><td>FJD {booking.BondRefundAmount:N2}</td></tr></table>";
         var terms = string.Join("", data.Terms.Select(term => $"<h3 style=\"font-size:14px;margin:18px 0 5px\">{HtmlEncoder.Default.Encode(term.Title)}</h3><p style=\"font-size:13px;line-height:1.5;margin:0\">{HtmlEncoder.Default.Encode(term.Content)}</p>"));
         var content = $"<p>Dear {HtmlEncoder.Default.Encode(customer.Name)},</p><p>This is your signed and agent-approved rental agreement. Keep this email with your rental records.</p><table role=\"presentation\" width=\"100%\" style=\"background:#f5f5f2;padding:14px\"><tr><td><strong>Agreement</strong></td><td>{agreement.AgreementNumber}</td></tr><tr><td><strong>Booking</strong></td><td>{booking.BookingNumber}</td></tr><tr><td><strong>Asset</strong></td><td>{HtmlEncoder.Default.Encode(data.Asset.Name)} ({HtmlEncoder.Default.Encode(data.Asset.AssetNumber)})</td></tr><tr><td><strong>Rental period</strong></td><td>{data.Rental.StartAt:dd MMM yyyy} – {data.Rental.EndAt:dd MMM yyyy}</td></tr>{pricingLines}<tr><td><strong>Base hire</strong></td><td>FJD {data.Pricing.Subtotal:N2}</td></tr><tr><td><strong>Services and surcharges</strong></td><td>FJD {data.Pricing.AdditionalCharges:N2}</td></tr><tr><td><strong>Discount</strong></td><td>FJD {data.Pricing.DiscountAmount:N2}</td></tr><tr><td><strong>VAT</strong></td><td>FJD {data.Pricing.TaxAmount:N2}</td></tr><tr><td><strong>Rental charge including VAT</strong></td><td>FJD {data.Pricing.Total:N2}</td></tr><tr><td><strong>Refundable bond</strong></td><td>FJD {data.Pricing.DepositRequired:N2}</td></tr></table>{currentAccount}<h2 style=\"font-size:18px\">Terms and conditions</h2>{terms}<h2 style=\"font-size:18px\">Acceptance record</h2><p>Signed by <strong>{HtmlEncoder.Default.Encode(agreement.CustomerSignatureName)}</strong> on {agreement.CustomerSignedAt:dd MMM yyyy 'at' HH:mm}. Approved by <strong>{HtmlEncoder.Default.Encode(agreement.ApprovedByName)}</strong>. Terms version: {agreement.TermsVersion}.</p><p>Contact {HtmlEncoder.Default.Encode(booking.Branch?.Name ?? "the issuing branch")} on {HtmlEncoder.Default.Encode(booking.Branch?.Phone ?? "the published branch number")} if any detail is incorrect.</p>";
         var email = emailQueue.Queue(db, customer.Email!, $"Signed rental agreement {agreement.AgreementNumber}", EmailTemplate.Branded($"Rental agreement {agreement.AgreementNumber}", content), $"Signed rental agreement {agreement.AgreementNumber} for booking {booking.BookingNumber}. Asset {data.Asset.Name}. Total FJD {data.Pricing.Total:N2}.", "RentalAgreement");
@@ -364,4 +373,6 @@ public sealed record PickupRentalRequest(
     [System.ComponentModel.DataAnnotations.StringLength(2000)] public string? ExistingDamageAcceptanceNote { get; init; }
     public bool PayHireOnReturn { get; init; }
     public string? PaymentDeferralReason { get; init; }
+    public decimal? ExpectedHireBalance { get; init; }
+    public decimal? ExpectedBondBalance { get; init; }
 }

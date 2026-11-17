@@ -13,4 +13,10 @@ describe('customer action feedback', () => {
     expect(usesContextualFeedback('/assets/123')).toBe(false)
     expect(usesContextualFeedback('/bookings/123')).toBe(false)
   })
+  it('uses the maintenance workspace feedback for saving, releasing and uploading', () => {
+    for (const url of ['/maintenance-jobs', '/maintenance-jobs/123', '/maintenance-jobs/123/release', '/maintenance-jobs/123/documents']) {
+      expect(usesContextualFeedback(url)).toBe(true)
+    }
+    expect(usesContextualFeedback('/maintenance-jobs/123/parts/456/return')).toBe(false)
+  })
 })

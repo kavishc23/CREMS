@@ -1,3 +1,5 @@
+import { InlineIssueNavigation } from '../components/InlineValidation'
+import { FormError } from '../components/FormError'
 import { assetPhotoUrls } from '../utils/assetPhotoUrls'
 import Popover from '@mui/material/Popover'
 import TuneOutlined from '@mui/icons-material/TuneOutlined'
@@ -156,6 +158,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const [responseKind, setResponseKind] = useState<'Booking' | 'Quotation'>('Booking')
   const [requestQuotation, setRequestQuotation] = useState(false)
   const [bookingStep, setBookingStep] = useState(0)
+  const [attemptedBookingStep, setAttemptedBookingStep] = useState<number | null>(null)
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [photoIndexes, setPhotoIndexes] = useState<Record<string, number>>({})
   const [galleryOffsets, setGalleryOffsets] = useState<Record<string, number>>({})
@@ -298,13 +301,19 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
   const licenceRequired = Boolean(flow?.requireVerifiedLicenceForVehicles && isVehicleAsset(selected) && !booking.personnelRequested)
   const pendingServiceCharges = booking.fulfilment === 'Delivery' || booking.personnelRequested
   const quotationFlow = Boolean(selected && (pendingServiceCharges || selected.requiresQuote || requestQuotation || baseRate <= 0 || selected.allowsQuoteRequests !== false && (flow?.quoteMode === 'Always' || flow?.businessCustomersRequireQuote && booking.customerType === 'Business')))
+  const bookingIssues = bookingStep === 0 ? [
+    { target: 'request-return-time', message: endDate && startDate && pickupTime && returnTime &&
+      `${endDate}T${returnTime}` <= `${startDate}T${pickupTime}` ? 'Choose a return time after pickup.' : '' },
+    { target: 'request-return-date', message: flow && (rentalDays < flow.minimumHireDays || rentalDays > flow.maximumHireDays)
+      ? 'Choose a hire between ' + flow.minimumHireDays + ' and ' + flow.maximumHireDays + ' days for this division.' : '' },
+  ] : bookingStep === 1 ? [
+    { target: 'request-documents', message: missingDocuments.length ? 'Upload the required documents: ' + missingDocuments.join(', ') + '.' : '' },
+  ] : []
   async function advanceBooking(event: FormEvent) {
     event.preventDefault()
-    if (bookingStep === 0 && flow && (rentalDays < flow.minimumHireDays || rentalDays > flow.maximumHireDays)) {
-      setError(`Choose a hire between ${flow.minimumHireDays} and ${flow.maximumHireDays} days for this division.`)
-      return
-    }
+    setAttemptedBookingStep(bookingStep)
     setError('')
+    if (bookingIssues.some(issue => issue.message)) return
     if (bookingStep === 0 && selected) {
       if (!startDate || !endDate || `${endDate}T${returnTime}` <= `${startDate}T${pickupTime}` || startDate < dateInputValue(0)) { setError('Choose valid pickup and return times.'); return }
       setSubmitting(true)
@@ -312,9 +321,9 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       catch (reason) { setError(apiErrorMessage(reason, 'Unable to verify the selected dates.')); return }
       finally { setSubmitting(false) }
     }
-    if (bookingStep === 1 && (uploadingDocuments || missingDocuments.length)) { setError(uploadingDocuments ? 'Wait for the document upload to finish.' : `Upload the required documents: ${missingDocuments.join(', ')}.`); return }
+    if (bookingStep === 1 && uploadingDocuments) return
     if (bookingStep === 1 && !booking.phone.trim()) { setError('Add a phone contact in your customer profile before submitting.'); return }
-    setBookingStep(step => step + 1)
+    setAttemptedBookingStep(null); setBookingStep(step => step + 1)
   }
   function scrollTo(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }) }
   function requestState(value = booking, extras = selectedExtras, terms = termsAccepted) {
@@ -327,7 +336,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     const hoursQuestion = details.customerQuestions?.find(question => ['Number','Integer'].includes(question.type) && /^enter hours?$/i.test(question.label.trim()))
     setConfigurationAnswers(hoursQuestion && details.hireRate?.unit === 'Hour' ? { [hoursQuestion.code]: String(initial.hireQuantity) } : {}); setRequestQuotation(quote); setSelected(asset); setCheckoutDetail(details); setSelectedExtras(extras); setBooking(initial)
     setRequestBaseline(JSON.stringify({ ...dates, pickupTime, returnTime, booking: initial, extras, terms: false, documentIds: [], configurationAnswers: hoursQuestion && details.hireRate?.unit === 'Hour' ? { [hoursQuestion.code]: String(initial.hireQuantity) } : {} }))
-    setBookingStep(0); setTermsAccepted(false); setReference(''); setError(''); setCancelConfirmOpen(false); setDeliveryConfirmOpen(false)
+    setAttemptedBookingStep(null); setBookingStep(0); setTermsAccepted(false); setReference(''); setError(''); setCancelConfirmOpen(false); setDeliveryConfirmOpen(false)
   }
   async function submitRequest(event: FormEvent) {
     event.preventDefault(); if (!selected) return
@@ -469,7 +478,7 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
     </Container></Box>}
 
     <Container ref={catalogueRef} id="rentals" maxWidth={false} sx={{ py: { xs: 5, md: 6 }, px: { xs: 2, md: 5, lg: 7 } }}>
-      {error && !selected && <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => { publicCatalogueCache = null; setCatalogueRetry(value => value + 1) }}>Try again</Button>}>{error}</Alert>}
+      {error && !selected && <FormError sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => { publicCatalogueCache = null; setCatalogueRetry(value => value + 1) }}>Try again</Button>}>{error}</FormError>}
       {!searched && loading && <Box sx={{py:5,display:'grid',placeItems:'center'}}><CircularProgress aria-label="Loading available assets" /></Box>}
       {!searched && !loading && !error && sortedAssets.length === 0 && <Alert severity="info">There are no published assets available to browse at the moment. Contact a branch for assistance or check again shortly.</Alert>}
       {searched && <Card variant="outlined" sx={{ mb: 3, bgcolor: 'white', borderRadius: 1.5 }}><CardContent sx={{ p: {xs:2,md:2.5} }}><Stack direction="row" gap={1.25} alignItems="center" flexWrap="wrap" sx={{ '& > .MuiFormControl-root': { flex: '1 1 145px' } }}>
@@ -529,11 +538,11 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
       <Box component="form" id="public-booking-form" onSubmit={bookingStep === 2 ? submitRequest : advanceBooking}>
         <Stepper activeStep={bookingStep} sx={{ py: { xs: .5, md: 1 } }}>{['Your rental', 'Your details', 'Price & submit'].map(label => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}</Stepper>
         <Typography variant="h6" fontWeight={800} sx={{ mt: 1, mb: 2 }}>{['Your rental', 'Your details', 'Price and submit'][bookingStep]}</Typography>
-        <Grid container spacing={2}>{error && <Grid size={12}><Alert severity="error">{error}</Alert></Grid>}<Grid size={{ xs: 12, md: 8 }}><Stack spacing={2}>
+        <Grid container spacing={2}>{error && <Grid size={12}><FormError>{error}</FormError></Grid>}<Grid size={{ xs: 12, md: 8 }}><Stack spacing={2}>
           {bookingStep === 0 && <>
             <Card variant="outlined"><CardContent><Typography variant="overline" color="text.secondary">Selected asset</Typography><Typography variant="h6" fontWeight={800}>{selected?.name}</Typography><Typography variant="body2" color="text.secondary">{selected?.category ?? selected?.serviceName} · {selected?.assetNumber}</Typography><Divider sx={{ my: 1.5 }} /><Stack direction="row" gap={1} alignItems="flex-start"><LocationOnOutlined color="action" /><Box><Typography fontWeight={750}>{selected?.branchName}</Typography><Typography variant="body2" color="text.secondary">{checkoutDetail?.branch?.address ?? 'Supplied by this branch. Search again to choose another location.'}</Typography></Box></Stack></CardContent></Card>
-            <Stack direction={{ xs: 'column', sm: 'row' }} gap={2}><TextField fullWidth required type="date" label="Pickup date" InputLabelProps={{ shrink: true }} inputProps={{ min: dateInputValue(0) }} value={startDate} onChange={event => changeStartDate(event.target.value)} /><TextField fullWidth required type="date" label="Return date" InputLabelProps={{ shrink: true }} inputProps={{ min: startDate }} value={endDate} onChange={event => setEndDate(event.target.value)} /></Stack>
-            <Stack direction={{ xs: 'column', sm: 'row' }} gap={2}><TextField fullWidth type="time" label="Pickup time" InputLabelProps={{ shrink: true }} value={pickupTime} onChange={event => setPickupTime(event.target.value)} /><TextField fullWidth type="time" label="Return time" InputLabelProps={{ shrink: true }} value={returnTime} onChange={event => setReturnTime(event.target.value)} /></Stack>
+            <Stack direction={{ xs: 'column', sm: 'row' }} gap={2}><TextField fullWidth required type="date" label="Pickup date" InputLabelProps={{ shrink: true }} inputProps={{ min: dateInputValue(0) }} value={startDate} onChange={event => changeStartDate(event.target.value)} /><TextField fullWidth required type="date" id="request-return-date" label="Return date" InputLabelProps={{ shrink: true }} inputProps={{ min: startDate }} value={endDate} onChange={event => setEndDate(event.target.value)} /></Stack>
+            <Stack direction={{ xs: 'column', sm: 'row' }} gap={2}><TextField fullWidth required type="time" label="Pickup time" InputLabelProps={{ shrink: true }} value={pickupTime} onChange={event => setPickupTime(event.target.value)} /><TextField fullWidth required type="time" id="request-return-time" label="Return time" InputLabelProps={{ shrink: true }} value={returnTime} onChange={event => setReturnTime(event.target.value)} /></Stack>
             {selected?.type === 'PropertyUnit' ? <Alert severity="info">Handover takes place at the property. Delivery and operator services do not apply.</Alert> : selected?.fulfilmentMode === 'PickupOnly' ? <Alert severity="info">Branch pickup only · Collect from {selected.branchName}.</Alert> : selected?.requiresDelivery || selected?.fulfilmentMode === 'DeliveryOnly' ? <Alert severity="info"><Typography fontWeight={750}>Delivery by Carpenters</Typography>We will deliver this rental to your address.</Alert> : <FormControl fullWidth><InputLabel id="request-fulfilment-label">Pickup or delivery</InputLabel><Select labelId="request-fulfilment-label" label="Pickup or delivery" value={booking.fulfilment} onChange={event => { if (event.target.value === 'Delivery' && !quotationFlow) setDeliveryConfirmOpen(true); else setBooking({ ...booking, fulfilment: event.target.value as 'Pickup' | 'Delivery' }) }}><MenuItem value="Pickup">Pickup from {selected?.branchName}</MenuItem><MenuItem value="Delivery">Deliver to my address or worksite</MenuItem></Select></FormControl>}
             {requiresProfessionalPersonnel(selected) && <Alert severity="info"><Typography fontWeight={750}>Driver/operator included</Typography>The branch will confirm arrangements and charges after reviewing your request.</Alert>}
             {!requiresProfessionalPersonnel(selected) && allowsProfessionalPersonnel(selected) && <FormControlLabel control={<Checkbox checked={booking.personnelRequested} onChange={event => setBooking({ ...booking, personnelRequested: event.target.checked })} />} label="Driver/operator included" />}
@@ -560,15 +569,15 @@ export function PublicRentalPage({ onCustomerAccount, onCustomerSignOut, custome
               </Stack>
             </Box>}
           </>}
-          {bookingStep === 1 && requiredDocuments.length>0 && <BookingDocumentUploads required={requiredDocuments} documents={uploadedDocuments} assetId={selected?.id} customer onBusyChange={setUploadingDocuments} onUploaded={document=>setUploadedDocuments(current=>[...current.filter(x=>x.type!==document.type),document])} />}
+          {bookingStep === 1 && requiredDocuments.length>0 && <Box id="request-documents"><BookingDocumentUploads required={requiredDocuments} documents={uploadedDocuments} assetId={selected?.id} customer onBusyChange={setUploadingDocuments} onUploaded={document=>setUploadedDocuments(current=>[...current.filter(x=>x.type!==document.type),document])} /></Box>}
           {bookingStep === 2 && <>
             <Alert severity={quotationFlow ? 'info' : 'success'}><Typography fontWeight={750}>{quotationFlow ? 'Quotation request' : 'Booking request'}</Typography>{quotationFlow ? 'The rental team will confirm the complete price before you accept the quotation.' : 'The branch will confirm availability, eligibility and collection requirements.'}</Alert>
             <Card variant="outlined"><CardContent><Typography fontWeight={750}>{booking.fullName}</Typography><Typography variant="body2" color="text.secondary">{booking.email} · {booking.phone}</Typography><Divider sx={{ my: 1.5 }} /><Typography variant="body2">{startDate} to {endDate}</Typography><Typography variant="body2" mt={.5}>{booking.fulfilment === 'Delivery' ? 'Delivery to ' + booking.deliveryAddress : 'Pickup from ' + selected?.branchName}</Typography>{booking.personnelRequested && <Typography variant="body2" mt={.5}>Driver/operator included · price to be confirmed</Typography>}{licenceRequired && booking.driverLicence && <Typography variant="body2" mt={.5}>Driver licence: {booking.driverLicence}{booking.driverLicenceClasses.length ? ` · Classes: ${booking.driverLicenceClasses.join(", ")}` : ""}</Typography>}{booking.secondaryContact && <Typography variant="body2" mt={.5}>Secondary contact: {booking.secondaryContact}</Typography>}</CardContent></Card>
-            <FormControlLabel control={<Checkbox checked={termsAccepted} onChange={event => setTermsAccepted(event.target.checked)} />} label={quotationFlow ? 'I understand that the complete price will be confirmed in a quotation for me to review and accept.' : 'I understand this request is subject to branch confirmation and any required refundable bond.'} />
+            <FormControlLabel control={<Checkbox required checked={termsAccepted} onChange={event => setTermsAccepted(event.target.checked)} />} label={quotationFlow ? 'I understand that the complete price will be confirmed in a quotation for me to review and accept.' : 'I understand this request is subject to branch confirmation and any required refundable bond.'} />
           </>}
         </Stack></Grid><Grid size={{ xs: 12, md: 4 }}><Card variant="outlined" sx={{ position: { md: 'sticky' }, top: 16 }}><CardContent><Typography variant="overline" color="text.secondary">{quotationFlow ? 'Quotation estimate' : 'Booking summary'}</Typography><Typography variant="h6" fontWeight={800}>{selected?.name}</Typography><Typography variant="body2" color="text.secondary">{baseQuantity} × {baseUnit.toLowerCase()} · {selected?.branchName}</Typography><Divider sx={{ my: 2 }} /><Stack spacing={1}><Stack direction="row" justifyContent="space-between"><Typography>Base hire</Typography><Typography>{baseHire.toFixed(2)}</Typography></Stack>{checkoutCharges.map(charge => <Stack key={charge.id} direction="row" justifyContent="space-between" gap={1}><Typography variant="body2">{charge.name} × {charge.quantity}</Typography><Typography variant="body2">{(charge.defaultSellingRate * charge.quantity).toFixed(2)}</Typography></Stack>)}<Stack direction="row" justifyContent="space-between"><Typography>VAT ({taxRate}%)</Typography><Typography>{estimatedTax.toFixed(2)}</Typography></Stack><Divider />{booking.fulfilment === 'Delivery' && <Stack direction="row" justifyContent="space-between" gap={1}><Typography variant="body2">Delivery</Typography><Typography variant="body2">To be confirmed</Typography></Stack>}{booking.personnelRequested && <Stack direction="row" justifyContent="space-between" gap={1}><Typography variant="body2">Driver/operator included</Typography><Typography variant="body2">To be confirmed</Typography></Stack>}<Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>{pendingServiceCharges ? 'Hire estimate incl. VAT' : 'Estimated total incl. VAT'}</Typography><Typography fontWeight={800}>FJD {estimatedTotal.toFixed(2)}</Typography></Stack>{bondAmount > 0 && <Stack direction="row" justifyContent="space-between"><Typography>Refundable bond</Typography><Typography>FJD {bondAmount.toFixed(2)}</Typography></Stack>}<Divider />{!pendingServiceCharges && bondAmount > 0 && <Stack direction="row" justifyContent="space-between"><Typography fontWeight={800}>Total including bond</Typography><Typography fontWeight={800}>FJD {(estimatedTotal + bondAmount).toFixed(2)}</Typography></Stack>}{bondAmount > 0 && <Typography variant="caption" color="text.secondary">Refundable bond is held separately, subject to return inspection.</Typography>}</Stack>{pendingServiceCharges && <Alert severity="info" sx={{ mt: 2 }}>Our team will confirm the complete quotation, including {[booking.fulfilment === 'Delivery' ? 'delivery' : '', booking.personnelRequested ? 'driver/operator' : ''].filter(Boolean).join(' and ')}.</Alert>}</CardContent></Card></Grid></Grid>
       </Box>}
-    </DialogContent><DialogActions sx={{ px: { xs: 2, md: 3 }, py: 1.5 }}>{reference ? <Button onClick={() => setSelected(null)}>Close</Button> : <><Button onClick={() => bookingStep === 0 ? closeRequest() : setBookingStep(step => step - 1)} disabled={submitting}>{bookingStep === 0 ? 'Cancel' : 'Back'}</Button><Box sx={{ flex: 1 }} /><Button form="public-booking-form" type="submit" variant="contained" disabled={submitting || uploadingDocuments || (bookingStep === 2 && !termsAccepted)}>{submitting ? 'Sending…' : bookingStep === 2 ? quotationFlow ? 'Request quotation' : 'Submit booking' : 'Continue'}</Button></>}</DialogActions></Dialog>
+    </DialogContent><DialogActions sx={{ px: { xs: 2, md: 3 }, py: 1.5 }}>{reference ? <Button onClick={() => setSelected(null)}>Close</Button> : <><Button onClick={() => bookingStep === 0 ? closeRequest() : setBookingStep(step => step - 1)} disabled={submitting}>{bookingStep === 0 ? 'Cancel' : 'Back'}</Button><Box sx={{ flex: 1 }} /><InlineIssueNavigation attempted={attemptedBookingStep === bookingStep} issues={bookingIssues}/><Button form="public-booking-form" type="submit" variant="contained" disabled={submitting || uploadingDocuments}>{submitting ? 'Sending…' : bookingStep === 2 ? quotationFlow ? 'Request quotation' : 'Submit booking' : 'Continue'}</Button></>}</DialogActions></Dialog>
     <Dialog disableScrollLock open={deliveryConfirmOpen} onClose={() => setDeliveryConfirmOpen(false)} maxWidth="xs" fullWidth><DialogTitle>Switch to a quotation?</DialogTitle><DialogContent><Typography>Delivery needs a price from our team. Request a quotation instead?</Typography></DialogContent><DialogActions><Button onClick={() => setDeliveryConfirmOpen(false)}>Keep pickup</Button><Button variant="contained" onClick={() => { setBooking(current => ({ ...current, fulfilment: 'Delivery' })); setDeliveryConfirmOpen(false) }}>Get quotation</Button></DialogActions></Dialog>
     <Dialog disableScrollLock open={cancelConfirmOpen} onClose={() => setCancelConfirmOpen(false)} maxWidth="xs" fullWidth><DialogTitle>Cancel this request?</DialogTitle><DialogContent><Typography color="text.secondary">Your entered details will be deleted.</Typography></DialogContent><DialogActions><Button onClick={() => setCancelConfirmOpen(false)}>Keep editing</Button><Button color="error" variant="contained" onClick={cancelBooking}>Cancel request</Button></DialogActions></Dialog>
   </Box>

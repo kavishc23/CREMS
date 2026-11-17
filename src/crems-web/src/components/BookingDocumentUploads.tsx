@@ -1,5 +1,6 @@
+import { FormError } from './FormError'
 import { useState } from 'react'
-import { Alert, Button, Stack, Typography } from '@mui/material'
+import { Button, Stack, Typography } from '@mui/material'
 import { api } from '../api/client'
 import { apiErrorMessage } from '../api/errors'
 
@@ -35,7 +36,7 @@ export function BookingDocumentUploads({ required, documents, assetId, bookingId
   }
   return <Stack spacing={2}>
     {!!required.length && <><Typography fontWeight={750}>Required customer documents</Typography><Typography variant="body2" color="text.secondary">Attach each document required for this service. PDF, JPEG or PNG, up to 5 MB per file.</Typography></>}
-    {error && <Alert severity="error">{error}</Alert>}
+    {error && <FormError>{error}</FormError>}
     {required.map(type => {
       const attached = documents.filter(x => x.type.toLowerCase() === type.toLowerCase())
       return <Stack key={type} spacing={1} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>

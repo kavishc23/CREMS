@@ -1,5 +1,6 @@
+import { FormError } from '../components/FormError'
 import { useActionNotice } from '../components/useActionNotice'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useRef, useState } from 'react'
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
 import VisibilityOffOutlined from '@mui/icons-material/VisibilityOffOutlined'
 import {
@@ -31,6 +32,9 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
   const [resetCode, setResetCode] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [resetAttempted, setResetAttempted] = useState(false)
+  const confirmationInput = useRef<HTMLInputElement>(null)
+  const mismatch = resetAttempted && newPassword !== confirmPassword
   const setNotice = useActionNotice()
   const [mfaChallengeId, setMfaChallengeId] = useState('')
   const [mfaCode, setMfaCode] = useState('')
@@ -65,8 +69,8 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
   }
 
   async function completeReset(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); if (newPassword !== confirmPassword) { setError('The new passwords do not match.'); return } setSubmitting(true)
-    try { await api.post('/auth/password-reset/complete', { email: email.trim(), code: resetCode.trim(), newPassword }); setRecovery(false); setCodeSent(false); setPassword(''); setResetCode(''); setNewPassword(''); setConfirmPassword(''); setNotice('Password changed successfully. You can now sign in.') }
+    event.preventDefault(); setError(''); setResetAttempted(true); if (newPassword !== confirmPassword) { confirmationInput.current?.focus(); return } setSubmitting(true)
+    try { await api.post('/auth/password-reset/complete', { email: email.trim(), code: resetCode.trim(), newPassword }); setRecovery(false); setCodeSent(false); setPassword(''); setResetCode(''); setNewPassword(''); setConfirmPassword(''); setResetAttempted(false); setNotice('Password changed successfully. You can now sign in.') }
     catch (reason: unknown) { const data = axios.isAxiosError(reason) ? reason.response?.data : undefined; const errors = data?.errors as Record<string, string[]> | undefined; setError(errors ? Object.values(errors).flat().join(' ') : data?.message ?? 'The code is invalid or has expired.') }
     finally { setSubmitting(false) }
   }
@@ -93,9 +97,9 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
               <Typography color="text.secondary" mt={1}>{recovery ? 'Use the six-digit code sent to your email' : 'Sign in to your CREMS account'}</Typography>
             </Stack>
 
-            {!recovery && mfaChallengeId ? <Box component="form" onSubmit={submitMfa}><Stack spacing={2.5}>{error && <Alert severity="error">{error}</Alert>}<Alert severity="info">Enter the six-digit code sent to {mfaDestination}. Delivery normally takes a few seconds.</Alert><TextField autoFocus required label="Verification code" value={mfaCode} onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputProps={{ inputMode: 'numeric', maxLength: 6 }} /><Button type="submit" variant="contained" size="large" disabled={submitting || mfaCode.length !== 6}>{submitting ? <CircularProgress size={24} /> : 'Verify and sign in'}</Button><Button type="button" disabled={submitting} onClick={()=>void resendMfa()}>Send a new code</Button><Button onClick={() => { setMfaChallengeId(''); setMfaCode(''); setPassword('');setMfaNotice('') }}>Back to sign in</Button></Stack></Box> : !recovery ? <Box component="form" onSubmit={handleSubmit} noValidate>
+            {!recovery && mfaChallengeId ? <Box component="form" onSubmit={submitMfa}><Stack spacing={2.5}>{error && <FormError>{error}</FormError>}<Alert severity="info">Enter the six-digit code sent to {mfaDestination}. Delivery normally takes a few seconds.</Alert><TextField autoFocus required label="Verification code" value={mfaCode} onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputProps={{ inputMode: 'numeric', maxLength: 6 }} /><Button type="submit" variant="contained" size="large" disabled={submitting || mfaCode.length !== 6}>{submitting ? <CircularProgress size={24} /> : 'Verify and sign in'}</Button><Button type="button" disabled={submitting} onClick={()=>void resendMfa()}>Send a new code</Button><Button onClick={() => { setMfaChallengeId(''); setMfaCode(''); setPassword('');setMfaNotice('') }}>Back to sign in</Button></Stack></Box> : !recovery ? <Box component="form" onSubmit={handleSubmit}>
               <Stack spacing={2.5}>
-                {error && <Alert severity="error">{error}</Alert>}
+                {error && <FormError>{error}</FormError>}
 
                 <TextField
                   label="Email address"
@@ -127,13 +131,13 @@ export function LoginPage({ onBackToWebsite }: { onBackToWebsite: () => void }) 
                     },
                   }}
                 />
-                <Button type="submit" variant="contained" size="large" disabled={submitting || !email || !password} sx={{ minHeight: 48 }}>
+                <Button type="submit" variant="contained" size="large" disabled={submitting} sx={{ minHeight: 48 }}>
                   {submitting ? <CircularProgress size={24} color="inherit" /> : 'Sign in'}
                 </Button>
-                <Button type="button" variant="text" onClick={() => { setRecovery(true); setError(''); setNotice('') }}>Forgot password?</Button>
+                <Button type="button" variant="text" onClick={() => { setRecovery(true); setResetAttempted(false); setError(''); setNotice('') }}>Forgot password?</Button>
                 <Button type="button" variant="text" onClick={onBackToWebsite}>Back to rental website</Button>
               </Stack>
-            </Box> : <Box component="form" onSubmit={codeSent ? completeReset : requestReset} noValidate><Stack spacing={2.5}>{error && <Alert severity="error">{error}</Alert>}<TextField label="Staff email address" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required fullWidth disabled={codeSent} />{codeSent && <><TextField label="Six-digit code" value={resetCode} onChange={(event) => setResetCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputProps={{ inputMode: 'numeric', maxLength: 6 }} required fullWidth /><TextField label="New password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" helperText="At least 10 characters with an uppercase letter and number" required fullWidth /><TextField label="Confirm new password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" required fullWidth /></>}<Button type="submit" variant="contained" size="large" disabled={submitting || !email || (codeSent && (resetCode.length !== 6 || !newPassword || !confirmPassword))} sx={{ minHeight: 48 }}>{submitting ? <CircularProgress size={24} color="inherit" /> : codeSent ? 'Change password' : 'Send reset code'}</Button>{codeSent && <Button type="button" onClick={() => { setCodeSent(false); setResetCode(''); setNotice('') }}>Request a new code</Button>}<Button type="button" onClick={() => { setRecovery(false); setCodeSent(false); setError(''); setNotice('') }}>Back to sign in</Button></Stack></Box>}
+            </Box> : <Box component="form" onSubmit={codeSent ? completeReset : requestReset}><Stack spacing={2.5}>{error && <FormError>{error}</FormError>}<TextField label="Staff email address" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required fullWidth disabled={codeSent} />{codeSent && <><TextField label="Six-digit code" value={resetCode} onChange={(event) => setResetCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputProps={{ inputMode: 'numeric', maxLength: 6 }} required fullWidth /><TextField label="New password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" helperText="At least 10 characters with an uppercase letter and number" required fullWidth /><TextField label="Confirm new password" inputRef={confirmationInput} error={mismatch} helperText={mismatch ? "Enter the same new password again." : undefined} type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" required fullWidth /></>}<Button type="submit" variant="contained" size="large" disabled={submitting || !email || (codeSent && (resetCode.length !== 6 || !newPassword || !confirmPassword))} sx={{ minHeight: 48 }}>{submitting ? <CircularProgress size={24} color="inherit" /> : codeSent ? 'Change password' : 'Send reset code'}</Button>{codeSent && <Button type="button" onClick={() => { setCodeSent(false); setResetCode(''); setNotice('') }}>Request a new code</Button>}<Button type="button" onClick={() => { setRecovery(false); setCodeSent(false); setError(''); setNotice('') }}>Back to sign in</Button></Stack></Box>}
             <Typography variant="caption" color="text.secondary" display="block" textAlign="center" mt={4}>
               Authorized Carpenters Fiji staff only
             </Typography>

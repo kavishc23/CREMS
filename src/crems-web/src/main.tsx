@@ -7,6 +7,7 @@ import { CssBaseline, GlobalStyles, ThemeProvider, createTheme } from '@mui/mate
 import App from './App'
 import { ToastHost } from './components/ToastHost'
 import { AuthProvider } from './auth/AuthContext'
+import { NativeFormValidation } from './components/InlineValidation'
 import { StableViewport } from './components/StableViewport'
 
 const StaffQueryBoundary = lazy(() => import('./auth/StaffQueryBoundary'))
@@ -51,12 +52,26 @@ const theme = createTheme({
   },
 })
 
+// Let the wheel scroll the page without stepping a focused number field.
+document.addEventListener('wheel', (event) => {
+  const input = event.target
+  if (input instanceof HTMLInputElement && input.type === 'number' && input === document.activeElement) {
+    input.blur()
+  }
+}, { capture: true, passive: true })
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <ThemeProvider theme={theme}>
     <CssBaseline />
     <StableViewport />
+    <NativeFormValidation />
     <GlobalStyles styles={{
       'html, body': { maxWidth: '100%' },
+      'input[type="number"]': { appearance: 'textfield' },
+      'input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button': {
+        WebkitAppearance: 'none',
+        margin: 0,
+      },
       '#root': { minWidth: 0, minHeight: '100dvh' },
       '.MuiGrid-root, .MuiDialog-paper, main': { minWidth: 0 },
       '.MuiDialog-paper': { maxWidth: 'calc(100vw - 24px)' },

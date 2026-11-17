@@ -49,6 +49,10 @@ public static class NotificationEvents
                         Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Booking confirmed", $"{booking.BookingNumber} is confirmed and ready for pickup preparation.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
                     else if (entry.State != EntityState.Added && booking.Status == BookingStatus.ConvertedToRental)
                         Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Rental started", $"{booking.BookingNumber} is now on hire.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
+                    else if (entry.State != EntityState.Added && booking.Status == BookingStatus.Completed && booking.IncidentClosedAt.HasValue)
+                        Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Hire ended",
+                            $"{booking.BookingNumber}: the branch has ended this hire. Contact the branch for any outstanding arrangements.",
+                            "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
                     else if (entry.State != EntityState.Added && booking.Status == BookingStatus.Completed)
                         Add(booking, "Customer", booking.CustomerId, booking.BranchId, division, "Booking", "Rental completed", $"Thank you for choosing us. {booking.BookingNumber} has been returned and completed. Your agreement, invoice and final charges are available in your rental summary.", "/account?reference=" + Uri.EscapeDataString(booking.BookingNumber));
                     else if (entry.State != EntityState.Added && booking.Status is BookingStatus.Cancelled or BookingStatus.Expired)

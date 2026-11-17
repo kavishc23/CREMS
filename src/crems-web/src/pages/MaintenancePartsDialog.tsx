@@ -1,6 +1,8 @@
+import { InlineIssueNavigation } from '../components/InlineValidation'
+import { FormError } from '../components/FormError'
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { api } from '../api/client'
 
 type Entry = { id: string; inventoryPartId: string; partNumber: string; quantity: number; unitCost?: number; batchKey: string; createdAt: string }
@@ -14,6 +16,7 @@ export function MaintenancePartsDialog({ job, onClose, onChanged }: { job: { id:
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [attempted, setAttempted] = useState<'issue' | 'return' | null>(null)
   useEffect(() => {
     let active = true
     api.get<Parts>(`/maintenance-jobs/${job.id}/parts`).then(response => { if (active) setData(response.data) })
@@ -25,12 +28,15 @@ export function MaintenancePartsDialog({ job, onClose, onChanged }: { job: { id:
     .map(entry => ({ ...entry, outstanding: data!.ledger.filter(other => other.batchKey === entry.batchKey).reduce((sum, other) => sum + other.quantity, 0) }))
     .filter(entry => entry.outstanding > 0)
   async function submit(returning: boolean) {
-    setBusy(true); setError('')
+    const action = returning ? 'return' : 'issue'
+    setAttempted(action); setError('')
+    if (issuesFor(action).some(field => field.message)) return
+    setBusy(true)
     try {
       if (returning) await api.post(`/maintenance-jobs/${job.id}/parts/${issue}/return`, { quantity: Number(quantity), reason })
       else await api.post(`/business-operations/maintenance/${job.id}/parts`, { inventoryPartId: part, quantity: Number(quantity) })
       const response = await api.get<Parts>(`/maintenance-jobs/${job.id}/parts`)
-      setData(response.data); setIssue(''); setPart(''); setQuantity('1'); setReason('')
+      setData(response.data); setAttempted(null); setIssue(''); setPart(''); setQuantity('1'); setReason('')
       await onChanged()
     } catch (failure) {
       const response = axios.isAxiosError(failure) ? failure.response?.data : undefined
@@ -38,25 +44,34 @@ export function MaintenancePartsDialog({ job, onClose, onChanged }: { job: { id:
     } finally { setBusy(false) }
   }
   const validQuantity = Number.isInteger(Number(quantity)) && Number(quantity) > 0 && Number(quantity) <= 100000
+  function issuesFor(action: 'issue' | 'return') {
+    return [
+      { target: 'parts-quantity', message: validQuantity ? '' : 'Enter a whole quantity between 1 and 100,000.' },
+      ...action === 'return' ? [
+        { target: 'parts-return-stock', message: issue ? '' : 'Select the stock being returned.' },
+        { target: 'parts-return-reason', message: reason.trim() ? '' : 'Enter the return reason.' },
+      ] : [{ target: 'parts-issue-stock', message: part ? '' : 'Select the stock to issue.' }],
+    ]
+  }
   return <Dialog open fullWidth maxWidth="sm" onClose={() => !busy && onClose()}>
     <DialogTitle>Parts · {job.jobNumber}</DialogTitle>
     <DialogContent><Stack spacing={2} mt={1}>
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <FormError>{error}</FormError>}
       {!data && !error && <Typography>Loading inventory…</Typography>}
       {data?.canManage && <>
-        <TextField label="Quantity" type="number" value={quantity} disabled={busy} inputProps={{ min: 1, max: 100000, step: 1 }} onChange={event => setQuantity(event.target.value)} />
-        {data.canIssue && <><TextField select label="Issue stock" value={part} disabled={busy} onChange={event => setPart(event.target.value)}>
+        <TextField id="parts-quantity" label="Quantity" type="number" value={quantity} disabled={busy} inputProps={{ min: 1, max: 100000, step: 1 }} onChange={event => setQuantity(event.target.value)} />
+        {data.canIssue && <><TextField select id="parts-issue-stock" label="Issue stock" value={part} disabled={busy} onChange={event => setPart(event.target.value)}>
           <MenuItem value="">Select stock</MenuItem>{data.stock.map(stock => <MenuItem key={stock.id} value={stock.id}>{stock.partNumber} · {stock.name} · {stock.available} available{data.canFinancial ? ` · FJD ${(stock.unitCost ?? 0).toFixed(2)}` : ''}</MenuItem>)}
-        </TextField><Button disabled={busy || !part || !validQuantity} onClick={() => void submit(false)}>Issue parts</Button></>}
-        <TextField select label="Return unused stock" value={issue} disabled={busy} onChange={event => setIssue(event.target.value)}>
+        </TextField><Button disabled={busy} onClick={() => void submit(false)}>Issue parts</Button></>}
+        <TextField select id="parts-return-stock" label="Return unused stock" value={issue} disabled={busy} onChange={event => setIssue(event.target.value)}>
           <MenuItem value="">Select issued stock</MenuItem>{balances.map(entry => <MenuItem key={entry.id} value={entry.id}>{entry.partNumber} · {entry.outstanding} outstanding{data.canFinancial ? ` · FJD ${(entry.unitCost ?? 0).toFixed(2)}` : ''}</MenuItem>)}
         </TextField>
-        <TextField label="Return reason" value={reason} disabled={busy} inputProps={{ maxLength: 1000 }} onChange={event => setReason(event.target.value)} />
-        <Button disabled={busy || !issue || !reason.trim() || !validQuantity} onClick={() => void submit(true)}>Return parts to stock</Button>
+        <TextField id="parts-return-reason" label="Return reason" value={reason} disabled={busy} inputProps={{ maxLength: 1000 }} onChange={event => setReason(event.target.value)} />
+        <Button disabled={busy} onClick={() => void submit(true)}>Return parts to stock</Button>
       </>}
       <Typography variant="subtitle2">Stock movement history</Typography>
       {data?.ledger.length === 0 && <Typography>No stock movements recorded.</Typography>}
       {data?.ledger.map(entry => <Typography key={entry.id} variant="body2">{entry.partNumber}: {entry.quantity > 0 ? 'Issued' : 'Returned'} {Math.abs(entry.quantity)}{data.canFinancial ? ` at FJD ${(entry.unitCost ?? 0).toFixed(2)}` : ''} · {new Date(entry.createdAt).toLocaleString()}</Typography>)}
-    </Stack></DialogContent><DialogActions><Button disabled={busy} onClick={onClose}>Close</Button></DialogActions>
+    </Stack></DialogContent><DialogActions><InlineIssueNavigation attempted={attempted!==null} issues={attempted?issuesFor(attempted):[]}/><Button disabled={busy} onClick={onClose}>Close</Button></DialogActions>
   </Dialog>
 }

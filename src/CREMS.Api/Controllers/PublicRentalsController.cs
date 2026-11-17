@@ -20,6 +20,16 @@ namespace CREMS.Api.Controllers;
 [Route("api/public")]
 public sealed class PublicRentalsController(ApplicationDbContext db, UserManager<ApplicationUser> userManager, IEmailQueue emailQueue, IWebHostEnvironment environment, IMemoryCache? memoryCache = null) : ControllerBase
 {
+    private IQueryable<Guid> AssetsAwaitingReturnOrRelease() =>
+        db.BookingItems.Where(item =>
+            item.Booking!.Status == BookingStatus.ConvertedToRental ||
+            item.Booking.Status == BookingStatus.Completed && item.Booking.IncidentClosedAt == null &&
+            !item.Booking.Inspections.Any(inspection => inspection.Type == InspectionType.Return))
+            .Select(item => item.AssetId)
+            .Union(db.MaintenanceJobs.Where(job =>
+                job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled ||
+                job.ReleasedAt == null).Select(job => job.AssetId));
+
     [HttpGet("catalogue-bootstrap")]
     [AllowAnonymous]
     public async Task<ActionResult> GetCatalogueBootstrap(CancellationToken token)
@@ -137,7 +147,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 db.BranchDivisions.Any(b => b.BranchId == asset.BranchId && b.DivisionId == asset.DivisionId && b.IsActive && b.AcceptsBookings) &&
 
                 !db.BookingItems.Any(item => item.AssetId == asset.Id &&
-                    (item.Booking!.Status == BookingStatus.ConvertedToRental || item.Booking.Status == BookingStatus.Completed) &&
+                    (item.Booking!.Status == BookingStatus.ConvertedToRental || item.Booking.Status == BookingStatus.Completed && item.Booking.IncidentClosedAt == null) &&
                     !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)) &&
                 !db.MaintenanceJobs.Any(job => job.AssetId == asset.Id &&
                     (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)) &&
@@ -166,6 +176,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 RentalAvailability.EarliestStart(start, end - start, x.Select(item => (item.StartAt, item.EndAt)), buffers.GetValueOrDefault(x.Key, 60)));
         }
 
+        var blockedAssets = AssetsAwaitingReturnOrRelease();
         var assets = await query.OrderBy(asset => asset.Type).ThenBy(asset => asset.Name)
             .Select(asset => new
             {
@@ -182,6 +193,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                 asset.AssetCategoryId, asset.ServiceOfferingId, IsBookableOnline = asset.ServiceOffering == null || asset.ServiceOffering.IsBookableOnline, AllowsQuoteRequests = asset.ServiceOffering == null || asset.ServiceOffering.AllowsQuoteRequests,
                 RequiresDelivery = asset.RequiresDelivery, FulfilmentMode = asset.RequiresDelivery ? AssetFulfilmentMode.DeliveryOnly : asset.FulfilmentMode,
                 asset.PhotoUrlsJson,
+                IsAwaitingReturnOrRelease = blockedAssets.Contains(asset.Id),
                 Attributes = asset.AttributeValues
                     .Where(value => value.AttributeDefinition != null &&
                         value.AttributeDefinition.IsCustomerVisible && value.AttributeDefinition.IsSearchable)
@@ -201,9 +213,9 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.PersonnelOverride ?? DivisionBookingFlow.Parse(asset.BookingConfigurationJson).PersonnelRequirement,
             asset.ServiceName, asset.ServiceRequiresQuote || asset.AllowsQuoteRequests && DivisionBookingFlow.Parse(asset.BookingConfigurationJson).QuoteMode == "Always", asset.RequiresDelivery, asset.PhotoUrlsJson,
             asset.Attributes,
-            startDate.HasValue
+            !asset.IsAwaitingReturnOrRelease && (startDate.HasValue
                 ? (asset.Status == AssetStatus.Available || asset.Status == AssetStatus.Reserved) && !unavailableAssetIds.Contains(asset.Id)
-                : asset.Status == AssetStatus.Available, asset.InheritBond ? asset.DivisionBondAmount : asset.DefaultBondAmount,
+                : asset.Status == AssetStatus.Available), asset.InheritBond ? asset.DivisionBondAmount : asset.DefaultBondAmount,
             DivisionBookingFlow.Parse(asset.BookingConfigurationJson).QuoteMode, asset.HireUnit, asset.UseServiceHireRate, asset.ServiceOfferingId, asset.IsBookableOnline, asset.AllowsQuoteRequests, asset.AssetCategoryId, asset.FulfilmentMode, asset.TurnaroundMinutes,
             unavailableAssetIds.Contains(asset.Id) && nextAvailable.TryGetValue(asset.Id, out var next) ? next : null)).ToList());
     }
@@ -229,24 +241,21 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             return ValidationProblem(ModelState);
         }
 
-        var asset = await db.Assets.AsNoTracking()
+        var asset = await db.Assets.AsNoTracking().AsSplitQuery()
             .Include(x => x.Branch).Include(x => x.Division).Include(x => x.ServiceOffering)
             .Include(x => x.AssetCategory).Include(x => x.AttributeValues).ThenInclude(x => x.AttributeDefinition)
             .FirstOrDefaultAsync(x => x.Id == assetId && x.IsActive && x.Branch!.IsActive && x.Branch.IsPublic &&
                 x.Division != null && x.Division.IsActive && x.Division.IsPublic &&
                 (x.ServiceOffering == null || x.ServiceOffering.IsActive && (x.ServiceOffering.IsBookableOnline || x.ServiceOffering.RequiresQuote) && db.BranchDivisionServices.Any(s => s.BranchId == x.BranchId && s.DivisionId == x.DivisionId && s.ServiceOfferingId == x.ServiceOfferingId && s.IsActive && s.IsBookable)) &&
                 db.BranchDivisions.Any(b => b.BranchId == x.BranchId && b.DivisionId == x.DivisionId && b.IsActive && b.AcceptsBookings) &&
-                !db.BookingItems.Any(item => item.AssetId == x.Id &&
-                    (item.Booking!.Status == BookingStatus.ConvertedToRental && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return) ||
-                     item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
-                !db.MaintenanceJobs.Any(job => job.AssetId == x.Id &&
-                    (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)) &&
-                x.Status != AssetStatus.Maintenance && x.Status != AssetStatus.Inspection && x.Status != AssetStatus.OutOfService &&
                 x.Status != AssetStatus.Retired, cancellationToken);
         if (asset is null || !DivisionBookingFlow.For(asset.Division).OnlineRequestsEnabled) return NotFound();
 
-        var isAvailable = asset.Status == AssetStatus.Available;
-        if (startDate.HasValue && endDate.HasValue)
+        var canBeHired = (asset.Status == AssetStatus.Available ||
+            startDate.HasValue && asset.Status == AssetStatus.Reserved) &&
+            !await AssetsAwaitingReturnOrRelease().AnyAsync(id => id == asset.Id, cancellationToken);
+        var isAvailable = canBeHired;
+        if (canBeHired && startDate.HasValue && endDate.HasValue)
         {
             var start = RentalAvailability.FijiTime(startDate.Value, pickupTime ?? new TimeOnly(9, 0));
             var end = RentalAvailability.FijiTime(endDate.Value, returnTime ?? new TimeOnly(9, 0));
@@ -256,8 +265,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
                  item.Booking.Status == BookingStatus.ConvertedToRental ||
                  item.Booking.Status == BookingStatus.Draft && item.Booking.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30)))
                 .Select(item => new { item.StartAt, item.EndAt }).ToListAsync(cancellationToken);
-            isAvailable = (asset.Status == AssetStatus.Available || asset.Status == AssetStatus.Reserved) &&
-                !reservations.Any(item => RentalAvailability.Conflicts(start, end, item.StartAt, item.EndAt, asset.TurnaroundMinutes));
+            isAvailable = !reservations.Any(item => RentalAvailability.Conflicts(start, end, item.StartAt, item.EndAt, asset.TurnaroundMinutes));
         }
 
         var customerAttributes = asset.AttributeValues
@@ -327,11 +335,7 @@ public sealed class PublicRentalsController(ApplicationDbContext db, UserManager
             asset.ServiceOffering is { IsBookableOnline: false, RequiresQuote: false } ||
             asset.Status is AssetStatus.Rented or AssetStatus.Maintenance or AssetStatus.Inspection or AssetStatus.OutOfService or AssetStatus.Retired)
             return NotFound("The selected rental item is no longer available.");
-        if (await db.BookingItems.AnyAsync(item => item.AssetId == asset.Id &&
-                (item.Booking!.Status == BookingStatus.ConvertedToRental ||
-                 item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)), cancellationToken) ||
-            await db.MaintenanceJobs.AnyAsync(job => job.AssetId == asset.Id &&
-                (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null), cancellationToken))
+        if (await AssetsAwaitingReturnOrRelease().AnyAsync(id => id == asset.Id, cancellationToken))
             return Conflict(new { message = "This asset has not completed return and safety release at the branch." });
         if (request.RequestQuotation && asset.ServiceOffering?.AllowsQuoteRequests == false && request.Fulfilment != "Delivery" && !request.PersonnelRequested && AssetCategoryPolicy.Personnel(asset) != PersonnelRequirement.Required) return BadRequest(new { message = "This service accepts booking requests only." });
         var flow = DivisionBookingFlow.For(asset.Division);

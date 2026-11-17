@@ -1,3 +1,4 @@
+import { FormError } from '../components/FormError'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined'
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined'
@@ -72,7 +73,7 @@ export function ReportsPage(){
   const extraFilterCount=[applied.bookingStatus,applied.invoiceStatus,applied.paymentMethod,applied.maintenanceStatus].filter(Boolean).length
   return <Box sx={{p:{xs:2,sm:3,lg:4},maxWidth:1600,mx:'auto'}}>
     <PageHeader icon={<AssessmentOutlined/>} title="Reports & performance" subtitle="Management reporting from scoped CREMS records, with consistent dates and exportable detail." actions={data?<ReportButton label="Export report" reports={reportForTab?[reportForTab,...reports.filter(x=>x!==reportForTab)]:reports}/>:undefined}/>
-    {error&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
+    {error&&<FormError sx={{mb:2}}>{error}</FormError>}
     <Accordion expanded={filtersOpen} onChange={(_,expanded)=>setFiltersOpen(expanded)} sx={{mb:2.5,borderTop:4,borderTopColor:'secondary.main','&:before':{display:'none'}}}>
       <AccordionSummary expandIcon={<FilterListOutlined/>} aria-controls="report-filters" id="report-filter-heading"><Box><Typography variant="h6" fontWeight={800}>Report filters</Typography><Typography variant="body2" color="text.secondary">{applied.from} – {applied.to} · {scope}{extraFilterCount>0?' · Status filters applied':''}</Typography></Box></AccordionSummary>
       <AccordionDetails id="report-filters" sx={{pt:0,pb:2.5}}><Typography variant="body2" color="text.secondary" mb={2}>Choose a Fiji reporting period and operating scope, then apply your changes.</Typography>

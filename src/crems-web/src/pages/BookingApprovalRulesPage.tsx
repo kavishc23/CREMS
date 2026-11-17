@@ -1,3 +1,4 @@
+import { FormError } from '../components/FormError'
 import { useActionNotice } from '../components/useActionNotice'
 import { useEffect, useState } from "react";
 import AddOutlined from "@mui/icons-material/AddOutlined";
@@ -472,9 +473,9 @@ export function BookingApprovalRulesPage() {
         }
       />
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError("")}>
+        <FormError sx={{ mb: 2 }} onClose={() => setError("")}>
           {error}
-        </Alert>
+        </FormError>
       )}
 
       <Alert severity="info" sx={{ mb: 3 }}>

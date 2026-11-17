@@ -1,6 +1,8 @@
+import { InlineIssueNavigation } from './InlineValidation'
+import { FormError } from './FormError'
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from '@mui/material'
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from '@mui/material'
 import { api } from '../api/client'
 
 type Option={id:string;name:string;branchId?:string;assetNumber?:string}
@@ -18,16 +20,24 @@ const routes:Record<string,string>={personnel:'/business-operations/personnel',p
 
 export function OperationsCreateDialog({sectionKey,open,onClose,reload}:{sectionKey:string;open:boolean;onClose:()=>void;reload:()=>Promise<void>}){
   const [form,setForm]=useState<Record<string,string>>({}),[branches,setBranches]=useState<Option[]>([]),[divisions,setDivisions]=useState<Option[]>([]),[assets,setAssets]=useState<Option[]>([]),[saving,setSaving]=useState(false),[error,setError]=useState('')
+  const [attempted,setAttempted]=useState(false)
   useEffect(()=>{if(!open)return;let active=true;void Promise.all([api.get<Option[]>('/branches'),api.get<Option[]>('/divisions'),api.get<Option[]>('/assets',{params:{pageSize:100}})]).then(([b,d,a])=>{if(active){setBranches(b.data);setDivisions(d.data);setAssets(a.data)}}).catch(()=>{if(active)setError('Some selection lists could not be loaded.')});return()=>{active=false}},[open])
-  function close(){setForm({});setError('');onClose()}
-  async function save(){setSaving(true);setError('');try{
+  function close(){setAttempted(false);setForm({});setError('');onClose()}
+  async function save(){setAttempted(true);setError('');if(issues.some(issue=>issue.message))return;setSaving(true);try{
     const payload:Record<string,unknown>={...form}
     for(const field of fields[sectionKey]??[])if(field.kind==='number')payload[field.key]=Number(form[field.key]||0)
-    if(sectionKey==='transfers'&&payload.fromBranchId===payload.toBranchId){setError('Select a different destination branch.');setSaving(false);return}
     if(sectionKey==='pricing'){Object.assign(payload,{customerId:null,assetType:null,customerType:null,chargeDefinitionId:null,effectiveFrom:null,effectiveTo:null,weekendMultiplier:1,holidayMultiplier:1,overtimeMultiplier:1})}
     await api.post(routes[sectionKey],payload);close();await reload()
   }catch(e){const data=axios.isAxiosError(e)?e.response?.data:undefined;setError(data?.message??(data?.errors?Object.values(data.errors).flat().join(' '):'The record could not be created.'))}finally{setSaving(false)}}
   const configured=fields[sectionKey]??[]
+  const issues=configured.map(field=>{
+    const value=form[field.key]?.trim()
+    let message=''
+    if(field.required&&!value) message=(field.kind==='select'?'Select ':'Enter ')+field.label.toLowerCase()+'.'
+    else if(field.kind==='number'&&value&&(!Number.isFinite(Number(value))||Number(value)<0)) message='Enter zero or more.'
+    else if(field.key==='toBranchId'&&value&&value===form.fromBranchId) message='Select a different destination branch.'
+    return {target:'operation-field-'+field.key,message}
+  })
   const optionsFor=(field:Field)=>field.key==='assetId'?assets.map(x=>({id:x.id,name:`${x.assetNumber??''} ${x.name}`})):field.key.toLowerCase().includes('branch')?branches:field.key==='divisionId'?divisions:(field.options??[]).map(x=>({id:x,name:x}))
-  return <Dialog open={open} onClose={()=>!saving&&close()} fullWidth maxWidth="sm"><DialogTitle>Add {labels[sectionKey]??'record'}</DialogTitle><DialogContent><Stack gap={2} mt={1}>{error&&<Alert severity="error">{error}</Alert>}{configured.map(field=>field.kind==='select'?<TextField key={field.key} select fullWidth required={field.required} label={field.label} value={form[field.key]??''} onChange={e=>{const asset=field.key==='assetId'?assets.find(x=>x.id===e.target.value):undefined;setForm({...form,[field.key]:e.target.value,...(asset?.branchId?{fromBranchId:asset.branchId}:{})})}}><MenuItem value="">Select…</MenuItem>{optionsFor(field).map(x=><MenuItem key={x.id} value={x.id}>{x.name}</MenuItem>)}</TextField>:<TextField key={field.key} fullWidth required={field.required} type={field.kind==='number'?'number':'text'} label={field.label} value={form[field.key]??''} onChange={e=>setForm({...form,[field.key]:e.target.value})} inputProps={field.kind==='number'?{min:0,step:'any'}:undefined}/>)}</Stack></DialogContent><DialogActions><Button onClick={close} disabled={saving}>Cancel</Button><Button variant="contained" disabled={saving||configured.some(x=>x.required&&!form[x.key]?.trim())} onClick={()=>void save()}>{saving?'Saving…':'Create'}</Button></DialogActions></Dialog>
+  return <Dialog open={open} onClose={()=>!saving&&close()} fullWidth maxWidth="sm"><DialogTitle>Add {labels[sectionKey]??'record'}</DialogTitle><DialogContent><Stack gap={2} mt={1}>{error&&<FormError>{error}</FormError>}{configured.map(field=>field.kind==='select'?<TextField key={field.key} id={'operation-field-'+field.key} select fullWidth required={field.required} label={field.label} value={form[field.key]??''} onChange={e=>{const asset=field.key==='assetId'?assets.find(x=>x.id===e.target.value):undefined;setForm({...form,[field.key]:e.target.value,...(asset?.branchId?{fromBranchId:asset.branchId}:{})})}}><MenuItem value="">Select…</MenuItem>{optionsFor(field).map(x=><MenuItem key={x.id} value={x.id}>{x.name}</MenuItem>)}</TextField>:<TextField key={field.key} id={'operation-field-'+field.key} fullWidth required={field.required} type={field.kind==='number'?'number':'text'} label={field.label} value={form[field.key]??''} onChange={e=>setForm({...form,[field.key]:e.target.value})} inputProps={field.kind==='number'?{min:0,step:'any'}:undefined}/>)}</Stack></DialogContent><DialogActions><InlineIssueNavigation attempted={open&&attempted} issues={issues}/><Button onClick={close} disabled={saving}>Cancel</Button><Button variant="contained" disabled={saving} onClick={()=>void save()}>{saving?'Saving…':'Create'}</Button></DialogActions></Dialog>
 }

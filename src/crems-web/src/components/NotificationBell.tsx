@@ -3,6 +3,7 @@ import NotificationsOutlined from '@mui/icons-material/NotificationsOutlined'
 import { Alert, Badge, Box, Button, Checkbox, Chip, Dialog, Divider, FormControlLabel, IconButton, List, ListItemButton, ListItemText, MenuItem, Pagination, Stack, TextField, Typography } from '@mui/material'
 import { api } from '../api/client'
 import { toast } from './ToastHost'
+import { incidentNotificationUrl } from '../utils/incidentNotification'
 const ComposeNotification = lazy(() => import('./ComposeNotification'))
 const StaffNotificationSettings = lazy(() => import('./StaffNotificationSettings'))
 const ComposeStaffNotification = lazy(() => import('./ComposeStaffNotification'))
@@ -56,7 +57,8 @@ export function NotificationBell({customer=false,canSend=false}:{customer?:boole
   async function read(ids:string[],all=false){try{await api.post(`${endpoint}/read`,{ids,all});await load()}catch{setError('Could not mark notifications as read.')}}
   async function visit(n:Notice){
     await read([n.id])
-    if(!n.isExpired&&n.url?.startsWith('/')&&!n.url.startsWith('//')&&!n.url.includes('\\')){setAnchor(null);window.location.assign(n.url)}
+    const url=customer?n.url:incidentNotificationUrl(n)
+    if(!n.isExpired&&url?.startsWith('/')&&!url.startsWith('//')&&!url.includes('\\')){setAnchor(null);window.location.assign(url)}
   }
   return <>
     <IconButton color="inherit" aria-label={`Notifications, ${count} unread`} onClick={e=>setAnchor(e.currentTarget)}><Badge color="error" badgeContent={count} max={99}><NotificationsOutlined/></Badge></IconButton>

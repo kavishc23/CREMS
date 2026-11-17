@@ -11,7 +11,7 @@ function validationMessage(data: unknown) {
   if (body.errors) {
     const messages = Object.values(body.errors).flatMap(value => Array.isArray(value) ? value : [value])
       .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
-    if (messages.length) return messages.join(' ')
+    if (messages.length) return [...new Set(messages.map(message => message.trim()))].join(' ')
   }
   if (typeof body.detail === 'string' && body.detail.trim()) return body.detail.trim()
   return ''

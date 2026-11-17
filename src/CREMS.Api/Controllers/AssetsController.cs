@@ -48,7 +48,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
                 AssetStatus.Available => query.Where(asset => asset.Status == AssetStatus.Available && asset.IsActive &&
                     !db.BookingItems.Any(item => item.AssetId == asset.Id &&
                         (item.Booking!.Status == BookingStatus.ConvertedToRental ||
-                         item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
+                         item.Booking.Status == BookingStatus.Completed && item.Booking.IncidentClosedAt == null && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
                     !db.MaintenanceJobs.Any(job => job.AssetId == asset.Id &&
                         (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)) &&
                     !db.AssetTransfers.Any(transfer => transfer.AssetId == asset.Id &&
@@ -56,7 +56,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
                 AssetStatus.Rented => query.Where(asset => asset.Status == AssetStatus.Rented ||
                     db.BookingItems.Any(item => item.AssetId == asset.Id &&
                         (item.Booking!.Status == BookingStatus.ConvertedToRental ||
-                         item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))),
+                         item.Booking.Status == BookingStatus.Completed && item.Booking.IncidentClosedAt == null && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))),
                 _ => query.Where(asset => asset.Status == status.Value)
             };
         }
@@ -86,7 +86,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         var unreturned = (await db.BookingItems.AsNoTracking()
             .Where(item => ids.Contains(item.AssetId) &&
                 (item.Booking!.Status == BookingStatus.ConvertedToRental ||
-                 item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))
+                 item.Booking.Status == BookingStatus.Completed && item.Booking.IncidentClosedAt == null && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))
             .Select(item => item.AssetId).Distinct().ToListAsync(cancellationToken)).ToHashSet();
         var maintenanceBlocked = (await db.MaintenanceJobs.AsNoTracking()
             .Where(job => ids.Contains(job.AssetId) &&
@@ -114,7 +114,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         var physicallyAvailable = await query.CountAsync(asset => asset.Status == AssetStatus.Available &&
             !db.BookingItems.Any(item => item.AssetId == asset.Id &&
                 (item.Booking!.Status == BookingStatus.ConvertedToRental ||
-                 item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
+                 item.Booking.Status == BookingStatus.Completed && item.Booking.IncidentClosedAt == null && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))) &&
             !db.MaintenanceJobs.Any(job => job.AssetId == asset.Id &&
                 (job.Status != MaintenanceStatus.Completed && job.Status != MaintenanceStatus.Cancelled || job.ReleasedAt == null)) &&
             !db.AssetTransfers.Any(transfer => transfer.AssetId == asset.Id &&
@@ -122,7 +122,7 @@ public sealed class AssetsController(ApplicationDbContext db, CurrentStaffScope 
         var physicallyOnHire = await query.CountAsync(asset => asset.Status == AssetStatus.Rented ||
             db.BookingItems.Any(item => item.AssetId == asset.Id &&
                 (item.Booking!.Status == BookingStatus.ConvertedToRental ||
-                 item.Booking.Status == BookingStatus.Completed && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))), cancellationToken);
+                 item.Booking.Status == BookingStatus.Completed && item.Booking.IncidentClosedAt == null && !item.Booking.Inspections.Any(i => i.Type == InspectionType.Return))), cancellationToken);
         var categories = await query.Where(asset => asset.Category != null).Select(asset => asset.Category!).Distinct().OrderBy(value => value).ToListAsync(cancellationToken);
         return Ok(new {
             total = await query.CountAsync(cancellationToken),

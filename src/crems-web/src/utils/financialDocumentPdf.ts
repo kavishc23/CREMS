@@ -3,7 +3,7 @@ import { api } from '../api/client'
 type InvoiceDocument = {
   id?: string; subtotal?: number; taxAmount?: number; taxInclusive?: boolean; adjustment?: number; lines?: {description: string; quantity: number; rate: number; unit: string; amount: number; isTaxable: boolean}[]
   invoiceNumber: string; bookingNumber: string; customerName: string; branchName: string
-  total: number; amountPaid: number; balanceDue: number; status: string; issuedAt: string
+  total: number; amountPaid: number; balanceDue: number; status: string; issuedAt: string; dueDate?: string | null
 }
 type ReceiptDocument = {
   receiptNumber: string; bookingNumber: string; customerName: string; branchName: string
@@ -41,7 +41,7 @@ async function documentShell(title: string, reference: string, lines: [string, s
 export async function downloadInvoicePdf(record: InvoiceDocument) {
   const invoice: InvoiceDocument = record.id ? (await api.get<InvoiceDocument>(`/finance/invoices/${record.id}/document`)).data : record
   return downloadRentalFinancialPdf({ kind: 'Invoice', reference: invoice.invoiceNumber,
-    details: [['Booking', invoice.bookingNumber], ['Customer', invoice.customerName], ['Branch', invoice.branchName], ['Issued', date(invoice.issuedAt)], ['Status', invoice.status]],
+    details: [['Booking', invoice.bookingNumber], ['Customer', invoice.customerName], ['Branch', invoice.branchName], ['Issued', date(invoice.issuedAt)], ...(invoice.dueDate ? [['Payment due', invoice.dueDate] as [string, string]] : []), ['Status', invoice.status]],
     lines: invoice.lines?.length ? invoice.lines.map(line => ({ ...line, description: `${line.description}${line.isTaxable ? '' : ' (VAT exempt)'}` })) : [{ description: 'Legacy invoice total (itemisation unavailable)', quantity: 1, rate: invoice.total }],
     totals: [...(invoice.subtotal != null ? [{ label: invoice.taxInclusive ? 'Subtotal including VAT' : 'Subtotal before VAT', amount: invoice.subtotal }, { label: invoice.taxInclusive ? 'VAT included above' : 'VAT', amount: invoice.taxAmount ?? 0 }] : []), ...(invoice.adjustment ? [{ label: 'Invoice adjustments / applied credits', amount: invoice.adjustment }] : []), { label: 'Invoice total', amount: invoice.total, emphasis: true }, { label: 'Payments and bond applied', amount: invoice.amountPaid }, { label: 'Balance due', amount: invoice.balanceDue, emphasis: true }],
     note: 'Recorded invoice account. Refundable bonds are held separately and are not rental revenue. Voided invoices are not payable. Any invoice adjustment is shown separately from the original charge schedule.' })

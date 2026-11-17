@@ -1,7 +1,8 @@
+import { FormError } from '../components/FormError'
 import { useActionNotice } from '../components/useActionNotice'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import axios from 'axios'
-import { Alert, Autocomplete, Box, Button, Checkbox, Card, Grid, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Tab, Tabs, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Autocomplete, Box, Button, Checkbox, Card, Grid, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Tab, Tabs, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import { api } from '../api/client'
 
 type Technician = { id: string; employeeNumber: string; fullName: string; branchId: string; divisionId: string; locations?: { branchId: string; divisionId: string }[]; standardCostRate: number; availability: string; isActive: boolean; version: string }
@@ -60,7 +61,7 @@ export function MaintenanceDirectoryPage() {
       <Box><Typography variant="h5" fontWeight={800}>Technicians & suppliers</Typography><Typography color="text.secondary">Manage maintenance dropdowns and each technician's hourly labour rate.</Typography></Box>
       <Stack direction="row" gap={1}><Button disabled={loading} onClick={() => { setLoading(true); setError(''); void load() }}>Refresh directory</Button><Button variant="contained" disabled={loading} onClick={() => open(fresh(tab))}>{tab === 'technicians' ? 'Add technician' : 'Add supplier'}</Button></Stack>
     </Stack>
-    {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+    {error && <FormError sx={{ mb: 2 }}>{error}</FormError>}
 
     <Tabs value={tab} onChange={(_, value: Editor['kind']) => setTab(value)} aria-label="Maintenance directory"><Tab value="technicians" label="Technicians" /><Tab value="suppliers" label="Suppliers" /></Tabs>
     <Typography variant="body2" color="text.secondary" my={2}>Deactivate entries to hide them from new assignments while keeping past records.</Typography>
@@ -74,7 +75,7 @@ export function MaintenanceDirectoryPage() {
     </TableBody></Table></TableContainer>}
     <Dialog open={Boolean(editor)} onClose={() => !saving && setEditor(null)} fullWidth maxWidth="md" scroll="paper">
       {editor && <Box component="form" onSubmit={save}><DialogTitle>{editor.id ? 'Edit' : 'Add'} {editor.kind === 'technicians' ? 'technician' : 'supplier'}</DialogTitle><DialogContent><Stack spacing={2} pt={1}>
-        {editError && <Alert severity="error">{editError}</Alert>}
+        {editError && <FormError>{editError}</FormError>}
         <Box component="fieldset" disabled={saving} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}><Grid container spacing={2}>
           <Grid size={{ xs: 12, sm: 8 }}>{text('name', editor.kind === 'technicians' ? 'Technician name' : 'Supplier name', true)}</Grid><Grid size={{ xs: 12, sm: 4 }}>
           {editor.kind === 'technicians' ? <TextField fullWidth label="Employee number" value={editor.id ? editor.number : 'Assigned on save'} slotProps={{ input: { readOnly: true } }} helperText="Assigned automatically and kept unchanged when editing." /> : <TextField fullWidth label="Supplier ID" value={editor.id ? editor.number : 'Assigned on save'} slotProps={{ input: { readOnly: true } }} helperText="Generated automatically by CREMS." />}</Grid>

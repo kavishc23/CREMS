@@ -1,3 +1,5 @@
+import { InlineIssueNavigation } from '../components/InlineValidation'
+import { FormError } from '../components/FormError'
 import { useEffect, useState } from 'react'
 import AddOutlined from '@mui/icons-material/AddOutlined'
 import EditOutlined from '@mui/icons-material/EditOutlined'
@@ -15,6 +17,7 @@ export function StaffRolesPage({ onChanged }: { onChanged: () => void }) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [attempted, setAttempted] = useState(false)
   const [draft, setDraft] = useState({ name: '', modules: [] as string[], permissions: [] as string[] })
   const builtIn = editing && Boolean(catalog?.roles.find(role => role.name === draft.name)?.isBuiltIn)
   const readOnly = draft.name === 'SuperAdministrator'
@@ -32,13 +35,15 @@ export function StaffRolesPage({ onChanged }: { onChanged: () => void }) {
   }, [])
   function edit(role?: StaffRole) {
     setEditing(Boolean(role)); setDraft(role ? { name: role.name, modules: role.modules, permissions: role.permissions } : { name: '', modules: [], permissions: [] })
-    setError(''); setOpen(true)
+    setError(''); setAttempted(false); setOpen(true)
   }
   function toggle(key: 'modules' | 'permissions', value: string) {
     setDraft(current => ({ ...current, [key]: current[key].includes(value) ? current[key].filter(item => item !== value) : [...current[key], value] }))
   }
   async function save() {
-    setSaving(true); setError('')
+    setAttempted(true); setError('')
+    if (issues.some(issue => issue.message)) return
+    setSaving(true)
     try {
       if (editing) await api.put('/staff-roles/' + encodeURIComponent(draft.name), draft)
       else await api.post('/staff-roles', draft)
@@ -46,12 +51,16 @@ export function StaffRolesPage({ onChanged }: { onChanged: () => void }) {
     } catch (reason) { setError(apiErrorMessage(reason, 'This role could not be saved.')) }
     finally { setSaving(false) }
   }
+  const issues = [
+    { target: 'staff-role-name', message: draft.name.trim().length >= 2 ? '' : 'Enter a role name with at least two characters.' },
+    { target: 'staff-role-modules', message: draft.modules.length ? '' : 'Select at least one module.' },
+  ]
   return <Box sx={{ p: { xs: 2, sm: 3, lg: 4 } }}>
     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} mb={3}>
       <Box><Typography variant="h5" fontWeight={800}>Roles & permissions</Typography><Typography color="text.secondary" mt={.5}>Configure staff responsibilities using the existing CREMS modules and permissions.</Typography></Box>
       <Button variant="contained" disabled={!catalog} startIcon={<AddOutlined />} onClick={() => edit()}>Add role</Button>
     </Stack>
-    {error && !open && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+    {error && !open && <FormError sx={{ mb: 2 }}>{error}</FormError>}
     <Alert severity="info" sx={{ mb: 3 }}>Custom roles use the staff member’s assigned division and branch. Group administration remains with the built-in administrator roles.</Alert>
     <Grid container spacing={2}>
       {catalog?.roles.map(role => <Grid key={role.name} size={{ xs: 12, md: 6, xl: 4 }}><Card variant="outlined" sx={{ height: '100%', borderTop: '3px solid', borderTopColor: role.isBuiltIn ? 'divider' : 'secondary.main' }}><CardContent>
@@ -62,13 +71,13 @@ export function StaffRolesPage({ onChanged }: { onChanged: () => void }) {
       </CardContent></Card></Grid>)}
     </Grid>
     <Dialog open={open} onClose={() => !saving && setOpen(false)} fullWidth maxWidth="md" scroll="paper"><DialogTitle>{readOnly ? 'Role permissions' : editing ? 'Edit role' : 'Add staff role'}</DialogTitle><DialogContent dividers>
-      <Stack spacing={2.5}>{error && <Alert severity="error">{error}</Alert>}{readOnly && <Alert severity="info">The Super Administrator retains full system access.</Alert>}
+      <Stack spacing={2.5}>{error && <FormError>{error}</FormError>}{readOnly && <Alert severity="info">The Super Administrator retains full system access.</Alert>}
         {builtIn && !readOnly && <Alert severity="info">Edit the action permissions below. This role keeps its existing module access and operating scope.</Alert>}
-        <TextField label="Role name" required value={draft.name} disabled={editing} onChange={event => setDraft(current => ({ ...current, name: event.target.value }))} inputProps={{ maxLength: 80 }} helperText="Available in staff account forms and role filters after saving." />
-        <Box><Typography fontWeight={800} mb={1}>Existing modules</Typography><Grid container spacing={.5}>{catalog?.modules.map(module => <Grid key={module.key} size={{ xs: 12, sm: 6 }}><FormControlLabel control={<Checkbox disabled={builtIn || readOnly} checked={draft.modules.includes(module.key)} onChange={() => toggle('modules', module.key)} />} label={module.label} /></Grid>)}</Grid></Box>
+        <TextField id="staff-role-name" label="Role name" required value={draft.name} disabled={editing} onChange={event => setDraft(current => ({ ...current, name: event.target.value }))} inputProps={{ maxLength: 80 }} helperText="Available in staff account forms and role filters after saving." />
+        <Box id="staff-role-modules"><Typography fontWeight={800} mb={1}>Existing modules</Typography><Grid container spacing={.5}>{catalog?.modules.map(module => <Grid key={module.key} size={{ xs: 12, sm: 6 }}><FormControlLabel control={<Checkbox disabled={builtIn || readOnly} checked={draft.modules.includes(module.key)} onChange={() => toggle('modules', module.key)} />} label={module.label} /></Grid>)}</Grid></Box>
         <Box><Typography fontWeight={800} mb={1}>Additional action permissions</Typography><Typography variant="body2" color="text.secondary" mb={1}>These actions apply within the selected modules and the staff member’s operating scope.</Typography><PermissionGroups permissions={editorPermissions} selected={draft.permissions} disabled={readOnly} onChange={permission => toggle('permissions', permission)} /></Box>
       </Stack>
-    </DialogContent><DialogActions sx={{ p: 2 }}><Button disabled={saving} onClick={() => setOpen(false)}>{readOnly ? 'Close' : 'Cancel'}</Button>{!readOnly && <Button variant="contained" disabled={saving || draft.name.trim().length < 2 || !draft.modules.length} onClick={() => void save()}>{saving ? 'Saving…' : 'Save role'}</Button>}</DialogActions></Dialog>
+    </DialogContent><DialogActions sx={{ p: 2 }}><InlineIssueNavigation attempted={open && attempted} issues={issues}/><Button disabled={saving} onClick={() => setOpen(false)}>{readOnly ? 'Close' : 'Cancel'}</Button>{!readOnly && <Button variant="contained" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save role'}</Button>}</DialogActions></Dialog>
   </Box>
 }
 

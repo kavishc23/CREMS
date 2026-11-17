@@ -53,7 +53,7 @@ public sealed class AssetProfilesController(ApplicationDbContext db, CurrentStaf
         var liveItems = await db.BookingItems.AsNoTracking().Include(x => x.Booking)
             .Where(x => x.AssetId == assetId && (x.Booking!.Status == BookingStatus.Confirmed && x.EndAt > now ||
                 x.Booking.Status == BookingStatus.ConvertedToRental ||
-                x.Booking.Status == BookingStatus.Completed && !x.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))
+                x.Booking.Status == BookingStatus.Completed && x.Booking.IncidentClosedAt == null && !x.Booking.Inspections.Any(i => i.Type == InspectionType.Return)))
             .OrderBy(x => x.StartAt).ToListAsync(token);
         var future = liveItems.Where(x => x.EndAt > now).ToList();
         var unreturned = liveItems.Any(x => x.Booking!.Status == BookingStatus.ConvertedToRental || x.Booking.Status == BookingStatus.Completed);

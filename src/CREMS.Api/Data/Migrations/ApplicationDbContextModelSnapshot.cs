@@ -3856,6 +3856,9 @@ namespace CREMS.Api.Data.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<DateTimeOffset?>("IncidentClosedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("Notes")
                         .HasColumnType("nvarchar(max)");
 
@@ -3881,6 +3884,26 @@ namespace CREMS.Api.Data.Migrations
                     b.HasIndex("Status", "BranchId", "CreatedAt");
 
                     b.ToTable("Bookings");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.IncidentSettlement", b =>
+                {
+                    b.Property<Guid>("BookingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DetailsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateOnly?>("PaymentDueDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("BookingId");
+
+                    b.ToTable("IncidentSettlements");
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.BookingCharge", b =>
@@ -5243,6 +5266,15 @@ namespace CREMS.Api.Data.Migrations
                     b.Navigation("Booking");
 
                     b.Navigation("ChargeDefinition");
+                });
+
+            modelBuilder.Entity("CREMS.Api.Domain.Rentals.IncidentSettlement", b =>
+                {
+                    b.HasOne("CREMS.Api.Domain.Rentals.Booking", null)
+                        .WithOne()
+                        .HasForeignKey("CREMS.Api.Domain.Rentals.IncidentSettlement", "BookingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CREMS.Api.Domain.Rentals.BookingItem", b =>

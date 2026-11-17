@@ -1,3 +1,4 @@
+import { FormError } from './FormError'
 import { useMemo, useState } from 'react'
 import axios from 'axios'
 import {
@@ -135,7 +136,7 @@ export function ApprovalWorkspace({ approvals, reload }: { approvals: Approval[]
       </Dialog>
 
       <Stack spacing={2.5}>
-        {error && <Alert severity="error">{error}</Alert>}
+        {error && <FormError>{error}</FormError>}
 
         <Card sx={{ borderRadius: 3, color: '#fff', background: 'linear-gradient(120deg, #123047 0%, #1e5260 58%, #28746b 100%)' }}>
           <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>

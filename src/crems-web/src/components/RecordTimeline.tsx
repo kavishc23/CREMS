@@ -1,6 +1,7 @@
+import { FormError } from './FormError'
 import { useEffect, useState } from 'react'
 import HistoryOutlined from '@mui/icons-material/HistoryOutlined'
-import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
+import { Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
 import { api } from '../api/client'
 
 type TimelineItem = { occurredAt: string; title: string; detail: string; actor: string; kind: string }
@@ -27,7 +28,7 @@ export function RecordTimeline({ entityType, recordId, label = 'Activity timelin
       <DialogTitle id="record-timeline-title">{timeline?.reference ?? 'Record'} · activity timeline</DialogTitle>
       <DialogContent dividers sx={{ maxHeight: '70vh' }}>
         {loading && <Box role="status" sx={{ p: 5, textAlign: 'center' }}><CircularProgress aria-label="Loading activity timeline" /></Box>}
-        {error && <Alert severity="error">{error}</Alert>}
+        {error && <FormError>{error}</FormError>}
         {!loading && !error && timeline && <Stack component="ol" spacing={2} sx={{ listStyle: 'none', p: 0, m: 0 }}>
           {timeline.items.map((item, index) => <Box component="li" key={`${item.occurredAt}-${index}`} sx={{ pl: 2, borderLeft: '3px solid', borderColor: 'secondary.main' }}>
             <Stack direction="row" justifyContent="space-between" gap={1} alignItems="flex-start"><Typography fontWeight={750}>{item.title}</Typography><Chip size="small" label={item.kind} variant="outlined" /></Stack>

@@ -1,3 +1,4 @@
+import { FormError } from '../components/FormError'
 import { useEffect, useMemo, useState } from 'react'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
 import SearchOutlined from '@mui/icons-material/SearchOutlined'
@@ -226,7 +227,7 @@ export function PlanningCalendarPage() {
   }, [allEvents, closureMap, visibleAssets, visibleDates, data])
 
   if (error) {
-    return <Alert severity="error">{error}</Alert>
+    return <FormError>{error}</FormError>
   }
 
   if (!data) {

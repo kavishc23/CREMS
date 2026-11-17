@@ -1,6 +1,7 @@
+import { FormError } from './FormError'
 import { useState, type FormEvent } from 'react'
 import axios from 'axios'
-import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material'
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material'
 import { api } from '../api/client'
 
 type Props = { open: boolean; endpoint: string; requireOtp?: boolean; onClose: () => void; onChanged?: () => void }
@@ -42,7 +43,7 @@ function ChangePasswordContent({ open, endpoint, requireOtp = false, onClose, on
     <DialogTitle>Change password</DialogTitle>
     <DialogContent dividers><Stack component="form" id="change-password-form" onSubmit={submit} spacing={2} sx={{ pt: .5 }}>
       <Typography color="text.secondary">{challengeId ? `Enter the six-digit code sent to ${maskedDestination}. It expires in 10 minutes.` : 'Enter your current password, then choose a different password for future sign-ins.'}</Typography>
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <FormError>{error}</FormError>}
       {!challengeId ? <>
         <TextField autoFocus required type="password" autoComplete="current-password" label="Current password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} />
         <TextField required type="password" autoComplete="new-password" label="New password" helperText="At least 10 characters with an uppercase letter and a number." value={newPassword} onChange={event => setNewPassword(event.target.value)} />

@@ -1,5 +1,6 @@
+import { FormError } from './FormError'
 import { useEffect, useState } from 'react'
-import { Alert, Button, CircularProgress, Stack, Typography } from '@mui/material'
+import { Button, CircularProgress, Stack, Typography } from '@mui/material'
 import { api } from '../api/client'
 
 type Review = {
@@ -24,7 +25,7 @@ export function RetentionReview() {
   return <Stack spacing={1} sx={{mt:3}}>
     <Typography variant="h6">Records flagged for retention review</Typography>
     <Typography color="text.secondary">Closed rentals are flagged using their last update and scheduled rental end dates. Audit events use their event date. Review linked financial records and retention obligations before taking action. Nothing is deleted or archived automatically.</Typography>
-    {error&&<Alert severity="error" action={<Button onClick={()=>{setLoading(true);setError('');setRetry(x=>x+1)}}>Retry</Button>}>{error}</Alert>}
+    {error&&<FormError action={<Button onClick={()=>{setLoading(true);setError('');setRetry(x=>x+1)}}>Retry</Button>}>{error}</FormError>}
     {loading?<CircularProgress size={24}/>:!error&&data&&<>
       <Typography>{data.years}-year policy · before {new Date(data.cutoff).toLocaleDateString('en-FJ')} · {data.bookingCount} closed rentals · {data.auditCount} audit events</Typography>
       {data.bookings.map(row=><Typography key={row.id}>{row.reference} · {row.status} · {new Date(row.lastActivity).toLocaleDateString('en-FJ')}</Typography>)}
