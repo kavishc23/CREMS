@@ -1,5 +1,7 @@
 import { InlineIssueNavigation } from './InlineValidation'
 import { FormError } from './FormError'
+import { IncidentAttachments, incidentEvidence } from './IncidentAttachments'
+import { IncidentInspectionSummary } from './IncidentInspectionSummary'
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import {
@@ -26,7 +28,7 @@ type Settlement = {
   assignees: { id: string; name: string; role: string }[]
   followUpAt: string | null; email: string | null; taxInclusive: boolean; taxRate: number
   lines: { description: string; amount: number }[]
-  incidents: { incidentNumber: string; status: string; description: string; policeReference: string | null; insuranceClaimNumber: string | null }[]
+  incidents: { evidenceJson?:string|null; inspectionJson?:string|null; outcome?:string|null; incidentNumber: string; status: string; description: string; policeReference: string | null; insuranceClaimNumber: string | null }[]
   total: number; paid: number; balance: number
   bondAmountHeld: number; bondDeductionAmount: number; bondSettledAt: string | null; bondRefundAmount: number
   invoice: { id: string; invoiceNumber: string } | null
@@ -256,7 +258,7 @@ export function IncidentSettlementDialog({ bookingId, bookingNumber, onClose, on
           </Stack>
           {data.incidents.map(incident => <Box key={incident.incidentNumber}>
             <Typography fontWeight={700}>{incident.incidentNumber} · {incident.status}</Typography>
-            <Typography variant="body2">{incident.description}</Typography>
+            <Typography variant="body2">{incident.description}</Typography><IncidentAttachments value={incidentEvidence(incident.evidenceJson)}/><IncidentInspectionSummary json={incident.inspectionJson} outcome={incident.outcome}/>
             {(incident.policeReference || incident.insuranceClaimNumber) && <Typography variant="body2">
               {incident.policeReference && `Police reference ${incident.policeReference} `}{incident.insuranceClaimNumber && `Insurance claim ${incident.insuranceClaimNumber}`}
             </Typography>}

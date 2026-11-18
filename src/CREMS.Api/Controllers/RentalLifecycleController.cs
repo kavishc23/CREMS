@@ -18,7 +18,7 @@ namespace CREMS.Api.Controllers;
 [ApiController]
 [Route("api/rentals/{bookingId:guid}/lifecycle")]
 [Authorize(Policy = SystemPolicies.ManageRentals)]
-public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
+public sealed partial class RentalLifecycleController(ApplicationDbContext db, CurrentStaffScope staffScope) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult> Get(Guid bookingId, CancellationToken cancellationToken)
@@ -102,9 +102,11 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
     {
         if (IncidentEvidence.Validate(request.EvidenceDataUrls) is { } evidenceError) return BadRequest(new { message = evidenceError });
         var access = await GetBooking(bookingId, cancellationToken); if (access.Result is not null) return access.Result;
-        if (request.OccurredAt == default || request.OccurredAt > DateTimeOffset.UtcNow) return Validation("occurredAt", "Enter a valid incident time no later than now.");
-        var incident = new RentalIncident { BookingId = bookingId, IncidentNumber = $"INC-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}", Type = request.Type, OccurredAt = request.OccurredAt, Description = request.Description.Trim(), Location = Clean(request.Location), PoliceReference = Clean(request.PoliceReference), InsuranceClaimNumber = Clean(request.InsuranceClaimNumber), EstimatedCost = request.EstimatedCost, EvidenceJson = JsonSerializer.Serialize(request.EvidenceDataUrls ?? []) };
+        if (access.Booking!.Status != BookingStatus.ConvertedToRental) return Conflict(new { message = "Report incidents against an active hire." });
+        if (!Enum.IsDefined(request.Type) || request.OccurredAt == default || request.OccurredAt > DateTimeOffset.UtcNow || access.Booking.Items.Any(i => request.OccurredAt < i.StartAt)) return Validation("occurredAt", "Enter a valid incident time no later than now.");
+        var incident = new RentalIncident { BookingId = bookingId, AssetId = access.Booking!.Items.FirstOrDefault()?.AssetId, IncidentNumber = $"INC-{DateTime.UtcNow:yyyy}-{Guid.NewGuid().ToString("N")[..7].ToUpperInvariant()}", Type = request.Type, OccurredAt = request.OccurredAt, Description = request.Description.Trim(), Location = Clean(request.Location), PoliceReference = Clean(request.PoliceReference), InsuranceClaimNumber = Clean(request.InsuranceClaimNumber), EstimatedCost = request.EstimatedCost, EvidenceJson = JsonSerializer.Serialize(request.EvidenceDataUrls ?? []) };
         db.RentalIncidents.Add(incident); AuditWriter.Record(db, access.Scope!, "Rental incident recorded", "Booking", bookingId, $"{incident.IncidentNumber} was opened for {access.Booking!.BookingNumber}.", access.Booking.BranchId);
+        await SharedRentalIncidents.SyncCase(db, access.Booking!, incident, cancellationToken);
         await db.SaveChangesAsync(cancellationToken); return Ok(new { incident.Id, incident.BookingId, incident.IncidentNumber, incident.Type, incident.OccurredAt, incident.Description, incident.EstimatedCost, incident.Status });
     }
 
@@ -165,13 +167,7 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
             booking.Notes = string.Join("\n", new[] { booking.Notes, $"Early termination requested after incident {incident.IncidentNumber}; immediate return and settlement required." }.Where(x => !string.IsNullOrWhiteSpace(x)));
         }
 
-        var customerCase = await db.CustomerCases.FirstOrDefaultAsync(x => x.CustomerId == booking.CustomerId && x.Subject.Contains(incident.IncidentNumber), cancellationToken)
-            ?? await db.CustomerCases.FirstOrDefaultAsync(x => x.CustomerId == booking.CustomerId && x.Subject.Contains(booking.BookingNumber) && x.Subject.StartsWith("Customer incident"), cancellationToken);
-        if (customerCase is not null)
-        {
-            customerCase.Status = CaseStatus.Resolved;
-            customerCase.Resolution = incident.CustomerResolution;
-        }
+        await SharedRentalIncidents.SyncCase(db, booking, incident, cancellationToken);
 
         AuditWriter.Record(db, access.Scope, "Rental incident resolved", "Booking", bookingId, $"{incident.IncidentNumber}: {incident.Status}. {request.StaffResolution.Trim()}", booking.BranchId);
         await db.SaveChangesAsync(cancellationToken);
@@ -210,6 +206,8 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
         {
             var report = await db.RentalIncidents.FirstOrDefaultAsync(x => x.Id == incidentId.Value && x.BookingId == bookingId, token);
             if (report is null) return NotFound();
+            if (report.Outcome is RentalIncidentOutcome.ReplaceAsset or RentalIncidentOutcome.EndHire || report.AssetId.HasValue && report.AssetId != asset.Id)
+                return Conflict(new { message = "This incident was finalized or refers to a previous asset. Reload the incident history." });
             incident = report;
         }
         else
@@ -226,28 +224,40 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
             db.RentalIncidents.Add(incident);
         }
 
+        incident.AssetId ??= asset.Id;
+        incident.Outcome = RentalIncidentOutcome.EndHire;
+        await EndIncidentHireCore(booking, asset, incident, request.AssetStatus, reason, custody, scope, now, token);
+        await SharedRentalIncidents.SyncCase(db, booking, incident, token);
+        await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return Ok(new { booking.IncidentClosedAt, incident.Id, asset.Status });
+    }
+
+    private async Task EndIncidentHireCore(Booking booking, Asset asset, RentalIncident incident, AssetStatus assetStatus,
+        string reason, string custody, StaffDataScope scope, DateTimeOffset now, CancellationToken token, Guid? sourceInspectionId = null)
+    {
         var note = $"Incident {incident.IncidentNumber}. Reason: {reason} Custody: {custody}";
-        var agreement = await db.RentalAgreements.FirstOrDefaultAsync(x => x.BookingId == bookingId, token);
+        var agreement = await db.RentalAgreements.FirstOrDefaultAsync(x => x.BookingId == booking.Id, token);
         if (agreement is not null) agreement.Status = AgreementStatus.Completed;
         db.AssetLifecycleEvents.Add(new AssetLifecycleEvent
         {
             AssetId = asset.Id, BookingId = booking.Id, Type = AssetLifecycleEventType.DamageReported,
-            FromStatus = asset.Status, ToStatus = request.AssetStatus, OccurredAt = now, Notes = note,
+            FromStatus = asset.Status, ToStatus = assetStatus, OccurredAt = now, Notes = note,
             RecordedByUserId = scope.UserId, RecordedByName = scope.UserName
         });
-        if (request.AssetStatus == AssetStatus.Maintenance)
+        if (assetStatus == AssetStatus.Maintenance)
         {
             db.MaintenanceJobs.Add(new MaintenanceJob
             {
                 JobNumber = $"MNT-{now:yyyy}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}",
                 AssetId = asset.Id, BranchId = asset.BranchId, SourceType = "Damage",
-                SourceReference = incident.IncidentNumber, ReportedByName = scope.UserName,
+                SourceReference = incident.IncidentNumber, SourceInspectionId = sourceInspectionId, ReportedByName = scope.UserName,
                 ServiceType = "Incident damage assessment", Priority = MaintenancePriority.High, ReportedAt = now,
                 FaultDescription = $"Assess damage and confirm custody before release. Incident {incident.IncidentNumber}.",
                 Description = $"Referred from hire {booking.BookingNumber}."
             });
         }
-        asset.Status = request.AssetStatus;
+        asset.Status = assetStatus;
         asset.UpdatedAt = now;
         booking.Status = BookingStatus.Completed;
         booking.IncidentClosedAt = now;
@@ -256,7 +266,7 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
         incident.ImmediateReturnRequested = false;
         incident.CustomerResolution = "The branch has ended this hire following an incident. Contact the branch for any outstanding arrangements.";
         var obsoleteTasks = await db.ManagementTasks.Where(x => !x.IsCompleted &&
-            x.SourceEntityType == nameof(Booking) && x.SourceEntityId == bookingId &&
+            x.SourceEntityType == nameof(Booking) && x.SourceEntityId == booking.Id &&
             x.Category == TaskCategory.OverdueRental).ToListAsync(token);
         foreach (var task in obsoleteTasks) task.IsCompleted = true;
         var branchManagerId = await db.Branches.Where(x => x.Id == booking.BranchId)
@@ -272,10 +282,7 @@ public sealed class RentalLifecycleController(ApplicationDbContext db, CurrentSt
             SourceEntityType = nameof(Booking), SourceEntityId = booking.Id
         });
         AuditWriter.Record(db, scope, "Hire ended after incident", "Booking", booking.Id,
-            $"{incident.IncidentNumber}: {asset.AssetNumber} moved to {request.AssetStatus}.", booking.BranchId, null, note);
-        await db.SaveChangesAsync(token);
-        if (transaction is not null) await transaction.CommitAsync(token);
-        return Ok(new { booking.IncidentClosedAt, incident.Id, asset.Status });
+            $"{incident.IncidentNumber}: {asset.AssetNumber} moved to {assetStatus}.", booking.BranchId, null, note);
     }
 
     [HttpPost("notifications")]

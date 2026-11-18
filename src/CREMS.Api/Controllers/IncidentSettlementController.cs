@@ -33,7 +33,7 @@ public sealed class IncidentSettlementController(ApplicationDbContext db, Curren
             return Forbid();
         var owner = await db.Users.Where(x => x.Id == ownerId && x.IsActive).Select(x => x.FullName).FirstOrDefaultAsync(token);
         var incidents = await db.RentalIncidents.AsNoTracking().Where(x => x.BookingId == bookingId)
-            .Select(x => new { x.IncidentNumber, x.Status, x.Description, x.PoliceReference, x.InsuranceClaimNumber }).ToListAsync(token);
+            .Select(x => new { x.IncidentNumber, x.Status, x.Description, x.PoliceReference, x.InsuranceClaimNumber, x.EvidenceJson, x.InspectionJson, x.Outcome }).ToListAsync(token);
         var state = Read(await db.IncidentSettlements.AsNoTracking().SingleOrDefaultAsync(x => x.BookingId == bookingId, token));
         var assignees = canApprove && state.ClosedAt is null ? await EligibleAssignees(booking).ToListAsync(token) : [];
         var accountChangedSinceIssue = canApprove && state.ClosedAt is null && await AccountChangedSinceIssue(booking, state, token);
@@ -246,6 +246,13 @@ public sealed class IncidentSettlementController(ApplicationDbContext db, Curren
         }
         settlement.DetailsJson = details;
         settlement.ClosedAt = state.ClosedAt;
+        if (request.CloseCase)
+            foreach (var incident in await db.RentalIncidents.Where(i => i.BookingId == bookingId && i.Status != IncidentStatus.Closed).ToListAsync(token))
+            {
+                incident.Status = IncidentStatus.Closed;
+                incident.CustomerResolution = "The branch has completed the incident settlement. View your final invoice and payment position, or contact the branch for clarification.";
+                await SharedRentalIncidents.SyncCase(db, booking, incident, token);
+            }
         if (request.IssueInvoice) settlement.PaymentDueDate = state.DueDate;
         AuditWriter.Record(db, scope, request.CloseCase ? "Incident settlement closed" : request.IssueInvoice ?
             "Incident settlement issued" : "Incident settlement reviewed", nameof(Booking), bookingId,

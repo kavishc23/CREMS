@@ -48,6 +48,10 @@ public sealed class RentalIncident : Entity
     public required string IncidentNumber { get; set; }
     public Guid BookingId { get; set; }
     public Booking? Booking { get; set; }
+    public Guid? AssetId { get; set; }
+    public Guid? ReplacementAssetId { get; set; }
+    public RentalIncidentOutcome? Outcome { get; set; }
+    public string? InspectionJson { get; set; }
     public IncidentType Type { get; set; }
     public DateTimeOffset OccurredAt { get; set; }
     public required string Description { get; set; }
@@ -108,5 +112,6 @@ public enum NotificationChannel { Email, Sms }
 public enum NotificationStatus { Queued, Sent, Failed }
 public enum IncidentType { Accident, Damage, Breakdown, Theft, TrafficOffence, Other }
 public enum IncidentStatus { Open, Investigating, AwaitingInsurance, Resolved, Closed }
+public enum RentalIncidentOutcome { ContinueRental, ReplaceAsset, EndHire }
 public enum InvoiceStatus { Draft, Issued, PartiallyPaid, Paid, Voided }
 public enum CreditNoteStatus { Draft, Issued, Applied, Voided }

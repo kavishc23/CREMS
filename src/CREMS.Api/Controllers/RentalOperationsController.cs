@@ -120,7 +120,9 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (booking is null) return NotFound();
         var scope = await staffScope.GetAsync(User);
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
-        return Ok(ToResponse(booking));
+        var replacementInspections = await db.AssetInspections.AsNoTracking().Where(x => x.BookingId == bookingId && x.Stage == InspectionStage.PreHire && x.Notes != null && x.Notes.StartsWith("Incident replacement handover:"))
+            .OrderBy(x => x.CompletedAt).ToListAsync(cancellationToken);
+        return Ok(ToResponse(booking, replacementInspections));
     }
 
     [HttpPost("{bookingId:guid}/pre-hire-inspection")]
@@ -183,7 +185,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         var templates = await db.InspectionTemplates.AsNoTracking()
             .Where(x => x.IsActive && x.AssetCategoryId == categoryId && (x.Stage == InspectionStage.PreHire || x.Stage == InspectionStage.PostHire))
             .OrderBy(x => x.Name).Select(x => new { x.Id, x.Name, x.Stage, x.ChecklistJson }).ToListAsync(cancellationToken);
-        var preHire = booking.Inspections.Where(x => x.Type == InspectionType.Handover).OrderByDescending(x => x.CompletedAt).FirstOrDefault();
+        var preHire = await SharedRentalIncidents.CurrentHandover(db, booking, cancellationToken);
         var configuration = await ConfiguredHireRules.Resolve(db, booking, cancellationToken);
         var categoryUnit = categoryId.HasValue ? await db.AssetCategories.AsNoTracking().Where(x => x.Id == categoryId).Select(x => x.DefaultMeterType).FirstOrDefaultAsync(cancellationToken) : null;
         var driver = await db.AuthorizedDrivers.AsNoTracking().Where(x => x.BookingId == bookingId).OrderByDescending(x => x.IsPrimary).FirstOrDefaultAsync(cancellationToken);
@@ -219,7 +221,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         if (scope is null || !scope.HasAssetAccess(booking.BranchId, booking.Items.FirstOrDefault()?.Asset?.DivisionId)) return Forbid();
         if (booking.Status != BookingStatus.ConvertedToRental && !(booking.Status == BookingStatus.Completed && booking.IncidentClosedAt == null && !booking.Inspections.Any(x => x.Type == InspectionType.Return))) return BadRequest(new { message = "Only an active rental can be returned." });
         var actualReturn = returnedAt ?? DateTimeOffset.UtcNow;
-        if (!ValidReturnTime(booking, actualReturn))
+        if (!ValidReturnTime(booking, actualReturn) || (await SharedRentalIncidents.CurrentHandover(db, booking, cancellationToken))?.CompletedAt > actualReturn)
             return BadRequest(new { message = "Use a return time on or after handover and the hire start, and no later than now." });
         var multiplier = await LateFeeMultiplier(cancellationToken);
         var hireSubtotal = RentalFinancials.Net(booking);
@@ -287,13 +289,13 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             return BadRequest(new { message = "Record the customer acknowledgement name and drawn signature before completing the return." });
         if (request.MeterReading < 0 || request.FuelLevelPercent is < 0 or > 100)
             return BadRequest(new { message = "Meter readings cannot be negative and fuel must be between 0 and 100 percent." });
-        var lastReading = booking.Inspections.Where(x => x.Type == InspectionType.Handover).Select(x => x.MeterReading)
-            .Concat(booking.Items.Where(x => x.Asset != null).Select(x => x.Asset!.CurrentMeterReading)).Max();
+        var currentHandover = await SharedRentalIncidents.CurrentHandover(db, booking, cancellationToken);
+        var lastReading = new[] { currentHandover?.MeterReading, booking.Items.FirstOrDefault()?.Asset?.CurrentMeterReading }.Max();
         if (request.MeterReading.HasValue && lastReading.HasValue && request.MeterReading < lastReading)
             return BadRequest(new { message = "The return meter reading cannot be lower than the recorded starting reading." });
 
         var returnedAt = request.ReturnedAt ?? DateTimeOffset.UtcNow;
-        if (!ValidReturnTime(booking, returnedAt))
+        if (!ValidReturnTime(booking, returnedAt) || currentHandover?.CompletedAt > returnedAt)
             return BadRequest(new { message = "Use a return time on or after handover and the hire start, and no later than now." });
         var calculatedLateFee = ReturnChargePolicy.LateFee(booking.Items, returnedAt, await LateFeeMultiplier(cancellationToken));
         var lateFee = request.LateFee ?? calculatedLateFee;
@@ -457,7 +459,7 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
         CompletedByUserId = scope.UserId, CompletedByName = scope.UserName,
     };
 
-    private static object ToResponse(Booking booking)
+    private static object ToResponse(Booking booking, IReadOnlyList<AssetInspection>? replacements = null)
     {
         var subtotal = booking.Items.Sum(item => HirePricing.Amount(item));
         var taxable = Math.Max(0, subtotal - booking.DiscountAmount + booking.AdditionalCharges);
@@ -465,6 +467,9 @@ public sealed class RentalOperationsController(ApplicationDbContext db, CurrentS
             bond = new { required = booking.DepositRequired, held = booking.BondAmountHeld, deduction = booking.BondDeductionAmount, booking.BondDeductionReason, refund = booking.BondRefundAmount, status = booking.BondStatus.ToString(), booking.BondSettledAt },
             booking.DiscountAmount, booking.TaxRate, booking.AdditionalCharges, booking.AdditionalChargesDescription,
             Subtotal = subtotal, TaxAmount = HirePricing.Tax(booking), Total = RentalFinancials.Total(booking),
+            ReplacementInspections = (replacements ?? []).Select(x => new { x.Id, x.BookingId, x.CompletedAt, x.CompletedByName,
+                conditionNotes = x.Notes, x.MeterReading, fuelLevelPercent = x.FuelPercent, x.EvidenceJson,
+                signatureName = x.CustomerSignatureName, signatureDataUrl = x.CustomerSignatureDataUrl }),
             Inspections = booking.Inspections.OrderBy(item => item.CompletedAt).Select(item => new { item.Id, item.Type,
                 item.IdentificationVerified, item.DriverLicenceVerified, item.MeterReading, item.FuelLevelPercent,
                 item.ConditionNotes, item.DamageNotes, item.EvidenceJson, item.SignatureName, item.SignatureDataUrl, item.CompletedByName, item.CompletedAt }) };

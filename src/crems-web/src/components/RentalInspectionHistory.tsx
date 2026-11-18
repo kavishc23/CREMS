@@ -4,7 +4,7 @@ import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, 
 import { api } from '../api/client'
 
 export type Inspection = {
-  id: string; type: 'Handover' | 'Return'; completedAt: string; completedByName: string | null
+  label?: string; id: string; type: 'Handover' | 'Return'; completedAt: string; completedByName: string | null
   conditionNotes: string | null; damageNotes: string | null; meterReading: number | null
   fuelLevelPercent: number | null; evidenceJson: string | null; signatureName: string | null; signatureDataUrl: string | null
   identificationVerified?: boolean; driverLicenceVerified?: boolean; paymentVerified?: boolean
@@ -21,8 +21,8 @@ export function RentalInspectionHistory({ bookingId, bookingNumber, assetName, o
   const [photo, setPhoto] = useState<string | null>(null)
   useEffect(() => {
     let active = true
-    api.get<{ inspections: Inspection[] }>(`/rentals/${bookingId}`).then(response => {
-      if (active) setRecords(response.data.inspections)
+    api.get<{ inspections: Inspection[]; replacementInspections?: Omit<Inspection, 'type'>[] }>(`/rentals/${bookingId}`).then(response => {
+      if (active) setRecords([...response.data.inspections, ...(response.data.replacementInspections ?? []).map(x => ({...x, type: 'Handover' as const, label: 'Replacement handover'}))])
     }).catch(() => { if (active) setError('Inspection records could not be loaded. Check your access or try again.') })
     return () => { active = false }
   }, [bookingId, attempt])
@@ -35,7 +35,7 @@ export function RentalInspectionHistory({ bookingId, bookingNumber, assetName, o
           {(['Handover', 'Return'] as const).map(type => <Stack spacing={2} key={type}>
             <Typography variant="h6">{type === 'Handover' ? 'Pre-hire' : 'Post-hire'}</Typography>
             {!records.some(record => record.type === type) && <Alert severity="info">No {type === 'Handover' ? 'pre-hire' : 'post-hire'} inspection has been saved.</Alert>}
-            {records.filter(record => record.type === type).map(record => <InspectionRecord key={record.id} record={record} onPhoto={setPhoto} />)}
+            {records.filter(record => record.type === type).map(record => <Box key={record.id}>{record.label&&<Typography fontWeight={750} mb={1}>{record.label}</Typography>}<InspectionRecord record={record} onPhoto={setPhoto} /></Box>)}
           </Stack>)}
         </Box>}
       <Dialog open={Boolean(photo)} onClose={() => setPhoto(null)} fullWidth maxWidth="lg" aria-label="Inspection photo preview">
