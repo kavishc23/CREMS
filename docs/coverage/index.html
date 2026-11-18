@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CREMS test coverage snapshot — 16 November 2026</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, Segoe UI, sans-serif; color: #172338; background: #f4f7fb; }
+    body { margin: 0; }
+    main { max-width: 920px; margin: 0 auto; padding: 36px 22px 56px; }
+    h1 { margin: 4px 0 8px; font-size: clamp(2rem, 4vw, 2.8rem); }
+    h2 { margin-top: 32px; font-size: 1.4rem; }
+    .eyebrow { color: #31577d; font-size: .8rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .note { background: #fff6df; border-left: 5px solid #ce8b00; padding: 15px 18px; margin: 24px 0; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 24px 0; }
+    .card { background: white; border: 1px solid #d9e2ed; border-radius: 10px; padding: 18px; }
+    .card strong { display: block; font-size: 1.8rem; color: #173e69; }
+    .card span { color: #536477; }
+    table { width: 100%; border-collapse: collapse; background: white; }
+    th, td { padding: 11px 12px; border: 1px solid #d9e2ed; text-align: left; }
+    th { background: #173e69; color: white; }
+    .table-wrap { overflow-x: auto; }
+    .good { color: #12683e; font-weight: 700; }
+    .low { color: #9b4b00; font-weight: 700; }
+    footer { margin-top: 34px; color: #536477; font-size: .9rem; }
+  </style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">CREMS · Engineering verification</p>
+  <h1>Test coverage snapshot</h1>
+  <p>Generated 16 November 2026, 20:36 Fiji time.</p>
+  <div class="note"><strong>Historical results.</strong> These figures describe the 16 November run, not the current state of the project. A later frontend verification run reported 56 failing tests out of 738; rerun the suites and regenerate coverage before using this page as release evidence.</div>
+
+  <div class="cards">
+    <div class="card"><strong>1,371</strong><span>tests passed in the snapshot</span></div>
+    <div class="card"><strong>81.33%</strong><span>indicative combined line coverage</span></div>
+    <div class="card"><strong>95%</strong><span>per-layer line target, not reached</span></div>
+  </div>
+
+  <h2>Snapshot results</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Suite</th><th>Passed</th><th>Failed</th><th>Skipped</th></tr></thead>
+    <tbody><tr><td>Backend xUnit</td><td>637</td><td>0</td><td>0</td></tr><tr><td>Frontend Vitest</td><td>734</td><td>0</td><td>0</td></tr><tr><td>Total</td><td>1,371</td><td>0</td><td>0</td></tr></tbody>
+  </table></div>
+
+  <h2>Measured coverage</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Layer</th><th>Lines</th><th>Branches</th><th>Covered lines</th></tr></thead>
+    <tbody>
+      <tr><td>Backend</td><td class="low">77.54%</td><td class="low">60.33%</td><td>10,903 / 14,062</td></tr>
+      <tr><td>Frontend</td><td class="good">93.56%</td><td class="good">82.07%</td><td>4,083 / 4,364</td></tr>
+      <tr><td>Combined, indicative</td><td>81.33%</td><td>69.94%</td><td>14,986 / 18,426</td></tr>
+    </tbody>
+  </table></div>
+  <p>Frontend statement coverage was 89.27%; function coverage was 86.09%. The backend collector did not publish equivalent statement or function measures. The combined figure weights measured line entries across two different collectors and is not a substitute for the per-layer measures.</p>
+
+  <h2>Requested frontend areas</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Area</th><th>Statements</th><th>Branches</th><th>Functions</th><th>Lines</th></tr></thead>
+    <tbody>
+      <tr><td>src/components</td><td>90.65%</td><td>84.31%</td><td>87.83%</td><td>94.70%</td></tr>
+      <tr><td>src/pages</td><td>87.24%</td><td>80.20%</td><td>84.26%</td><td>92.17%</td></tr>
+      <tr><td>src/pages/maintenance</td><td>89.17%</td><td>83.45%</td><td>85.99%</td><td>95.54%</td></tr>
+    </tbody>
+  </table></div>
+  <p>Green in the original listing meant at least 80% for each measured metric. All three requested frontend areas met that threshold in this snapshot. The overall backend line and branch metrics did not.</p>
+
+  <h2>Scope</h2>
+  <p>Backend results include xUnit unit and component/API tests measured for the CREMS API assembly. Frontend results use Vitest V8 coverage for TypeScript and TSX source. Browser/manual testing and database schema coverage are outside these percentages. Passing tests do not prove untested paths behave correctly.</p>
+  <footer>CREMS coverage summary · Archived snapshot from 16 November 2026</footer>
+</main>
+</body>
+</html>
