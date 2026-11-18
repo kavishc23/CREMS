@@ -725,6 +725,8 @@ public sealed class BookingsController(ApplicationDbContext db, CurrentStaffScop
         var definitionIds = request.Where(x => x.ChargeDefinitionId.HasValue).Select(x => x.ChargeDefinitionId!.Value).Distinct().ToList();
         if (definitionIds.Count > 0 && await db.ChargeDefinitions.CountAsync(x => definitionIds.Contains(x.Id) && x.IsActive, cancellationToken) != definitionIds.Count) return BadRequest(new { message = "One or more selected charge definitions are unavailable." });
         db.BookingCharges.RemoveRange(booking.Charges); booking.Charges = request.Select(x => new BookingCharge { BookingId = booking.Id, AssetId = x.AssetId ?? booking.Items.FirstOrDefault()?.AssetId, ChargeDefinitionId = x.ChargeDefinitionId, Description = x.Description.Trim(), Category = x.Category, Unit = x.Unit, Quantity = x.Quantity, UnitRate = x.UnitRate, UnitCost = x.UnitCost, IsTaxable = x.IsTaxable }).ToList();
+        // New charge rows already have GUID keys; mark them as inserts explicitly.
+        db.BookingCharges.AddRange(booking.Charges);
         booking.AdditionalCharges = booking.Charges.Sum(x => x.Quantity * x.UnitRate); booking.AdditionalChargesDescription = booking.Charges.Count == 0 ? null : string.Join(", ", booking.Charges.Select(x => x.Description)); booking.UpdatedAt = DateTimeOffset.UtcNow;
         AuditWriter.Record(db, scope, "Booking charges replaced", nameof(Booking), booking.Id, $"{booking.BookingNumber} now has {booking.Charges.Count} configurable charge components.", booking.BranchId); await db.SaveChangesAsync(cancellationToken);
         return Ok(booking.Charges.Select(x => new BookingChargeResponse(x.Id, x.ChargeDefinitionId, x.Description, x.Category, x.Unit, x.Quantity, x.UnitRate, x.UnitCost, x.IsTaxable)));

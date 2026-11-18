@@ -102,7 +102,7 @@ Swagger UI is available at `http://localhost:5080/swagger` in Development. Sign 
 - [Staff reports](docs/staff-reports.md) · [Reporting definitions](docs/reporting-metrics.md)
 - [Email configuration](docs/STAGING_EMAIL_SETUP.md)
 
-The optional utilities in `ops/SeedCatalogue` and `ops/ExtendRentalCatalogue` configure a local catalogue. Production business records must be entered or imported through an approved client process. Presentation bookings and historical sample-transaction utilities are excluded from the handover source.
+The optional utilities in `ops/SeedCatalogue` and `ops/ExtendRentalCatalogue` configure a local catalogue. Production business records must be entered or imported through an approved client process. For repeatable local pickup/return testing, see [`ops/SeedRentalPractice`](ops/SeedRentalPractice/README.md). It adds explicitly fictional practice vehicles and transactions only when run with `--apply`; it is never executed by application startup.
 
 ## Validation
 
@@ -113,6 +113,25 @@ npm ci
 npm test
 npm run build
 ```
+
+Run `./scripts/test-coverage.sh` from the repository root to measure backend and frontend code coverage. Results are written under `output/coverage`. Backend collection excludes generated build sources and EF migrations; opt-in SQL integration tests require separate enablement. The script also generates `output/coverage/CREMS_Test_Coverage_Report.html` with per-layer metrics, test counts and the remaining gaps against a 95% line target.
+
+To include isolated SQL integration tests, configure `CREMS_TEST_SQL_CONNECTION` (or the API's local SQL connection in user secrets), then run:
+
+```bash
+CREMS_RUN_SQL_TESTS=1 CREMS_RUN_SETTINGS_SQL_TESTS=1 CREMS_RUN_ORGANIZATION_SQL_TESTS=1 ./scripts/test-coverage.sh
+```
+
+SQL tests create uniquely named disposable databases and delete those databases afterward; the SQL account needs database creation permissions. Coverage reports distinguish these integration tests from frontend unit/component tests. Passing every test does not mean 95% of application code is covered. The report also audits each measured layer metric and every frontend file against the unchanged 80% green watermark. See `output/coverage/coverage-metric-audit.csv` for uncovered metrics; the separate 95% line target remains stricter. Backend statement/function coverage is unavailable from the selected collector and is not treated as a pass.
+
+The report includes a separate table for `src/components`, immediate `src/pages` files, and `src/pages/maintenance`, matching the frontend coverage directory listing. A directory is green only when statements, branches, functions and lines each reach 80%. To refresh frontend evidence and reuse the existing backend results, run these commands from the repository root:
+
+```bash
+npm --prefix src/crems-web run test:coverage -- --reporter=default --reporter=json --outputFile=../../output/coverage/frontend-tests.json
+python3 scripts/build-coverage-report.py
+```
+
+Frontend workflow tests exercise rendered controls and assert API payloads, validation, permissions, recovery and failure behavior. API calls use test doubles; these tests do not send real messages or modify the training database. Coverage is collected across the whole frontend, including files that no test imports.
 
 Browser and end-to-end setup is documented in [browser checks](tests/browser/README.md) and [end-to-end checks](tests/CREMS.E2E/README.md).
 

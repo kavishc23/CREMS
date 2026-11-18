@@ -485,6 +485,7 @@ export function PlanningCalendarPage() {
                         return (
                           <Box
                             key={`${asset.id}-${dateKey}`}
+                            title={`${asset.assetNumber} · ${formatDate(date, 'day')} · ${cellLabel}`}
                             onClick={() => setDetailAssetId(asset.id)}
                             sx={{
                               minHeight: 52,
@@ -508,7 +509,6 @@ export function PlanningCalendarPage() {
                                 transform: 'translateY(-1px)',
                               },
                               boxShadow: isToday ? 'inset 0 0 0 1px rgba(122,75,0,0.08)' : closureName ? 'inset 0 0 0 1px rgba(0,0,0,0.04)' : 'none',
-                              title: `${asset.assetNumber} · ${formatDate(date, 'day')} · ${cellLabel}`,
                             }}
                           >
                             {cellText}

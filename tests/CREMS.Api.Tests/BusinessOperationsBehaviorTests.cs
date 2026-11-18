@@ -1,0 +1,35 @@
+using System.Text;
+using System.Text.Json;
+using CREMS.Api.Controllers;
+using CREMS.Api.Data;
+using CREMS.Api.Domain.Assets;
+using CREMS.Api.Domain.Common;
+using CREMS.Api.Domain.Corporate;
+using CREMS.Api.Domain.Customers;
+using CREMS.Api.Domain.Identity;
+using CREMS.Api.Domain.Operations;
+using CREMS.Api.Domain.Rentals;
+using CREMS.Api.Services;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Xunit;
+namespace CREMS.Api.Tests;
+public sealed class BusinessOperationsBehaviorTests
+{
+    private static CancellationToken T=>TestContext.Current.CancellationToken;
+    private static JsonElement Json(object? value)=>JsonSerializer.SerializeToElement(value,new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    private static async Task<(BusinessOperationsController C,Asset A,Booking B,Guid D)> Setup(ApplicationDbContext db)
+    {var(ctx,a)=await MaintenanceJobsTests.Setup(db);var d=new Division{Code="BUS",Name="Business training"};var customer=new Customer{CustomerNumber="BUS-C",Name="Training customer"};a.DivisionId=d.Id;a.CurrentMeterReading=100;a.MeterUnit="hours";var b=new Booking{BookingNumber="BUS-B",CustomerId=customer.Id,BranchId=a.BranchId,Status=BookingStatus.ConvertedToRental,Items=[new(){AssetId=a.Id,StartAt=DateTimeOffset.UtcNow.AddDays(-2),EndAt=DateTimeOffset.UtcNow.AddDays(2),DailyRate=100,HireQuantity=4}]};db.AddRange(d,customer,b,new BranchDivision{BranchId=a.BranchId,DivisionId=d.Id});using(db.SuppressNotifications())await db.SaveChangesAsync(T);return(new BusinessOperationsController(db,new CurrentStaffScope(db)){ControllerContext=ctx.ControllerContext},a,b,d.Id);}
+    [Fact]public async Task Meter_reading_adds_only_excess_usage_and_rejects_decreasing_or_unrelated_bookings()
+    {await using var db=MaintenanceJobsTests.Database();var(c,a,b,d)=await Setup(db);Assert.IsType<OkObjectResult>(await c.RecordMeter(a.Id,new(MeterType.EngineHours," hours ",130,75,MeterReadingSource.Manual,b.Id,10,5,null),T));Assert.Equal(130,a.CurrentMeterReading);var charge=await db.BookingCharges.SingleAsync(T);Assert.Equal(20,charge.Quantity);Assert.Equal(5,charge.UnitRate);Assert.IsType<BadRequestObjectResult>(await c.RecordMeter(a.Id,new(MeterType.EngineHours,"hours",129,75,MeterReadingSource.Manual,null,null,null,null),T));Assert.IsType<BadRequestObjectResult>(await c.RecordMeter(a.Id,new(MeterType.EngineHours,"hours",140,75,MeterReadingSource.Manual,Guid.NewGuid(),null,null,null),T));Assert.Single(await db.AssetMeterReadings.ToListAsync(T));}
+    [Fact]public async Task Personnel_assignment_timesheet_and_report_reconcile_customer_charge_and_internal_cost()
+    {await using var db=MaintenanceJobsTests.Database();var(c,a,b,d)=await Setup(db);Assert.IsType<OkObjectResult>(await c.SavePersonnel(new(" emp-1 "," Training Driver ",a.BranchId,d,PersonnelType.Driver,10,15,20,30),T));var person=await db.Personnel.SingleAsync(T);Assert.Equal("EMP-1",person.EmployeeNumber);var today=MaintenanceRules.LocalDate(DateTimeOffset.UtcNow);Assert.IsType<OkObjectResult>(await c.AddQualification(person.Id,new(" Driving "," CERT-1 ",today.AddYears(-1),today.AddYears(1),true),T));Assert.IsType<OkObjectResult>(await c.AssignPersonnel(new(b.Id,person.Id," Driver ",DateTimeOffset.UtcNow.AddDays(-1),DateTimeOffset.UtcNow.AddDays(1),null,null),T));var assignment=await db.BookingPersonnelAssignments.SingleAsync(T);Assert.Equal(PersonnelAvailability.Assigned,person.Availability);Assert.IsType<OkObjectResult>(await c.AddTimesheet(assignment.Id,new(today,8,2," Training shift "),T));var charge=await db.BookingCharges.SingleAsync(T);Assert.Equal(220,charge.Quantity*charge.UnitRate);Assert.Equal(110,charge.Quantity*charge.UnitCost);Assert.IsType<ConflictObjectResult>(await c.AddTimesheet(assignment.Id,new(today,8,0,null),T));var report=Json(Assert.IsType<OkObjectResult>(await c.ManagementReports(T)).Value);var utilization=Assert.Single(report.GetProperty("operatorUtilization").EnumerateArray());Assert.Equal(220,utilization.GetProperty("customerRevenue").GetDecimal());Assert.Equal(110,utilization.GetProperty("internalCost").GetDecimal());}
+    [Fact]public async Task Invalid_personnel_rates_locations_and_qualification_dates_do_not_persist()
+    {await using var db=MaintenanceJobsTests.Database();var(c,a,b,d)=await Setup(db);Assert.IsType<BadRequestObjectResult>(await c.SavePersonnel(new("EMP","Test",a.BranchId,d,PersonnelType.Driver,-1,0,0,0),T));Assert.IsType<BadRequestObjectResult>(await c.SavePersonnel(new("EMP","Test",a.BranchId,Guid.NewGuid(),PersonnelType.Driver,0,0,0,0),T));Assert.Empty(await db.Personnel.ToListAsync(T));Assert.IsType<NotFoundResult>(await c.AddQualification(Guid.NewGuid(),new("Test","Test",new(2026,1,1),new(2025,1,1),false),T));}
+    [Fact]public async Task Suppliers_zones_and_rules_are_visible_in_workspace_with_normalized_details()
+    {await using var db=MaintenanceJobsTests.Database();var(c,a,b,d)=await Setup(db);Assert.IsType<OkObjectResult>(await c.AddSupplier(new(null," Training supplier "," supplier@example.test "," 123 "," Suva ",null,30),T));Assert.IsType<OkObjectResult>(await c.AddDeliveryZone(new(" Suva zone ",a.BranchId,d,10,1,2,5),T));Assert.IsType<OkObjectResult>(await c.AddAlertRule(new(" Overdue rule ",AlertCategory.OverdueReturn,a.BranchId,d,0,24,TaskPriority.High,false),T));var w=Json(Assert.IsType<OkObjectResult>(await c.Workspace(T)).Value);Assert.Equal("Training supplier",w.GetProperty("suppliers")[0].GetProperty("name").GetString());Assert.Equal("Suva zone",w.GetProperty("deliveryZones")[0].GetProperty("name").GetString());Assert.Equal("Overdue rule",w.GetProperty("alertRules")[0].GetProperty("name").GetString());}
+    [Fact]public async Task Alert_refresh_deduplicates_overdue_hires_and_insurance_then_acknowledges_them()
+    {await using var db=MaintenanceJobsTests.Database();var(c,a,b,d)=await Setup(db);b.Items.Single().EndAt=DateTimeOffset.UtcNow.AddHours(-1);a.InsuranceExpiry=MaintenanceRules.LocalDate(DateTimeOffset.UtcNow).AddDays(2);await db.SaveChangesAsync(T);Assert.IsType<OkObjectResult>(await c.RefreshAlerts(T));var alerts=await db.BusinessAlerts.ToListAsync(T);Assert.Contains(alerts,x=>x.Category==AlertCategory.OverdueReturn);Assert.Contains(alerts,x=>x.Category==AlertCategory.ExpiringInsurance);var count=alerts.Count;Assert.IsType<OkObjectResult>(await c.RefreshAlerts(T));Assert.Equal(count,await db.BusinessAlerts.CountAsync(T));Assert.IsType<NoContentResult>(await c.Acknowledge(alerts[0].Id,T));Assert.NotNull(alerts[0].AcknowledgedAt);Assert.IsType<NotFoundResult>(await c.Acknowledge(Guid.NewGuid(),T));}
+    [Fact]public async Task Profitability_export_contains_asset_data_and_quoted_csv_fields()
+    {await using var db=MaintenanceJobsTests.Database();var(c,a,b,d)=await Setup(db);a.Name="Training, equipment";await db.SaveChangesAsync(T);var file=Assert.IsType<FileContentResult>(await c.ExportProfitability(T));Assert.Equal("text/csv; charset=utf-8",file.ContentType);var csv=Encoding.UTF8.GetString(file.FileContents);Assert.Contains("\"Training, equipment\"",csv);Assert.Contains(a.AssetNumber,csv);Assert.Contains("Gross profit FJD",csv);}
+}

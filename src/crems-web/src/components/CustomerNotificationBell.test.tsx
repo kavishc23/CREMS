@@ -1,0 +1,65 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { CustomerNotificationBell } from './CustomerNotificationBell'
+import { api } from '../api/client'
+vi.mock('../api/client', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
+const notices = () => [{ id: 'a', title: 'Approved', message: 'BK-2026-0123456789abcdef0123456789abcdef ready', createdAt: '2026-11-16', isRead: false }, { id: 'b', title: 'Collected', message: 'Collection complete', createdAt: '2026-11-16', isRead: true }, { id: 'c', title: 'Expired', message: 'Old reminder', createdAt: '2026-11-16', isRead: false, isExpired: true }]
+beforeEach(() => { vi.resetAllMocks(); vi.mocked(api.get).mockResolvedValue({ data: { items: notices(), unreadCount: 2 } }); vi.mocked(api.post).mockResolvedValue({}) })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
+async function open() { await screen.findByRole('button', { name: 'Notifications, 2 unread' }); fireEvent.click(screen.getByRole('button', { name: 'Notifications, 2 unread' })); await screen.findByText('Your notifications') }
+it('hides expired messages, shortens references, and marks one or all updates read', async () => {
+ render(<CustomerNotificationBell onOpenBookings={vi.fn()} />); await open()
+ expect(screen.queryByText('Old reminder')).toBeNull()
+ expect(screen.getByText('BK-2026-01234567… ready')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button', { name: 'Mark as read' }))
+ await waitFor(() => expect(api.post).toHaveBeenCalledWith('/customer-account/notifications/read', { ids: ['a'], all: false }))
+ await screen.findByRole('button', { name: 'Notifications, 1 unread', hidden: true })
+ expect(screen.queryByRole('button', { name: 'Mark as read' })).toBeNull()
+ fireEvent.click(screen.getByRole('button', { name: 'Mark all read' }))
+ await screen.findByRole('button', { name: 'Notifications, 0 unread', hidden: true })
+ expect(api.post).toHaveBeenCalledWith('/customer-account/notifications/read', { ids: [], all: true })
+ fireEvent.click(screen.getByRole('button', { name: 'Close notifications' }))
+ await waitFor(() => expect(screen.queryByText('Your notifications')).toBeNull())
+})
+it('recovers load errors using retry and handles missing inbox properties', async () => {
+ vi.mocked(api.get).mockRejectedValue(new Error('Offline'))
+ render(<CustomerNotificationBell onOpenBookings={vi.fn()} />)
+ await waitFor(() => expect(api.get).toHaveBeenCalledOnce())
+ fireEvent.click(screen.getByRole('button', { name: 'Notifications, 0 unread' }))
+ await screen.findByText('Updates are unavailable. Please try again.')
+ vi.mocked(api.get).mockResolvedValue({ data: {} })
+ fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+ await screen.findByText("You're all caught up.")
+ expect((screen.getByRole('button', { name: 'Mark all read' }) as HTMLButtonElement).disabled).toBe(true)
+})
+it('retains unread state if marking read fails', async () => {
+ vi.mocked(api.post).mockRejectedValue(new Error('Offline'))
+ render(<CustomerNotificationBell onOpenBookings={vi.fn()} />); await open()
+ fireEvent.click(screen.getByRole('button', { name: 'Mark as read' }))
+ await screen.findByText('Could not mark this update as read. Please try again.')
+ expect(screen.getByRole('button', { name: 'Notifications, 2 unread', hidden: true })).toBeTruthy()
+})
+it('refreshes on focus and configuration events, skips hidden tabs, and stops after unmount', async () => {
+ const view = render(<CustomerNotificationBell onOpenBookings={vi.fn()} />)
+ await screen.findByRole('button', { name: 'Notifications, 2 unread' })
+ await act(async () => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('crems:data-changed')) })
+ expect(api.get).toHaveBeenCalledTimes(3)
+ vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+ await act(async () => { window.dispatchEvent(new Event('focus')) })
+ expect(api.get).toHaveBeenCalledTimes(3)
+ view.unmount()
+ window.dispatchEvent(new Event('crems:data-changed'))
+ expect(api.get).toHaveBeenCalledTimes(3)
+})
+it('limits recent updates to ten and performs the periodic refresh', async () => {
+ vi.useFakeTimers()
+ vi.mocked(api.get).mockResolvedValue({ data: { items: Array.from({ length: 12 }, (_, i) => ({ ...notices()[0], id: String(i), title: `Update ${i}` })), unreadCount: 12 } })
+ render(<CustomerNotificationBell onOpenBookings={vi.fn()} />)
+ await act(async () => {})
+ fireEvent.click(screen.getByRole('button', { name: 'Notifications, 12 unread' }))
+ await act(async () => {})
+ expect(screen.getAllByRole('listitem')).toHaveLength(10)
+ await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+ expect(api.get).toHaveBeenCalledTimes(3)
+})

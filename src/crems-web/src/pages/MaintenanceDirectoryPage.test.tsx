@@ -1,0 +1,26 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { MaintenanceDirectoryPage } from './MaintenanceDirectoryPage'
+import { api } from '../api/client'
+vi.mock('../api/client',()=>({api:{get:vi.fn(),post:vi.fn(),put:vi.fn()}}))
+const directory=()=>({technicians:[{id:'t',employeeNumber:'EMP-1',fullName:'Training Technician',branchId:'b',divisionId:'d',locations:[{branchId:'b',divisionId:'d'}],standardCostRate:25,availability:'Available',isActive:true,version:'tv1'}],suppliers:[{id:'s',supplierNumber:'SUP-1',name:'Workshop supplier',email:null,phone:null,address:null,taxNumber:null,paymentTermsDays:30,isActive:true,version:'sv1'}],locations:[{branchId:'b',divisionId:'d',branchName:'Suva',divisionName:'Motors'},{branchId:'n',divisionId:'d',branchName:'Nadi',divisionName:'Motors'},{branchId:'b',divisionId:'e',branchName:'Suva',divisionName:'Equipment'}]})
+beforeEach(()=>{vi.resetAllMocks();vi.mocked(api.get).mockResolvedValue({data:directory()});vi.mocked(api.post).mockResolvedValue({});vi.mocked(api.put).mockResolvedValue({})});afterEach(cleanup)
+const click=(name:string)=>fireEvent.click(screen.getByRole('button',{name}))
+const change=(name:string|RegExp,value:string)=>fireEvent.change(screen.getByLabelText(name),{target:{value}})
+async function view(){render(<MaintenanceDirectoryPage/>);await screen.findByText('Training Technician')}
+it('creates a technician with assigned locations, availability and numeric hourly cost',async()=>{
+ await view();click('Add technician');change(/Technician name/,'  New Technician  ');change(/Hourly labour rate/,'30');fireEvent.mouseDown(screen.getByRole('combobox',{name:/Branch \/ division assignments/}));fireEvent.click(await screen.findByRole('option',{name:'Equipment'}));fireEvent.keyDown(screen.getByRole('combobox',{name:/Branch \/ division assignments/}),{key:'Escape'});fireEvent.mouseDown(screen.getByRole('combobox',{name:'Availability'}));fireEvent.click(screen.getByRole('option',{name:'Training'}));fireEvent.click(screen.getByLabelText('Active'));click('Save');await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/administration/maintenance-directory/technicians',{fullName:'New Technician',branchId:'b',divisionId:'e',locations:[{branchId:'b',divisionId:'e'}],standardCostRate:30,availability:'Training',isActive:false,expectedVersion:undefined}))
+})
+it('updates the assigned technician without changing the generated employee number',async()=>{
+ await view();click('Edit technician Training Technician');expect((screen.getByLabelText('Employee number') as HTMLInputElement).readOnly).toBe(true);change(/Hourly labour rate/,'40');click('Save');await waitFor(()=>expect(api.put).toHaveBeenCalledWith('/administration/maintenance-directory/technicians/t',expect.objectContaining({standardCostRate:40,expectedVersion:'tv1'})))
+})
+it('creates and edits a supplier with normalized contact fields',async()=>{
+ await view();fireEvent.click(screen.getByRole('tab',{name:'Suppliers'}));expect(screen.getByText('No email recorded')).toBeTruthy();click('Add supplier');for(const[label,value]of [['Supplier name','  Training supplier  '],['Email','supplier@example.test'],['Contact number','12345'],['Address','Training yard'],['Payment terms (days)','45']])change(new RegExp('^'+label.replace(/[()]/g,'\\$&')),value);click('Save');await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/administration/maintenance-directory/suppliers',expect.objectContaining({name:'Training supplier',email:'supplier@example.test',phone:'12345',address:'Training yard',paymentTermsDays:45})));await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());click('Edit supplier Workshop supplier');fireEvent.click(screen.getByLabelText('Active'));click('Save');await waitFor(()=>expect(api.put).toHaveBeenCalledWith('/administration/maintenance-directory/suppliers/s',expect.objectContaining({isActive:false,expectedVersion:'sv1',email:null,phone:null,address:null})))
+})
+it.each([[new Error('Offline'),'Unable to save or load the directory. Please retry.'],[{isAxiosError:true,response:{data:{message:'Concurrent edit.'}}},'Concurrent edit.'],[{isAxiosError:true,response:{data:{errors:{rate:['Invalid rate.']}}}},'Invalid rate.']])('keeps failed technician changes open %s',async(error,message)=>{
+ await view();click('Edit technician Training Technician');vi.mocked(api.put).mockRejectedValue(error);change(/Technician name/,'Preserved technician');click('Save');await screen.findByText(message);expect((screen.getByLabelText(/Technician name/) as HTMLInputElement).value).toBe('Preserved technician');click('Cancel')
+})
+it('retries load errors and shows empty directory tabs',async()=>{
+ vi.mocked(api.get).mockRejectedValueOnce(Error('Offline')).mockResolvedValue({data:{technicians:[],suppliers:[],locations:[]}});render(<MaintenanceDirectoryPage/>);await screen.findByText('Unable to save or load the directory. Please retry.');click('Refresh directory');await screen.findByText('No technicians yet. Add the first entry above.');fireEvent.click(screen.getByRole('tab',{name:'Suppliers'}));expect(screen.getByText('No suppliers yet. Add the first entry above.')).toBeTruthy()
+})

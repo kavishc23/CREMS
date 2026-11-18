@@ -1,0 +1,33 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { QuoteWorkspace } from './QuoteWorkspace'
+import { api } from '../api/client'
+vi.mock('../api/client',()=>({api:{get:vi.fn(),post:vi.fn(),patch:vi.fn()}}))
+const quote=(status='Draft')=>({id:'q',quoteNumber:'QUO-1',status,validUntil:'2027-01-01',jobSite:null,subtotal:100,discount:0,tax:15,total:115,branchId:'b',divisionId:'d',lastEmailedTo:null,lastEmailedAt:null})
+beforeEach(()=>{vi.resetAllMocks();vi.mocked(api.post).mockResolvedValue({});vi.mocked(api.patch).mockResolvedValue({});vi.mocked(api.get).mockImplementation(async url=>({data:url==='/customers'?[{id:'c',customerNumber:'CUST-1',name:'Training Customer',isActive:true}]:url==='/branches'?[{id:'b',name:'Suva'}]:url==='/divisions'?[{id:'d',name:'Motors',defaultTaxRate:15}]:url==='/assets'?[{id:'a',assetNumber:'CAR-1',name:'Training car',branchId:'b',divisionId:'d',dailyRate:100,isActive:true,status:'Available'}]:url.startsWith('/charge-definitions')?[{id:'charge',divisionId:'d',name:'Driver fee',category:'Driver',unit:'Day',defaultSellingRate:25,defaultCostRate:15,isRequired:true,isTaxable:false}]:{questions:[{code:'SITE',label:'Site contact',type:'Text',required:true}]}}) as never)});afterEach(cleanup)
+const click=(name:string|RegExp)=>fireEvent.click(screen.getByRole('button',{name}))
+const change=(label:string,value:string)=>fireEvent.change(screen.getByLabelText(label),{target:{value}})
+async function select(label:string,name:string|RegExp){fireEvent.mouseDown(await screen.findByRole('combobox',{name:label}));fireEvent.click(await screen.findByRole('option',{name}))}
+it('creates an itemised draft with numeric pricing, configured and custom charges',async()=>{
+ const reload=vi.fn().mockResolvedValue(undefined);render(<QuoteWorkspace quotes={[]} reload={reload}/>);click('New quote');await select('Customer','CUST-1 — Training Customer');await select('Branch','Suva');await select('Division','Motors');change('Job site','Training site');change('Valid until','2027-01-01');change('Description','Vehicle hire');change('Qty','2');change('Customer rate','100');change('Internal cost','20');await select('Type','Base Hire');await select('Unit','Week');change('Discount','10');change('VAT %','15');await select('Add configured charge',/Driver fee/);click('Add custom charge');fireEvent.change(screen.getAllByLabelText('Description').at(-1)!,{target:{value:'Setup'}});fireEvent.change(screen.getAllByLabelText('Customer rate').at(-1)!,{target:{value:'5'}});fireEvent.click(screen.getAllByRole('button',{name:'Remove'}).at(-1)!);click('Create draft');await waitFor(()=>expect(reload).toHaveBeenCalledOnce())
+ expect(api.post).toHaveBeenCalledWith('/corporate-operations/quotes',expect.objectContaining({customerId:'c',branchId:'b',divisionId:'d',validUntil:'2027-01-01T17:00:00+12:00',discount:10,taxRate:15,jobSite:'Training site',lines:[expect.objectContaining({description:'Vehicle hire',quantity:2,rate:100,costRate:20,unit:'Week'}),expect.objectContaining({chargeDefinitionId:'charge',rate:25,isTaxable:false})]}))
+})
+it.each(['Draft','Sent','Negotiating'])('queues a %s quote for customer email',async status=>{
+ const reload=vi.fn().mockResolvedValue(undefined);render(<QuoteWorkspace quotes={[quote(status)]} reload={reload}/>);click('Manage');click('Send to customer');await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/corporate-operations/quotes/q/send'));expect(reload).toHaveBeenCalledOnce()
+})
+it.each(['Accepted','Rejected','Negotiating'])('records quotation negotiation status %s',async status=>{
+ render(<QuoteWorkspace quotes={[quote('Sent')]} reload={vi.fn()}/>);click('Manage');change('Negotiation or rejection note','Customer agreed revised terms');click(status);await waitFor(()=>expect(api.patch).toHaveBeenCalledWith('/corporate-operations/quotes/q/status',{status,note:'Customer agreed revised terms'}))
+})
+it.each(['','0'])('converts an accepted quote with a configured bond or explicit waiver %s',async bond=>{
+ const reload=vi.fn().mockResolvedValue(undefined);render(<QuoteWorkspace quotes={[quote('Accepted')]} reload={reload}/>);click('Manage');await select('Allocated asset','CAR-1 — Training car');await screen.findByLabelText(/Site contact/);change('Hire start','2026-12-01');change('Hire end','2026-12-03');change('Daily rate','120');change('Refundable bond',bond);fireEvent.change(screen.getByLabelText(/Site contact/),{target:{value:'Training Contact'}});click('Create booking');await waitFor(()=>expect(reload).toHaveBeenCalledOnce());expect(api.post).toHaveBeenCalledWith('/corporate-operations/quotes/q/convert',{assetId:'a',startAt:'2026-12-01T09:00:00+12:00',endAt:'2026-12-03T09:00:00+12:00',dailyRate:120,depositRequired:bond===''?null:0,note:null,configurationAnswers:{SITE:'Training Contact'}})
+})
+it.each([[new Error('Offline'),'Quote could not be updated.'],[{isAxiosError:true,response:{data:{message:'Quote changed.'}}},'Quote changed.'],[{isAxiosError:true,response:{data:{errors:{status:['Invalid status.']}}}},'Invalid status.']])('preserves a failed quote decision %s',async(error,message)=>{
+ vi.mocked(api.patch).mockRejectedValue(error);render(<QuoteWorkspace quotes={[quote('Sent')]} reload={vi.fn()}/>);click('Manage');click('Accepted');await screen.findAllByText(message)
+})
+it('reports failed draft, email and booking requests independently',async()=>{
+ vi.mocked(api.post).mockRejectedValue(Error('Offline'));render(<QuoteWorkspace quotes={[quote()]} reload={vi.fn()}/>);click('Manage');click('Send to customer');await screen.findAllByText('Quote could not be queued for email.');click('Close');await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());click('New quote');await select('Customer','CUST-1 — Training Customer');change('Customer rate','100');click('Create draft');await screen.findByText('Quote could not be created.');click('Cancel')
+})
+it('shows setup errors and prevents conversion while configuration questions cannot load',async()=>{
+ const normal=vi.mocked(api.get).getMockImplementation()!;vi.mocked(api.get).mockImplementation(async(url,config)=>{if(url.includes('request-configuration'))throw Error('Offline');return normal(url,config)});render(<QuoteWorkspace quotes={[quote('Accepted')]} reload={vi.fn()}/>);click('Manage');await select('Allocated asset','CAR-1 — Training car');await screen.findAllByText('Customer requirements could not be loaded. Select the asset again before creating the booking.');expect((within(screen.getByRole('dialog')).getByRole('button',{name:'Create booking'}) as HTMLButtonElement).disabled).toBe(true)
+})

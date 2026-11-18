@@ -817,7 +817,8 @@ public static class DatabaseInitializer
 
         // Remove superseded development-only customer rows when they have never been used.
         // Referenced records are retained but disabled so rental history is never orphaned.
-        var supersededCustomerNumbers = new[] { "CUS-000002", "CUS-000003", "CUS-000006" };
+        var supersededCustomerNumbers = new[] { "CUS-000002", "CUS-000003", "CUS-000006" }
+            .Except(customerSeeds.Select(seed => seed.CustomerNumber)).ToArray();
         var supersededCustomers = await db.Customers
             .Where(x => supersededCustomerNumbers.Contains(x.CustomerNumber))
             .ToListAsync(cancellationToken);

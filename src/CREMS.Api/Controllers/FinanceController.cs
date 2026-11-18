@@ -91,7 +91,10 @@ namespace CREMS.Api.Controllers;
   var total = invoice.TaxInclusive ? subtotal : subtotal + tax;
   if (total < invoice.AmountPaid) return BadRequest(new { message = "The revised total cannot be below payments already applied. Resolve the refund or credit first." });
   db.InvoiceLines.RemoveRange(invoice.Lines);
-  invoice.Lines = lines.Select(x => new InvoiceLine { Description = x.Description.Trim(), Quantity = x.Quantity, UnitPrice = x.UnitPrice, TaxRate = x.TaxRate, IsTaxable = x.IsTaxable }).ToList();
+  invoice.Lines = lines.Select(x => new InvoiceLine { InvoiceId = invoice.Id, Description = x.Description.Trim(), Quantity = x.Quantity, UnitPrice = x.UnitPrice, TaxRate = x.TaxRate, IsTaxable = x.IsTaxable }).ToList();
+  // New lines already have GUID keys; explicitly insert them rather than letting
+  // relationship discovery mistake them for existing rows to update.
+  db.InvoiceLines.AddRange(invoice.Lines);
   invoice.Subtotal = subtotal; invoice.TaxAmount = tax; invoice.Total = total;
   invoice.LineItemsJson = System.Text.Json.JsonSerializer.Serialize(invoice.Lines.Select(x => new { x.Description, x.Quantity, x.UnitPrice, x.TaxRate, x.IsTaxable }));
   invoice.BalanceDue = total - invoice.AmountPaid;

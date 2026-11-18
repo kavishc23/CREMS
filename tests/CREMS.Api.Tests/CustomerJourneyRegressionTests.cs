@@ -644,7 +644,7 @@ public sealed class CustomerJourneyRegressionTests
         } finally { File.Delete(path); }
     }
 
-    private sealed class Fixture : IAsyncDisposable
+    internal sealed class Fixture : IAsyncDisposable
     {
         public const string Password = "Portfolio123!";
         private readonly ServiceProvider services;
@@ -674,16 +674,18 @@ public sealed class CustomerJourneyRegressionTests
             Public = new(Db, Users, new EmailQueue(), environment) { ControllerContext = new() { HttpContext = Context } };
         }
 
-        public static async Task<Fixture> Create()
+        public static async Task<Fixture> Create(Action<IServiceCollection>? configure = null)
         {
             var collection = new ServiceCollection();
             collection.AddLogging(); collection.AddMvcCore(); collection.AddDataProtection().UseEphemeralDataProtectionProvider(); collection.AddHttpContextAccessor();
-            collection.AddDbContext<ApplicationDbContext>(options => options.UseInMemoryDatabase($"customer-journey-{Guid.NewGuid()}").ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning)));
+            var databaseName = $"customer-journey-{Guid.NewGuid()}";
+            collection.AddDbContext<ApplicationDbContext>(options => options.UseInMemoryDatabase(databaseName).ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning)));
             collection.AddIdentityCore<ApplicationUser>(options => { options.Password.RequiredLength = 10; options.SignIn.RequireConfirmedEmail = false; })
                 .AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<ApplicationDbContext>().AddSignInManager().AddDefaultTokenProviders();
             collection.AddAuthentication(IdentityConstants.ApplicationScheme)
                 .AddCookie(IdentityConstants.ApplicationScheme, options => options.Cookie.Name = "CREMS.StaffSession")
                 .AddCookie(SystemAuthenticationSchemes.Customer, options => options.Cookie.Name = "CREMS.CustomerSession");
+            configure?.Invoke(collection);
             var f = new Fixture(collection.BuildServiceProvider());
             await f.Db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             f.Asset = new() { AssetNumber = "TEST-001", Name = "Test vehicle", Type = AssetType.Vehicle, BranchId = f.Branch.Id, DivisionId = f.Division.Id, DailyRate = 100m };
