@@ -22,7 +22,7 @@ docs/            Maintained setup, configuration, and operations guides
 ## Prerequisites
 
 - .NET 10 SDK
-- Node.js 22 or newer
+- Node.js 22.22.2+ or 24.15+ LTS (required by the locked test dependencies)
 - Docker Desktop, or access to Microsoft SQL Server
 
 ## Run locally
@@ -91,6 +91,8 @@ Swagger UI is available at `http://localhost:5080/swagger` in Development. Sign 
 
 ## Handover documentation
 
+- [Repository review, verification results and outstanding actions](docs/REPOSITORY_HANDOVER_REVIEW.md)
+
 - [Installation, backup and administration](docs/CLIENT_HANDOVER.md)
 - [Windows installation and everyday startup](docs/CLIENT_RUN_GUIDE.md) · [PDF copy](docs/CREMS_Client_Run_Guide.pdf)
 - [Architecture and repository responsibilities](docs/architecture.md)
@@ -102,7 +104,7 @@ Swagger UI is available at `http://localhost:5080/swagger` in Development. Sign 
 - [Staff reports](docs/staff-reports.md) · [Reporting definitions](docs/reporting-metrics.md)
 - [Email configuration](docs/STAGING_EMAIL_SETUP.md)
 
-The optional utilities in `ops/SeedCatalogue` and `ops/ExtendRentalCatalogue` configure a local catalogue. Production business records must be entered or imported through an approved client process. For repeatable local pickup/return testing, see [`ops/SeedRentalPractice`](ops/SeedRentalPractice/README.md). It adds explicitly fictional practice vehicles and transactions only when run with `--apply`; it is never executed by application startup.
+The optional utilities in `ops/SeedCatalogue` and `ops/ExtendRentalCatalogue` configure a local catalogue. Production business records must be entered or imported through an approved client process. One-off training and handover transaction generators are excluded from this repository; tests and their isolated fixtures are retained for ongoing maintenance. Existing catalogue photographs are retained to preserve asset image references.
 
 ## Validation
 

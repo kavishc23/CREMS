@@ -43,3 +43,9 @@ outputs/operational-label-backup-*.json
 
 # Temporary document and presentation authoring files
 .presentation-build/
+
+# Generated test reports and Python caches
+**/__pycache__/
+*.py[cod]
+**/TestResults/
+**/coverage/
