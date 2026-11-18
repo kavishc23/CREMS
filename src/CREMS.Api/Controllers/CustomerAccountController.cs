@@ -335,7 +335,7 @@ public sealed class CustomerAccountController(
                 { x.Type, x.MeterReading, x.FuelLevelPercent, x.ConditionNotes, x.DamageNotes, x.CompletedAt }),
             Incidents = booking.Incidents.OrderByDescending(x => x.OccurredAt).Select(x => new
                 { x.IncidentNumber, x.Type, x.Status, x.OccurredAt, x.Description, x.Location, x.PoliceReference,
-                    x.CustomerResolution, x.WarningIssued, x.ImmediateReturnRequested, x.FineAmount, x.BondDeductionAmount }),
+                    x.CustomerResolution, x.WarningIssued, x.ImmediateReturnRequested, x.FineAmount, x.BondDeductionAmount, x.EvidenceJson, x.Outcome, x.AssetId, x.ReplacementAssetId }),
             Readiness = new
             {
                 Identification = new { Complete = identificationVerified, Label = "Identification verified" },
@@ -769,11 +769,18 @@ public sealed class CustomerAccountController(
     {
         if (IncidentEvidence.Validate(request.EvidenceDataUrls) is { } evidenceError) return BadRequest(new { message = evidenceError });
         var user = await userManager.GetUserAsync(User); if (user?.CustomerId is null) return Unauthorized();
-        var booking = await db.Bookings.FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
+        var booking = await db.Bookings.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == bookingId && x.CustomerId == user.CustomerId, token);
         if (booking is null) return NotFound();
         if (booking.Status != BookingStatus.ConvertedToRental) return BadRequest(new { message = "Incidents can only be reported for an active hire." });
-        var incident = new RentalIncident { BookingId = booking.Id, IncidentNumber = Number("INC"), Type = request.Type, OccurredAt = request.OccurredAt, Description = request.Description.Trim(), Location = Clean(request.Location), PoliceReference = Clean(request.PoliceReference), EvidenceJson = JsonSerializer.Serialize(request.EvidenceDataUrls ?? []) };
-        db.RentalIncidents.Add(incident); db.CustomerCases.Add(new CustomerCase { CaseNumber = Number("CASE"), CustomerId = user.CustomerId.Value, BranchId = booking.BranchId, Type = CaseType.Breakdown, Priority = CasePriority.Critical, Subject = $"Customer incident — {incident.IncidentNumber} — {booking.BookingNumber}", Description = request.Description.Trim(), DueAt = DateTimeOffset.UtcNow.AddMinutes(30) });
+        if (!Enum.IsDefined(request.Type) || request.OccurredAt == default || request.OccurredAt > DateTimeOffset.UtcNow ||
+            booking.Items.Any(i => request.OccurredAt < i.StartAt))
+            return BadRequest(new { message = "Use a valid incident time during this hire, no later than now." });
+        var incident = new RentalIncident { BookingId = booking.Id, AssetId = booking.Items.FirstOrDefault()?.AssetId,
+            IncidentNumber = Number("INC"), Type = request.Type, OccurredAt = request.OccurredAt,
+            Description = request.Description.Trim(), Location = Clean(request.Location), PoliceReference = Clean(request.PoliceReference),
+            EvidenceJson = JsonSerializer.Serialize(request.EvidenceDataUrls ?? []) };
+        db.RentalIncidents.Add(incident);
+        await SharedRentalIncidents.SyncCase(db, booking, incident, token);
         await db.SaveChangesAsync(token); return Accepted(new { incident.IncidentNumber });
     }
 

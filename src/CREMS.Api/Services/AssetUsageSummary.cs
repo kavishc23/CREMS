@@ -80,6 +80,13 @@ public static class AssetUsageSummary
         for (var i = 0; i < ordered.Length; i++)
         {
             var status = ordered[i].ToStatus;
+            // An incident substitution moves the current booking item to its new
+            // asset. Preserve the previous asset's actual on-hire interval from
+            // checkout/custody history without charging another booking item.
+            if (status == AssetStatus.Rented && ordered[i].BookingId is { } previousBooking &&
+                !items.Any(item => item.BookingId == previousBooking))
+                if (Add(ordered[i].OccurredAt, i + 1 < ordered.Length ? ordered[i + 1].OccurredAt : now, "Rented"))
+                    rentals.Add(previousBooking);
             if (status is AssetStatus.Inspection or AssetStatus.OutOfService or AssetStatus.Retired)
                 Add(ordered[i].OccurredAt, i + 1 < ordered.Length ? ordered[i + 1].OccurredAt : now, "Other unavailable");
             // Lifecycle evidence also supports older maintenance records with no matching job.

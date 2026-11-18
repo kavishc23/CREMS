@@ -1,6 +1,7 @@
 import { InlineIssueNavigation } from '../components/InlineValidation'
 import { FormError } from '../components/FormError'
 import { IncidentAttachments, incidentEvidence } from '../components/IncidentAttachments'
+import { IncidentInspectionSummary } from '../components/IncidentInspectionSummary'
 import { useActionNotice } from '../components/useActionNotice'
 import type { CustomerQuestion } from '../config/organizationSetup'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -47,7 +48,7 @@ type Workspace = {
   documents:{id:string;fileName:string;type:string;createdAt:string}[]
   activity:{id:string;action:string;summary:string;userName:string;occurredAt:string}[]
 }
-type RentalIncident={id:string;incidentNumber:string;type:string;occurredAt:string;description:string;location:string|null;policeReference:string|null;insuranceClaimNumber:string|null;estimatedCost:number;status:string;evidenceJson:string|null;staffResolution:string|null;customerResolution:string|null;bondDeductionAmount:number;fineAmount:number;warningIssued:boolean;immediateReturnRequested:boolean;reviewedByName:string|null;reviewedAt:string|null}
+type RentalIncident={inspectionJson?:string|null;outcome?:string|null;id:string;incidentNumber:string;type:string;occurredAt:string;description:string;location:string|null;policeReference:string|null;insuranceClaimNumber:string|null;estimatedCost:number;status:string;evidenceJson:string|null;staffResolution:string|null;customerResolution:string|null;bondDeductionAmount:number;fineAmount:number;warningIssued:boolean;immediateReturnRequested:boolean;reviewedByName:string|null;reviewedAt:string|null}
 
 
 const queues:{key:QueueKey;label:string;count:keyof Counts}[] = [
@@ -259,6 +260,7 @@ function BookingWorkspace({open,bookingId,row,incidentNumber,data,loading,error,
       {section===6&&<>
         <Typography variant="h6" fontWeight={850}>Rental incidents</Typography>
         <Alert severity="info">Reported incidents are operational actions, not approval requests. Record the findings and the customer-safe resolution.</Alert>
+        {data.status==='ConvertedToRental'&&!data.incidentClosedAt&&<Button variant="outlined" href={'/staff/hire-operations?bookingId='+encodeURIComponent(data.id)+'&workflow=incident'}>Record damage / incident report</Button>}
         {incidentReports===null&&!error&&<CircularProgress size={24} aria-label="Loading incidents"/>}
         {incidentReports?.length===0&&!error&&<Alert severity="warning">No incidents have been reported for this booking.</Alert>}
         <Stack spacing={1}>
@@ -268,7 +270,7 @@ function BookingWorkspace({open,bookingId,row,incidentNumber,data,loading,error,
                 <Typography fontWeight={850}>{incident.incidentNumber} · {incident.type}</Typography>
                 <Typography variant="body2">Reported {date(incident.occurredAt)} · {incident.location||'Location not recorded'}</Typography>
                 <Typography variant="body2" sx={{whiteSpace:'pre-line',mt:1}}>{incident.description}</Typography>
-                <IncidentAttachments value={incidentEvidence(incident.evidenceJson)} />
+                <IncidentAttachments value={incidentEvidence(incident.evidenceJson)} /><IncidentInspectionSummary json={incident.inspectionJson} outcome={incident.outcome}/>
                 {incident.staffResolution&&<Typography variant="body2" color="text.secondary" sx={{mt:1}}><b>Previous staff resolution:</b> {incident.staffResolution}</Typography>}
               </Box>
               <Chip label={incident.status} color={incident.status==='Resolved'||incident.status==='Closed'?'success':'warning'}/>
@@ -281,7 +283,7 @@ function BookingWorkspace({open,bookingId,row,incidentNumber,data,loading,error,
           </TextField>
           {data.incidentClosedAt && <Alert severity="info">Hire ended after an incident on {date(data.incidentClosedAt)}.</Alert>}
           {incidentSelected && data.status === 'ConvertedToRental' && !data.incidentClosedAt &&
-            <Button color="error" href={'/staff/hire-operations?bookingId=' + encodeURIComponent(data.id) + '&workflow=incident&incidentId=' + encodeURIComponent(incidentSelected)}>End hire after serious incident</Button>}
+            <Button color="error" href={'/staff/hire-operations?bookingId=' + encodeURIComponent(data.id) + '&workflow=incident&incidentId=' + encodeURIComponent(incidentSelected)}>Inspect incident / continue, replace or end hire</Button>}
           {incidentSelected&&<>
             <TextField select fullWidth label="Incident status" value={incidentStatus} onChange={event=>setIncidentStatus(event.target.value)}>
               {['Open','Investigating','AwaitingInsurance','Resolved','Closed'].map(status=><MenuItem key={status} value={status}>{status}</MenuItem>)}

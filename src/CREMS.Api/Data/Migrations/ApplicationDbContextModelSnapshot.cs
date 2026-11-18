@@ -4283,6 +4283,11 @@ namespace CREMS.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("AssetId").HasColumnType("uniqueidentifier");
+                    b.Property<Guid?>("ReplacementAssetId").HasColumnType("uniqueidentifier");
+                    b.Property<int?>("Outcome").HasColumnType("int");
+                    b.Property<string>("InspectionJson").HasColumnType("nvarchar(max)");
+
                     b.Property<decimal>("BondDeductionAmount")
                         .HasColumnType("decimal(18,2)");
 
