@@ -2,7 +2,7 @@
 
 ## Release status
 
-Reviewed the fetched `origin/main` baseline `cc7f2e2`. This cleanup preserves the application, database migrations, dependency lock, tests, startup scripts, catalogue utilities, catalogue images and maintained operating guides. It does **not** establish production readiness. CREMS is locally developed; Carpenters will deploy and accept it on their own server.
+Reviewed the fetched `origin/main` baseline `cc7f2e2`, then preserved the concurrently pushed historical coverage page from `3b24bce`. Its warning links to the current verification results; its historical coverage percentages were not regenerated. This cleanup preserves the application, database migrations, dependency lock, tests, startup scripts, catalogue utilities, catalogue images and maintained operating guides. It does **not** establish production readiness. CREMS is locally developed; Carpenters will deploy and accept it on their own server.
 
 ## Cleanup
 

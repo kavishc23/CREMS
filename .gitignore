@@ -49,3 +49,7 @@ outputs/operational-label-backup-*.json
 *.py[cod]
 **/TestResults/
 **/coverage/
+
+# Retain the explicitly dated documentation snapshot
+!docs/coverage/
+!docs/coverage/index.html
